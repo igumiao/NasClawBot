@@ -1,3 +1,8 @@
+"""Persistence helpers for session-level workflow state.
+
+This store only handles data access; workflow logic lives elsewhere.
+"""
+
 from __future__ import annotations
 
 from contextlib import closing
@@ -8,6 +13,8 @@ from app.storage.db import connect, ensure_schema
 
 
 class SessionStore:
+    """CRUD-style access to the `sessions` table."""
+
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         ensure_schema(self.db_path)
@@ -20,6 +27,7 @@ class SessionStore:
         confirmation_payload_json: str,
         status: str,
     ) -> None:
+        """Insert/update the latest snapshot for one session id."""
         with closing(connect(self.db_path)) as conn, conn:
             conn.execute(
                 """
@@ -48,6 +56,7 @@ class SessionStore:
             )
 
     def get(self, session_id: str) -> dict[str, Any] | None:
+        """Fetch one session snapshot, or `None` if not found."""
         with closing(connect(self.db_path)) as conn:
             row = conn.execute(
                 "SELECT * FROM sessions WHERE session_id = ?",

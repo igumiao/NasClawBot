@@ -1,3 +1,9 @@
+"""Domain models shared by workflow, scoring, and adapters.
+
+Keeping these types centralized makes ranking and API contracts easier to
+understand during early development.
+"""
+
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -8,6 +14,8 @@ OptimizationGoal = Literal["balanced", "speed", "quality"]
 
 
 class SearchConstraints(BaseModel):
+    """Normalized intent fields extracted from user language."""
+
     query_text: str
     title: str | None = None
     year: int | None = None
@@ -19,6 +27,8 @@ class SearchConstraints(BaseModel):
 
 
 class ResourceCandidate(BaseModel):
+    """One normalized search result entry from an external source."""
+
     id: str
     title: str
     media_type: str
@@ -30,7 +40,8 @@ class ResourceCandidate(BaseModel):
 
 
 class ScoredCandidate(BaseModel):
+    """Candidate plus deterministic ranking output and reason tags."""
+
     candidate: ResourceCandidate
     score: float
     reasons: list[str] = Field(default_factory=list)
-
