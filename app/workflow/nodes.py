@@ -1,6 +1,8 @@
-"""Workflow nodes for the minimal Task 6 LangGraph path."""
+"""Workflow nodes for search, confirmation, and execution in Phase 1."""
 
 from app.domain.models import ResourceCandidate, ScoredCandidate
+from app.services.receipt_service import build_receipt
+from app.tools.download_tools import prepare_download_execution
 from app.domain.scoring import score_candidates
 from app.tools.search_tools import search_mteam_candidates
 
@@ -63,3 +65,35 @@ def score_results_node(state: dict) -> dict:
         "confirmation_payload": payload,
         "status": "awaiting_confirmation",
     }
+
+
+def execute_download_node(state: dict) -> dict:
+    """Build a deterministic execution + receipt result from a confirmed candidate."""
+
+    payload = state.get("confirmation_payload", {})
+    results = payload.get("results", [])
+    selected_result_id = payload.get("selected_result_id") or payload.get("recommended_result_id")
+    if not selected_result_id and results:
+        selected_result_id = results[0].get("id")
+    if not selected_result_id:
+        raise ValueError("confirmation_payload must contain at least one selectable result.")
+
+    selected = next((item for item in results if item.get("id") == selected_result_id), None)
+    if selected is None:
+        raise ValueError(f"Selected result id '{selected_result_id}' was not found in results.")
+
+    execution = prepare_download_execution(selected)
+    qb_category = str(payload.get("qb_category", "movie"))
+    receipt = build_receipt(
+        resource_title=execution["resource_title"],
+        external_id=execution["external_id"],
+        qb_category=qb_category,
+        qb_hash="stub-hash",
+        status="submitted",
+    )
+    enriched_payload = {
+        **payload,
+        "execution_result": execution,
+        "receipt": receipt,
+    }
+    return {"confirmation_payload": enriched_payload, "status": "completed"}
