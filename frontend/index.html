@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fnOS Media Agent</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>fnOS Media Agent</h1>
+      <p>Task 1 shell is ready.</p>
+
+      <form id="chat-form">
+        <label for="message">Message</label>
+        <textarea id="message" name="message" rows="4" placeholder="Type your request..."></textarea>
+        <button type="submit">Send</button>
+      </form>
+
+      <section>
+        <h2>Response</h2>
+        <pre id="response-output">No request sent yet.</pre>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
