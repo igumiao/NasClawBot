@@ -20,6 +20,42 @@ def test_index_page_is_served():
     assert "fnOS Media Agent" in response.text
 
 
+def test_chat_endpoint_returns_confirmation_payload():
+    client = TestClient(create_app())
+    response = client.post(
+        "/chat",
+        json={"session_id": "s1", "message": "I want to watch Dune tonight"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "awaiting_confirmation"
+    assert body["confirmation_payload"]["recommended_result_id"] == "2"
+    assert body["confirmation_payload"]["results"]
+
+
+def test_confirm_approve_returns_completed_with_receipt():
+    client = TestClient(create_app())
+    chat = client.post(
+        "/chat",
+        json={"session_id": "s1", "message": "I want to watch Dune tonight"},
+    )
+    payload = chat.json()["confirmation_payload"]
+    response = client.post(
+        "/confirm",
+        json={
+            "session_id": "s1",
+            "action": "approve",
+            "selected_result_id": payload["recommended_result_id"],
+            "confirmation_payload": payload,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["receipt"]["status"] == "submitted"
+    assert body["receipt"]["external_id"] == payload["recommended_result_id"]
+
+
 def test_session_store_round_trip():
     test_data_dir = Path("tests_runtime")
     test_data_dir.mkdir(exist_ok=True)
