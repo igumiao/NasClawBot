@@ -1,9 +1,8 @@
-"""Request payload schemas for API endpoints.
+"""Request/response payload schemas for the API layer."""
 
-These models establish an explicit contract even before full workflow wiring.
-"""
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
@@ -20,3 +19,25 @@ class ConfirmRequest(BaseModel):
     action: str
     selected_result_id: str | None = None
     feedback_text: str | None = None
+    confirmation_payload: dict[str, Any] | None = None
+
+
+class ChatResponse(BaseModel):
+    """Minimal chat response shape consumed by the browser shell."""
+
+    session_id: str
+    status: str
+    confirmation_payload: dict[str, Any] | None = None
+    receipt: dict[str, Any] | None = None
+    error: str | None = None
+
+
+class ConfirmResponse(BaseModel):
+    """Response shape for confirmation actions."""
+
+    session_id: str
+    status: str
+    confirmation_payload: dict[str, Any] | None = None
+    receipt: dict[str, Any] | None = None
+    error: str | None = None
+    messages: list[str] = Field(default_factory=list)
