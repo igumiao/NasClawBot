@@ -1,3 +1,7 @@
+import httpx
+
+import app.adapters.qbittorrent as qb_module
+from app.adapters.qbittorrent import QBittorrentAdapter
 from app.domain.models import ResourceCandidate
 from app.services.receipt_service import build_receipt
 from app.workflow.graph import build_workflow
@@ -126,3 +130,45 @@ def test_workflow_uses_injected_download_executor():
     assert captured["category"] == "movie"
     assert result["confirmation_payload"]["receipt"]["external_id"] == "2"
     assert result["confirmation_payload"]["receipt"]["qb_hash"] == "injected-hash"
+
+
+def test_qb_add_torrent_url_requires_ok_body_not_only_http_200(monkeypatch):
+    class FakeResponse:
+        def __init__(self, text: str):
+            self.status_code = 200
+            self.text = text
+
+        def raise_for_status(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            _ = args
+            _ = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = exc_type
+            _ = exc
+            _ = tb
+            return False
+
+        def post(self, *args, **kwargs):
+            _ = args
+            _ = kwargs
+            return FakeResponse("Queue accepted")
+
+    adapter = QBittorrentAdapter(base_url="http://qb.local", username="u", password="p")
+    monkeypatch.setattr(QBittorrentAdapter, "login", lambda self: httpx.Cookies())
+    monkeypatch.setattr(qb_module.httpx, "Client", FakeClient)
+
+    result = adapter.add_torrent_url(
+        url="https://download.local/token",
+        category="movie",
+        rename="[123][movie][title]",
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "unknown"
