@@ -1,10 +1,17 @@
-"""qBittorrent adapter skeleton.
+"""qBittorrent adapter for URL-based torrent submission.
 
-Like the M-Team adapter, this module locks down endpoint/payload contracts
-first, then adds real HTTP transport later.
+Task 9 keeps qB integration scoped to what the MVP needs:
+- login,
+- category listing,
+- add-by-url (no local .torrent file write),
+- and deterministic name generation based on external ids.
 """
 
 from dataclasses import dataclass
+import re
+from typing import Any
+
+import httpx
 
 
 @dataclass(slots=True)
@@ -63,20 +70,69 @@ class QBittorrentAdapter:
             payload["tags"] = ",".join(tag.strip() for tag in tags if tag.strip())
         return payload
 
-    async def login(self) -> None:
-        raise NotImplementedError("Task 4 skeleton: real HTTP login wiring will be added later.")
+    def _is_configured(self) -> bool:
+        return bool(self.base_url.strip() and self.username.strip() and self.password.strip())
 
-    async def list_categories(self) -> dict:
-        raise NotImplementedError(
-            "Task 4 skeleton: real HTTP category listing wiring will be added later."
-        )
+    def login(self) -> httpx.Cookies | None:
+        """Log in and return auth cookies when available."""
+        if not self._is_configured():
+            return None
+        with httpx.Client(timeout=self.timeout_seconds) as client:
+            response = client.post(self.login_endpoint(), data=self.build_login_payload())
+            response.raise_for_status()
+            return response.cookies
 
-    async def add_torrent_url(
+    def list_categories(self) -> dict[str, Any]:
+        """Read qB categories map, keyed by category name."""
+        cookies = self.login()
+        if cookies is None:
+            return {}
+        with httpx.Client(timeout=self.timeout_seconds, cookies=cookies) as client:
+            response = client.get(self.categories_endpoint())
+            response.raise_for_status()
+            payload = response.json()
+            return payload if isinstance(payload, dict) else {}
+
+    def add_torrent_url(
         self,
         url: str,
         category: str,
         rename: str,
         paused: bool = False,
         tags: list[str] | None = None,
-    ) -> dict:
-        raise NotImplementedError("Task 4 skeleton: real HTTP add wiring will be added later.")
+    ) -> dict[str, Any]:
+        """Submit tokenized URL to qB and return structured result."""
+        cookies = self.login()
+        if cookies is None:
+            return {"ok": False, "status": "not_configured", "qb_hash": None}
+        payload = self.build_add_payload(
+            url=url,
+            category=category,
+            rename=rename,
+            paused=paused,
+            tags=tags,
+        )
+        with httpx.Client(timeout=self.timeout_seconds, cookies=cookies) as client:
+            response = client.post(self.add_torrent_endpoint(), data=payload)
+            response.raise_for_status()
+            body = response.text.strip().lower()
+            ok = body in {"ok.", "ok"} or response.status_code == 200
+            return {
+                "ok": ok,
+                "status": "submitted" if ok else "unknown",
+                "qb_hash": None,
+                "raw_response": response.text,
+            }
+
+    @staticmethod
+    def generate_mteam_torrent_name(mteam_id: str, detail: dict[str, Any], qb_category: str) -> str:
+        """Generate stable qB name anchored on M-Team torrent id."""
+        title = str(detail.get("smallDescr") or detail.get("name") or f"M-Team-{mteam_id}")
+        category = re.sub(r"[\\/*?:\"<>|\s]+", "_", qb_category.strip()).strip("._-")
+        title = re.sub(r"[\\/*?:\"<>|]+", "", title).strip()
+        title = re.sub(r"\s+", ".", title)[:96]
+        parts = [f"[{mteam_id}]"]
+        if category:
+            parts.append(f"[{category[:30]}]")
+        parts.append(f"[{title}]")
+        return "".join(parts)[:250]
