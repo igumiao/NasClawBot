@@ -67,6 +67,7 @@ def test_workflow_executes_approved_selection_and_returns_receipt():
         {
             "session_id": "s1",
             "confirmation_payload": {
+                "qb_category": "movie",
                 "selected_result_id": "2",
                 "results": [
                     {
@@ -86,3 +87,42 @@ def test_workflow_executes_approved_selection_and_returns_receipt():
     assert result["confirmation_payload"]["execution_result"]["external_id"] == "2"
     assert result["confirmation_payload"]["receipt"]["status"] == "submitted"
     assert result["confirmation_payload"]["receipt"]["qb_hash"] == "stub-hash"
+
+
+def test_workflow_uses_injected_download_executor():
+    captured: dict[str, str] = {}
+
+    def stub_download_executor(selected_result: dict, qb_category: str) -> dict:
+        captured["selected_id"] = str(selected_result["id"])
+        captured["category"] = qb_category
+        return {"status": "submitted", "qb_hash": "injected-hash"}
+
+    graph = build_workflow(
+        extractor=StubExtractor(),
+        search_tool=StubSearchTool(),
+        download_executor=stub_download_executor,
+    )
+    result = graph.invoke(
+        {
+            "session_id": "s1",
+            "confirmation_payload": {
+                "qb_category": "movie",
+                "selected_result_id": "2",
+                "results": [
+                    {
+                        "id": "2",
+                        "title": "Dune Part Two 2024 1080p",
+                        "score": 99.0,
+                        "seeders": 120,
+                        "resolution": "1080p",
+                        "reasons": ["title-match"],
+                    }
+                ],
+            },
+        }
+    )
+
+    assert captured["selected_id"] == "2"
+    assert captured["category"] == "movie"
+    assert result["confirmation_payload"]["receipt"]["external_id"] == "2"
+    assert result["confirmation_payload"]["receipt"]["qb_hash"] == "injected-hash"

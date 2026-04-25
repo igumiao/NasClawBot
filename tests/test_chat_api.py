@@ -6,6 +6,54 @@ from app.main import create_app
 from app.storage.session_store import SessionStore
 
 
+class FakeRunner:
+    def run_chat(self, session_id: str, message: str) -> dict:
+        return {
+            "session_id": session_id,
+            "status": "awaiting_confirmation",
+            "confirmation_payload": {
+                "summary": f"fake:{message}",
+                "recommended_result_id": "x1",
+                "results": [
+                    {
+                        "id": "x1",
+                        "title": "Fake Item",
+                        "score": 1.0,
+                        "seeders": 0,
+                        "resolution": "1080p",
+                        "reasons": ["fake"],
+                    }
+                ],
+            },
+        }
+
+    def run_confirm(
+        self,
+        session_id: str,
+        *,
+        action: str,
+        confirmation_payload: dict | None,
+        selected_result_id: str | None = None,
+        feedback_text: str | None = None,
+    ) -> dict:
+        _ = feedback_text
+        if action == "approve":
+            chosen_id = selected_result_id or (confirmation_payload or {}).get("recommended_result_id", "x1")
+            return {
+                "session_id": session_id,
+                "status": "completed",
+                "confirmation_payload": confirmation_payload,
+                "receipt": {
+                    "resource_title": "Fake Item",
+                    "external_id": chosen_id,
+                    "qb_category": "movie",
+                    "qb_hash": "fake-hash",
+                    "status": "submitted",
+                },
+            }
+        return {"session_id": session_id, "status": "canceled", "messages": ["Request canceled by user."]}
+
+
 def test_health_endpoint_returns_ok():
     client = TestClient(create_app())
     response = client.get("/health")
@@ -20,8 +68,15 @@ def test_index_page_is_served():
     assert "fnOS Media Agent" in response.text
 
 
+def test_create_app_allows_workflow_override():
+    client = TestClient(create_app(workflow_runner=FakeRunner()))
+    response = client.post("/chat", json={"session_id": "s1", "message": "hello"})
+    assert response.status_code == 200
+    assert response.json()["confirmation_payload"]["summary"] == "fake:hello"
+
+
 def test_chat_endpoint_returns_confirmation_payload():
-    client = TestClient(create_app())
+    client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.post(
         "/chat",
         json={"session_id": "s1", "message": "I want to watch Dune tonight"},
@@ -29,12 +84,12 @@ def test_chat_endpoint_returns_confirmation_payload():
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "awaiting_confirmation"
-    assert body["confirmation_payload"]["recommended_result_id"] == "2"
+    assert body["confirmation_payload"]["recommended_result_id"] == "x1"
     assert body["confirmation_payload"]["results"]
 
 
 def test_confirm_approve_returns_completed_with_receipt():
-    client = TestClient(create_app())
+    client = TestClient(create_app(workflow_runner=FakeRunner()))
     chat = client.post(
         "/chat",
         json={"session_id": "s1", "message": "I want to watch Dune tonight"},

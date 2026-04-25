@@ -1,5 +1,8 @@
 """Workflow nodes for search, confirmation, and execution in Phase 1."""
 
+from collections.abc import Callable
+from typing import Any
+
 from app.domain.models import ResourceCandidate, ScoredCandidate
 from app.services.receipt_service import build_receipt
 from app.tools.download_tools import prepare_download_execution
@@ -69,8 +72,45 @@ def score_results_node(state: dict) -> dict:
 
 def execute_download_node(state: dict) -> dict:
     """Build a deterministic execution + receipt result from a confirmed candidate."""
+    return execute_download_with_executor_node(state, _default_download_executor)
+
+
+def execute_download_with_executor_node(
+    state: dict[str, Any],
+    download_executor: Callable[[dict[str, Any], str], dict[str, Any]],
+) -> dict[str, Any]:
+    """Execute the confirmed selection through an injected executor."""
 
     payload = state.get("confirmation_payload", {})
+    selected_result = _resolve_selected_result(payload)
+    selected_result_id = str(selected_result["id"])
+
+    execution = prepare_download_execution(selected_result)
+    qb_category = str(payload.get("qb_category", "movie"))
+    execution_outcome = download_executor(selected_result, qb_category)
+    qb_hash = execution_outcome.get("qb_hash")
+    status = str(execution_outcome.get("status", "submitted"))
+    receipt = build_receipt(
+        resource_title=execution["resource_title"],
+        external_id=execution["external_id"],
+        qb_category=qb_category,
+        qb_hash=str(qb_hash) if qb_hash else None,
+        status=status,
+    )
+    enriched_payload = {
+        **payload,
+        "selected_result_id": selected_result_id,
+        "execution_result": execution,
+        "receipt": receipt,
+    }
+    return {
+        "confirmation_payload": enriched_payload,
+        "receipt": receipt,
+        "status": "completed" if status == "submitted" else status,
+    }
+
+
+def _resolve_selected_result(payload: dict[str, Any]) -> dict[str, Any]:
     results = payload.get("results", [])
     selected_result_id = payload.get("selected_result_id") or payload.get("recommended_result_id")
     if not selected_result_id and results:
@@ -81,19 +121,11 @@ def execute_download_node(state: dict) -> dict:
     selected = next((item for item in results if item.get("id") == selected_result_id), None)
     if selected is None:
         raise ValueError(f"Selected result id '{selected_result_id}' was not found in results.")
+    return selected
 
-    execution = prepare_download_execution(selected)
-    qb_category = str(payload.get("qb_category", "movie"))
-    receipt = build_receipt(
-        resource_title=execution["resource_title"],
-        external_id=execution["external_id"],
-        qb_category=qb_category,
-        qb_hash="stub-hash",
-        status="submitted",
-    )
-    enriched_payload = {
-        **payload,
-        "execution_result": execution,
-        "receipt": receipt,
-    }
-    return {"confirmation_payload": enriched_payload, "status": "completed"}
+
+def _default_download_executor(selected_result: dict[str, Any], qb_category: str) -> dict[str, Any]:
+    """Fallback executor used in tests/dev when adapters are not injected."""
+    _ = selected_result
+    _ = qb_category
+    return {"status": "submitted", "qb_hash": "stub-hash"}
