@@ -232,7 +232,60 @@ MTEAM_CATEGORY_DATA = {
 
 ---
 
-## 9. 本文档与参考代码的关系
+## 9. qBittorrent 真实联通验证补充
+
+在完成 `M-Team -> genDlToken` 实测后，又补做了一次真实的 qBittorrent 联通验证。
+
+### 9.1 验证目标
+
+验证下面这条链是否能在真实环境中跑通：
+
+`M-Team torrent id -> detail -> genDlToken -> qBittorrent torrents/add(urls=...)`
+
+### 9.2 本次验证使用的资源
+
+- `M-Team ID`: `1163290`
+- `detail.name`: `Beyond Twilight S01E01 1080p Baha WEB-DL AAC2.0 H.264-MWeb`
+
+### 9.3 验证步骤
+
+1. 调用 `/api/torrent/detail` 获取详情。
+2. 调用 `/api/torrent/genDlToken` 获取下载 URL。
+3. 验证该 URL 真实返回的是 torrent 文件，而不是错误 JSON。
+4. 将该 URL 直接提交给 qBittorrent 的 `torrents/add`。
+5. 为了避免立刻开始下载，提交时使用 `paused=true`。
+
+### 9.4 qB 验证结果
+
+- qB 登录：成功
+- qB `torrents/add`：成功
+- HTTP 状态码：`200`
+- 响应体：`Ok.`
+
+本次提交给 qB 的任务名为：
+
+```text
+[1163290][mteam_test][百鬼夜行抄.2026.日本.剧情.动画.奇幻.深濑沙哉.冈本信彦.长谷川育美.第1季第1集]
+```
+
+### 9.5 结论
+
+可以确认以下事实：
+
+1. `genDlToken.data` 返回的完整 URL 可直接交给 qB 的 `torrents/add(urls=...)`。
+2. 在当前环境中，qB 对这种 URL 提交方式可正常接受。
+3. qB 返回 `Ok.` 时，可以视为真实添加成功。
+4. 使用 `paused=true` 作为联通验证策略是安全且有效的，适合后续继续做真实环境测试。
+
+这与参考项目 `mt_helper.py` 的核心设计完全一致：
+
+- 不把 `.torrent` 文件先落地到本地
+- 不做本地中转上传
+- 直接让下载器去拉取 M-Team 提供的 token URL
+
+---
+
+## 10. 本文档与参考代码的关系
 
 本笔记参考了：
 
@@ -242,4 +295,3 @@ MTEAM_CATEGORY_DATA = {
 优先级说明：
 
 - 若“参考代码”与“真实实验结果”冲突，以真实实验为准。
-
