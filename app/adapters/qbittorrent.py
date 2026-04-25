@@ -116,7 +116,7 @@ class QBittorrentAdapter:
             response = client.post(self.add_torrent_endpoint(), data=payload)
             response.raise_for_status()
             body = response.text.strip().lower()
-            ok = body in {"ok.", "ok"} or response.status_code == 200
+            ok = body in {"ok.", "ok"}
             return {
                 "ok": ok,
                 "status": "submitted" if ok else "unknown",
