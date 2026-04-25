@@ -1,14 +1,23 @@
+"""qBittorrent adapter skeleton.
+
+Like the M-Team adapter, this module locks down endpoint/payload contracts
+first, then adds real HTTP transport later.
+"""
+
 from dataclasses import dataclass
 
 
 @dataclass(slots=True)
 class QBittorrentAdapter:
+    """Boundary object for qBittorrent Web API specifics."""
+
     base_url: str
     username: str
     password: str
     timeout_seconds: float = 10.0
 
     def _normalized_base_url(self) -> str:
+        """Avoid trailing-slash inconsistencies across endpoint builders."""
         return self.base_url.rstrip("/")
 
     def login_endpoint(self) -> str:
@@ -21,6 +30,7 @@ class QBittorrentAdapter:
         return f"{self._normalized_base_url()}/api/v2/torrents/categories"
 
     def build_login_payload(self) -> dict[str, str]:
+        """Payload expected by qB login endpoint."""
         return {"username": self.username, "password": self.password}
 
     def build_add_payload(
@@ -31,6 +41,7 @@ class QBittorrentAdapter:
         paused: bool = False,
         tags: list[str] | None = None,
     ) -> dict[str, str]:
+        """Validate and build the add-torrent form payload."""
         clean_url = url.strip()
         clean_category = category.strip()
         clean_rename = rename.strip()
@@ -47,6 +58,7 @@ class QBittorrentAdapter:
             "rename": clean_rename,
             "paused": "true" if paused else "false",
         }
+        # qB expects comma-separated tag text in form payloads.
         if tags:
             payload["tags"] = ",".join(tag.strip() for tag in tags if tag.strip())
         return payload

@@ -1,3 +1,8 @@
+"""Persistence helpers for external-resource <-> qB task mapping.
+
+This index supports de-dup checks and execution receipts.
+"""
+
 from __future__ import annotations
 
 from contextlib import closing
@@ -8,6 +13,8 @@ from app.storage.db import connect, ensure_schema
 
 
 class TaskIndexStore:
+    """CRUD-style access to the `task_index` table."""
+
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         ensure_schema(self.db_path)
@@ -22,6 +29,7 @@ class TaskIndexStore:
         qb_name: str | None = None,
         qb_category: str | None = None,
     ) -> None:
+        """Insert/update one task-index row identified by source + external id."""
         with closing(connect(self.db_path)) as conn, conn:
             conn.execute(
                 """
@@ -55,6 +63,7 @@ class TaskIndexStore:
             )
 
     def get(self, external_source: str, external_id: str) -> dict[str, Any] | None:
+        """Fetch one task-index row, or `None` when missing."""
         with closing(connect(self.db_path)) as conn:
             row = conn.execute(
                 """

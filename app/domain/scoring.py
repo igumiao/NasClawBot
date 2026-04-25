@@ -1,3 +1,11 @@
+"""Deterministic ranking rules for search candidates.
+
+Design intent:
+- Keep ordering stable and testable (rule-based core).
+- Expose simple reason tags that later LLM steps can translate into
+  user-friendly explanations.
+"""
+
 import re
 from collections.abc import Sequence
 
@@ -15,10 +23,12 @@ _SEASON_PACK_HINTS = ("complete", "全集", "season", "s01-s", "s1-s", "全季")
 
 
 def _tokenize(text: str) -> set[str]:
+    """Lowercase alphanumeric tokenization used by title-overlap scoring."""
     return {token for token in re.findall(r"[a-z0-9]+", text.lower()) if token}
 
 
 def _resolution_tier(value: str | None) -> int:
+    """Map textual resolution to a comparable tier integer."""
     if not value:
         return 0
     normalized = value.strip().lower()
@@ -26,11 +36,13 @@ def _resolution_tier(value: str | None) -> int:
 
 
 def _looks_like_season_pack(title: str) -> bool:
+    """Heuristic check for bundled season/complete-pack titles."""
     lowered = title.lower()
     return any(hint in lowered for hint in _SEASON_PACK_HINTS)
 
 
 def _score_candidate(constraints: SearchConstraints, candidate: ResourceCandidate) -> ScoredCandidate:
+    """Score one candidate with additive rules and explainable reason tags."""
     score = 0.0
     reasons: list[str] = []
 
@@ -83,6 +95,8 @@ def _score_candidate(constraints: SearchConstraints, candidate: ResourceCandidat
         reasons.append("season-pack-disallowed")
 
     seeders = max(candidate.seeders, 0)
+    # Seeder weight changes by optimization goal:
+    # speed > balanced > quality (for speed-sensitive viewing requests).
     if constraints.optimization_goal == "speed":
         score += min(seeders, 300) / 3.0
         reasons.append("seeder-boost-speed")
@@ -104,6 +118,11 @@ def score_candidates(
     constraints: SearchConstraints | dict,
     candidates: Sequence[ResourceCandidate],
 ) -> list[ScoredCandidate]:
+    """Score and sort candidates by score, then stable tie-breakers.
+
+    Accepting `dict` keeps workflow integration simple while retaining strong
+    typing once normalized.
+    """
     normalized_constraints = (
         constraints
         if isinstance(constraints, SearchConstraints)
@@ -114,4 +133,3 @@ def score_candidates(
         scored,
         key=lambda item: (-item.score, -item.candidate.seeders, item.candidate.id),
     )
-
