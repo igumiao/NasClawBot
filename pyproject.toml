@@ -17,3 +17,6 @@ dependencies = [
 dev = [
   "pytest>=8.0,<9.0",
 ]
+
+[tool.pytest.ini_options]
+addopts = "-p no:cacheprovider"
