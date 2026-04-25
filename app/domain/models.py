@@ -36,6 +36,7 @@ class ResourceCandidate(BaseModel):
     resolution: str | None = None
     seeders: int = 0
     size: str
+    size_bytes: int | None = None
     source: str
 
 
