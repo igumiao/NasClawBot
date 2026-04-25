@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from pathlib import Path
 from uuid import uuid4
 
+from app.api.chat_routes import AdapterDownloadExecutor
 from app.main import create_app
 from app.storage.session_store import SessionStore
 
@@ -129,3 +130,35 @@ def test_session_store_round_trip():
     assert record["status"] == "awaiting_confirmation"
 
     db_path.unlink(missing_ok=True)
+
+
+def test_adapter_download_executor_blocks_non_torrent_download_url():
+    class FakeMTeamAdapter:
+        def get_torrent_details(self, torrent_id: str):
+            _ = torrent_id
+            return {"name": "Fake Item"}
+
+        def get_torrent_download_url(self, torrent_id: str):
+            _ = torrent_id
+            return "https://download.local/not-torrent"
+
+        def is_download_url_torrent(self, url: str) -> bool:
+            _ = url
+            return False
+
+    class FakeQBAdapter:
+        def generate_mteam_torrent_name(self, mteam_id, detail, qb_category):
+            _ = mteam_id
+            _ = detail
+            _ = qb_category
+            return "[fake]"
+
+        def add_torrent_url(self, **kwargs):
+            _ = kwargs
+            raise AssertionError("qB add_torrent_url must not be called for invalid download URL")
+
+    executor = AdapterDownloadExecutor(FakeMTeamAdapter(), FakeQBAdapter())
+    result = executor({"id": "1172412", "title": "Fake"}, "movie")
+
+    assert result["status"] == "download_url_invalid"
+    assert result["qb_hash"] is None

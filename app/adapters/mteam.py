@@ -34,11 +34,8 @@ class MTeamAdapter:
         return f"{self._normalized_base_url()}/api/torrent/genDlToken"
 
     def build_headers(self) -> dict[str, str]:
-        """Build shared request headers expected by current M-Team APIs."""
-        return {
-            "x-api-key": self.api_key,
-            "content-type": "application/json",
-        }
+        """Build shared request headers for authenticated M-Team calls."""
+        return {"x-api-key": self.api_key}
 
     def build_search_payload(
         self,
@@ -59,6 +56,7 @@ class MTeamAdapter:
             "mode": "normal",
             "keyword": clean_keyword,
             "categories": categories or [],
+            "visible": 1,
             "pageNumber": page,
             "pageSize": page_size,
         }
@@ -78,7 +76,13 @@ class MTeamAdapter:
     def _is_configured(self) -> bool:
         return bool(self.base_url.strip() and self.api_key.strip())
 
-    def _post_json(self, endpoint: str, *, json_payload: dict[str, Any] | None = None, data_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _post(
+        self,
+        endpoint: str,
+        *,
+        json_payload: dict[str, Any] | None = None,
+        data_payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         with httpx.Client(timeout=self.timeout_seconds) as client:
             response = client.post(
                 endpoint,
@@ -92,9 +96,20 @@ class MTeamAdapter:
                 raise ValueError("M-Team API returned a non-object JSON payload.")
             return parsed
 
-    def _response_data_or_none(self, payload: dict[str, Any]) -> Any:
+    @staticmethod
+    def _is_success_response(payload: dict[str, Any]) -> bool:
+        code = payload.get("code")
+        if isinstance(code, str):
+            if code.strip() == "0":
+                return True
+        elif isinstance(code, (int, float)):
+            if int(code) == 0:
+                return True
         message = str(payload.get("message", "")).upper()
-        if message != "SUCCESS":
+        return message == "SUCCESS"
+
+    def _response_data_or_none(self, payload: dict[str, Any]) -> Any:
+        if not self._is_success_response(payload):
             return None
         return payload.get("data")
 
@@ -103,7 +118,7 @@ class MTeamAdapter:
         if not self._is_configured():
             return []
         payload = self.build_search_payload(keyword=keyword, page=page, page_size=page_size)
-        raw = self._post_json(self.search_endpoint(), json_payload=payload)
+        raw = self._post(self.search_endpoint(), json_payload=payload)
         data = self._response_data_or_none(raw)
         if not isinstance(data, dict):
             return []
@@ -117,13 +132,19 @@ class MTeamAdapter:
             torrent_id = str(item.get("id", "")).strip()
             if not torrent_id:
                 continue
+            status_info = item.get("status")
+            if isinstance(status_info, dict):
+                seeders = int(status_info.get("seeders", 0) or 0)
+            else:
+                seeders = int(item.get("seeders", 0) or 0)
             normalized.append(
                 {
                     "id": torrent_id,
                     "title": str(item.get("smallDescr") or item.get("name") or f"M-Team {torrent_id}"),
                     "name": str(item.get("name") or item.get("smallDescr") or f"M-Team {torrent_id}"),
-                    "seeders": int(item.get("status", {}).get("seeders", 0) or 0),
+                    "seeders": seeders,
                     "size": self._format_size(item.get("size")),
+                    "size_bytes": self._coerce_int(item.get("size")),
                     "source": "mteam",
                     "raw": item,
                 }
@@ -135,7 +156,7 @@ class MTeamAdapter:
         if not self._is_configured():
             return None
         payload = self.build_detail_payload(torrent_id)
-        raw = self._post_json(self.detail_endpoint(), data_payload=payload)
+        raw = self._post(self.detail_endpoint(), data_payload=payload)
         data = self._response_data_or_none(raw)
         return data if isinstance(data, dict) else None
 
@@ -144,11 +165,32 @@ class MTeamAdapter:
         if not self._is_configured():
             return None
         payload = self.build_download_token_payload(torrent_id)
-        raw = self._post_json(self.download_token_endpoint(), data_payload=payload)
+        raw = self._post(self.download_token_endpoint(), data_payload=payload)
         data = self._response_data_or_none(raw)
         if not data:
             return None
-        return str(data)
+        if not isinstance(data, str):
+            return None
+        url = data.strip()
+        return url if url.startswith("http") else None
+
+    def is_download_url_torrent(self, url: str) -> bool:
+        """Validate that a token URL resolves to a torrent payload."""
+        clean_url = (url or "").strip()
+        if not clean_url.startswith("http"):
+            return False
+        try:
+            with httpx.Client(timeout=self.timeout_seconds, follow_redirects=True) as client:
+                response = client.get(clean_url)
+                response.raise_for_status()
+        except httpx.HTTPError:
+            return False
+
+        content_type = response.headers.get("content-type", "").lower()
+        if "application/x-bittorrent" in content_type:
+            return True
+        # Some servers may not set the content-type consistently; bencode starts with 'd'.
+        return response.content.startswith(b"d")
 
     def search(self, keyword: str, page: int = 1, page_size: int = 20) -> list[dict[str, Any]]:
         return self.search_torrents_by_keyword(keyword=keyword, page=page, page_size=page_size)
@@ -174,3 +216,10 @@ class MTeamAdapter:
             value /= 1024
             scale += 1
         return f"{value:.2f} {units[scale]}"
+
+    @staticmethod
+    def _coerce_int(value: Any) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None

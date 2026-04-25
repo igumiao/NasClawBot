@@ -62,6 +62,7 @@ class AdapterSearchTool:
                     resolution="2160p" if "2160" in lowered_title or "4k" in lowered_title else "1080p",
                     seeders=int(row.get("seeders", 0) or 0),
                     size=str(row.get("size", "unknown")),
+                    size_bytes=int(row["size_bytes"]) if row.get("size_bytes") is not None else None,
                     source="mteam",
                 )
             )
@@ -83,6 +84,8 @@ class AdapterDownloadExecutor:
         download_url = self._mteam_adapter.get_torrent_download_url(external_id)
         if not download_url:
             return {"status": "download_url_failed", "qb_hash": None}
+        if not self._mteam_adapter.is_download_url_torrent(download_url):
+            return {"status": "download_url_invalid", "qb_hash": None}
         rename = self._qb_adapter.generate_mteam_torrent_name(external_id, detail, qb_category)
         add_result = self._qb_adapter.add_torrent_url(
             url=download_url,
