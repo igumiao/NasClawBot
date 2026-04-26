@@ -10,7 +10,8 @@ from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
 from app.api.schemas import ChatRequest, ChatResponse, ConfirmRequest, ConfirmResponse
 from app.config import get_settings
-from app.domain.models import ResourceCandidate, SearchConstraints
+from app.domain.models import ResourceCandidate
+from app.llm.find_keyword_llm import FindKeywordLLM
 from app.workflow.graph import LangGraphWorkflowRunner, build_workflow
 
 # Route modules live in `app/api/`; move to repo root before joining frontend.
@@ -30,7 +31,6 @@ class WorkflowRunner(Protocol):
         action: str,
         confirmation_payload: dict[str, Any] | None,
         selected_result_id: str | None = None,
-        feedback_text: str | None = None,
     ) -> dict[str, Any]:
         ...
 
@@ -41,9 +41,9 @@ class AdapterSearchTool:
     def __init__(self, adapter: MTeamAdapter):
         self._adapter = adapter
 
-    def __call__(self, constraints: SearchConstraints) -> list[ResourceCandidate]:
+    def __call__(self, keyword: str) -> list[ResourceCandidate]:
         rows = self._adapter.search_torrents_by_keyword(
-            keyword=constraints.query_text,
+            keyword=keyword,
             page=1,
             page_size=20,
         )
@@ -92,10 +92,13 @@ class AdapterDownloadExecutor:
             category=qb_category,
             rename=rename,
             tags=["mteam"],
-            paused=False,
+            paused=True,
         )
         if add_result.get("ok"):
-            return {"status": "submitted", "qb_hash": add_result.get("qb_hash")}
+            return {
+                "status": str(add_result.get("status", "submitted_paused")),
+                "qb_hash": add_result.get("qb_hash"),
+            }
         return {
             "status": str(add_result.get("status", "submit_failed")),
             "qb_hash": add_result.get("qb_hash"),
@@ -114,6 +117,7 @@ def _build_default_runner() -> WorkflowRunner:
         password=settings.qb_password,
     )
     graph = build_workflow(
+        keyword_finder=FindKeywordLLM(),
         search_tool=AdapterSearchTool(mteam_adapter),
         download_executor=AdapterDownloadExecutor(mteam_adapter, qb_adapter),
     )
@@ -146,12 +150,18 @@ def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
     def confirm(request: ConfirmRequest) -> ConfirmResponse:
         """Handle user action at confirmation stage."""
 
+        if request.action.strip().lower() == "reject_and_refine":
+            return ConfirmResponse(
+                session_id=request.session_id,
+                status="error",
+                error="Phase 2A does not support reject_and_refine on /confirm.",
+            )
+
         result = runner.run_confirm(
             request.session_id,
             action=request.action,
             confirmation_payload=request.confirmation_payload,
             selected_result_id=request.selected_result_id,
-            feedback_text=request.feedback_text,
         )
         confirmation_payload = result.get("confirmation_payload")
         receipt = result.get("receipt")
