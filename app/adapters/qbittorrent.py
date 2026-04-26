@@ -117,9 +117,10 @@ class QBittorrentAdapter:
             response.raise_for_status()
             body = response.text.strip().lower()
             ok = body in {"ok.", "ok"}
+            submitted_status = "submitted_paused" if paused else "submitted"
             return {
                 "ok": ok,
-                "status": "submitted" if ok else "unknown",
+                "status": submitted_status if ok else "unknown",
                 "qb_hash": None,
                 "raw_response": response.text,
             }

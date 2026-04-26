@@ -13,12 +13,11 @@ class ChatRequest(BaseModel):
 
 
 class ConfirmRequest(BaseModel):
-    """Confirmation-stage action payload (approve/refine/cancel)."""
+    """Confirmation-stage action payload for current workflow actions."""
 
     session_id: str
     action: str
     selected_result_id: str | None = None
-    feedback_text: str | None = None
     confirmation_payload: dict[str, Any] | None = None
 
 
