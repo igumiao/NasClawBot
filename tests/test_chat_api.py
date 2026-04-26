@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.api import chat_routes
+from app.api import qb_routes
 from app.api.chat_routes import AdapterDownloadExecutor
 from app.domain.models import ConfirmationPayload
 from app.main import create_app
@@ -413,8 +414,8 @@ def test_list_qb_torrents_endpoint_returns_adapter_rows(monkeypatch: pytest.Monk
         qb_username = "user"
         qb_password = "pass"
 
-    monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
-    monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
+    monkeypatch.setattr(qb_routes, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(qb_routes, "get_settings", lambda: FakeSettings())
 
     client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.get("/qb/torrents", params={"category": "movie", "tag": "mteam", "limit": 10})
@@ -448,8 +449,8 @@ def test_get_qb_torrent_endpoint_returns_not_found_when_missing(monkeypatch: pyt
         qb_username = "user"
         qb_password = "pass"
 
-    monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
-    monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
+    monkeypatch.setattr(qb_routes, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(qb_routes, "get_settings", lambda: FakeSettings())
 
     client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.get("/qb/torrents/missing")
@@ -489,8 +490,8 @@ def test_get_qb_torrent_endpoint_returns_detail_payload(monkeypatch: pytest.Monk
         qb_username = "user"
         qb_password = "pass"
 
-    monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
-    monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
+    monkeypatch.setattr(qb_routes, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(qb_routes, "get_settings", lambda: FakeSettings())
 
     client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.get("/qb/torrents/abc123")
@@ -522,8 +523,8 @@ def test_qb_torrent_action_endpoint_dispatches_control(monkeypatch: pytest.Monke
         qb_username = "user"
         qb_password = "pass"
 
-    monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
-    monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
+    monkeypatch.setattr(qb_routes, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(qb_routes, "get_settings", lambda: FakeSettings())
 
     client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.post("/qb/torrents/abc123/actions", json={"action": "pause"})
@@ -551,8 +552,8 @@ def test_qb_torrent_action_endpoint_rejects_invalid_action(monkeypatch: pytest.M
         qb_username = "user"
         qb_password = "pass"
 
-    monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
-    monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
+    monkeypatch.setattr(qb_routes, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(qb_routes, "get_settings", lambda: FakeSettings())
 
     client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.post("/qb/torrents/abc123/actions", json={"action": "start-now"})
