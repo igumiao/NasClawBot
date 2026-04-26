@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from app.domain.models import ResourceCandidate
+from app.domain.models import ConfirmationCandidate, ConfirmationPayload, ResourceCandidate
 from app.services.receipt_service import build_receipt
 from app.tools.download_tools import prepare_download_execution
 from app.tools.search_tools import search_mteam_candidates
@@ -44,29 +44,29 @@ def search_node(state: dict, search_tool) -> dict:
     return {"search_results": normalized_results}
 
 
-def _build_confirmation_payload(candidates: list[ResourceCandidate]) -> dict:
+def _build_confirmation_payload(candidates: list[ResourceCandidate]) -> ConfirmationPayload:
     if not candidates:
-        return {
-            "summary": "I couldn't find matching candidates. You can refine your request.",
-            "recommended_result_id": None,
-            "results": [],
-        }
+        return ConfirmationPayload(
+            summary="I couldn't find matching candidates. You can refine your request.",
+            recommended_result_id=None,
+            results=[],
+        )
 
     top = candidates[0]
-    return {
-        "summary": "I found matching candidates and paused for confirmation.",
-        "recommended_result_id": top.id,
-        "results": [
-            {
-                "id": item.id,
-                "title": item.title,
-                "seeders": item.seeders,
-                "resolution": item.resolution,
-                "size": item.size,
-            }
+    return ConfirmationPayload(
+        summary="I found matching candidates and paused for confirmation.",
+        recommended_result_id=top.id,
+        results=[
+            ConfirmationCandidate(
+                id=item.id,
+                title=item.title,
+                seeders=item.seeders,
+                resolution=item.resolution,
+                size=item.size,
+            )
             for item in candidates[:3]
         ],
-    }
+    )
 
 
 def confirmation_payload_node(state: dict) -> dict:
@@ -90,13 +90,14 @@ def execute_download_with_executor_node(
 ) -> dict[str, Any]:
     """Execute the confirmed selection through an injected executor."""
 
-    payload = state.get("confirmation_payload", {})
+    payload = _coerce_confirmation_payload(state.get("confirmation_payload"))
     selected_result = _resolve_selected_result(payload)
-    selected_result_id = str(selected_result["id"])
+    selected_result_id = selected_result.id
+    selected_result_data = selected_result.model_dump(exclude_none=True)
 
-    execution = prepare_download_execution(selected_result)
-    qb_category = str(payload.get("qb_category", "movie"))
-    execution_outcome = download_executor(selected_result, qb_category)
+    execution = prepare_download_execution(selected_result_data)
+    qb_category = payload.qb_category or "movie"
+    execution_outcome = download_executor(selected_result_data, qb_category)
     qb_hash = execution_outcome.get("qb_hash")
     status = str(execution_outcome.get("status", "submitted_paused"))
     receipt = build_receipt(
@@ -106,12 +107,13 @@ def execute_download_with_executor_node(
         qb_hash=str(qb_hash) if qb_hash else None,
         status=status,
     )
-    enriched_payload = {
-        **payload,
-        "selected_result_id": selected_result_id,
-        "execution_result": execution,
-        "receipt": receipt,
-    }
+    enriched_payload = payload.model_copy(
+        update={
+            "selected_result_id": selected_result_id,
+            "execution_result": execution,
+            "receipt": receipt,
+        }
+    )
     return {
         "confirmation_payload": enriched_payload,
         "receipt": receipt,
@@ -119,15 +121,23 @@ def execute_download_with_executor_node(
     }
 
 
-def _resolve_selected_result(payload: dict[str, Any]) -> dict[str, Any]:
-    results = payload.get("results", [])
-    selected_result_id = payload.get("selected_result_id") or payload.get("recommended_result_id")
+def _coerce_confirmation_payload(raw_payload: Any) -> ConfirmationPayload:
+    if isinstance(raw_payload, ConfirmationPayload):
+        return raw_payload
+    if isinstance(raw_payload, dict):
+        return ConfirmationPayload.model_validate(raw_payload)
+    return ConfirmationPayload()
+
+
+def _resolve_selected_result(payload: ConfirmationPayload) -> ConfirmationCandidate:
+    results = payload.results
+    selected_result_id = payload.selected_result_id or payload.recommended_result_id
     if not selected_result_id and results:
-        selected_result_id = results[0].get("id")
+        selected_result_id = results[0].id
     if not selected_result_id:
         raise ValueError("confirmation_payload must contain at least one selectable result.")
 
-    selected = next((item for item in results if item.get("id") == selected_result_id), None)
+    selected = next((item for item in results if item.id == selected_result_id), None)
     if selected is None:
         raise ValueError(f"Selected result id '{selected_result_id}' was not found in results.")
     return selected

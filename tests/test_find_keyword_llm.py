@@ -110,6 +110,28 @@ def test_chat_helper_includes_reasoning_split_from_settings(monkeypatch):
     assert body["reasoning_split"] is True
 
 
+def test_chat_helper_omits_reasoning_split_when_disabled(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _DisabledReasoningSettings(_FakeSettings):
+        def __init__(self, api_key: str = "k"):
+            super().__init__(api_key=api_key)
+            self.llm_reasoning_split = False
+
+    def fake_post(*args, **kwargs):
+        captured.update(kwargs)
+        return _FakeResponse({"choices": [{"message": {"content": '{"keyword":"沙丘2"}'}}]})
+
+    monkeypatch.setattr("app.llm.client.get_settings", lambda: _DisabledReasoningSettings(api_key="k"))
+    monkeypatch.setattr("app.llm.client.httpx.post", fake_post)
+
+    call_openai_compatible_chat(system_prompt="s", user_prompt="u")
+
+    body = captured.get("json")
+    assert isinstance(body, dict)
+    assert "reasoning_split" not in body
+
+
 def test_chat_helper_raises_for_missing_message(monkeypatch):
     monkeypatch.setattr("app.llm.client.get_settings", lambda: _FakeSettings(api_key="k"))
     monkeypatch.setattr(
