@@ -9,21 +9,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 MediaType = Literal["movie", "tv", "anime", "unknown"]
-UrgencyLevel = Literal["normal", "high"]
-OptimizationGoal = Literal["balanced", "speed", "quality"]
-
-
-class SearchConstraints(BaseModel):
-    """Normalized intent fields extracted from user language."""
-
-    query_text: str
-    title: str | None = None
-    year: int | None = None
-    media_type: MediaType = "unknown"
-    preferred_resolution: str | None = None
-    allow_season_pack: bool = True
-    urgency: UrgencyLevel = "normal"
-    optimization_goal: OptimizationGoal = "balanced"
 
 
 class ResourceCandidate(BaseModel):

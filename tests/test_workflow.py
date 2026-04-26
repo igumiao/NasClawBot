@@ -217,14 +217,15 @@ def test_workflow_accepts_keyword_dict_with_extra_metadata():
     assert result["keyword"] == "dune"
 
 
-def test_workflow_rejects_legacy_constraint_extractor_output():
-    class LegacyExtractor:
+def test_workflow_rejects_keyword_finder_output_without_keyword():
+    class InvalidExtractor:
         def invoke(self, message: str):
-            return {"query_text": message, "title": "Dune Part Two"}
+            _ = message
+            return {"title": "Dune Part Two"}
 
-    graph = build_workflow(keyword_finder=LegacyExtractor(), search_tool=StubSearchTool())
+    graph = build_workflow(keyword_finder=InvalidExtractor(), search_tool=StubSearchTool())
 
-    with pytest.raises(TypeError, match="query_text"):
+    with pytest.raises(TypeError, match="keyword"):
         graph.invoke({"session_id": "s1", "user_message": "watch dune"})
 
 
