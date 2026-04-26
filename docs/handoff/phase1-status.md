@@ -1,5 +1,7 @@
 # Phase 1 Status Handoff
 
+> Historical note: this file captures the earlier Phase 1 / early transition baseline. For the current repository state, read `docs/handoff/phase2a-status.md` first.
+
 ## Purpose
 
 This document is for the next Codex agent or developer who will continue work after the current Phase 1 MVP.
