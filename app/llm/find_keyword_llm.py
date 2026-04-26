@@ -2,6 +2,7 @@
 
 import json
 from json import JSONDecodeError
+import re
 from typing import Callable
 
 from app.llm.client import call_openai_compatible_chat
@@ -65,8 +66,11 @@ def _parse_json_payload(raw_output: str) -> dict:
     if not isinstance(raw_output, str):
         raise ValueError("LLM output must be valid JSON.")
 
-    candidates = [raw_output.strip()]
     stripped = raw_output.strip()
+    # Some providers still prepend think blocks even with reasoning split.
+    stripped = re.sub(r"^\s*<think>[\s\S]*?</think>\s*", "", stripped, flags=re.IGNORECASE)
+
+    candidates = [stripped]
     if stripped.startswith("```") and stripped.endswith("```"):
         lines = stripped.splitlines()
         if len(lines) >= 3:
