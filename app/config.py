@@ -46,6 +46,9 @@ class Settings(BaseModel):
     qb_base_url: str = _get_env("QB_BASE_URL")
     qb_username: str = _get_env("QB_USERNAME")
     qb_password: str = _get_env("QB_PASSWORD")
+    llm_model: str = _get_env("LLM_MODEL", "gpt-4o-mini")
+    llm_api_key: str = _get_env("LLM_API_KEY")
+    llm_base_url: str = _get_env("LLM_BASE_URL", "https://api.openai.com/v1")
     database_path: str = _get_env("DATABASE_PATH", "nas_media_agent.db")
 
 
