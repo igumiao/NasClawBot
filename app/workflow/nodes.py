@@ -1,25 +1,42 @@
-"""Workflow nodes for search, confirmation, and execution in Phase 1."""
+"""Workflow nodes for search, confirmation, and execution in Phase 2A."""
 
 from collections.abc import Callable
 from typing import Any
 
-from app.domain.models import ResourceCandidate, ScoredCandidate
+from app.domain.models import ResourceCandidate
 from app.services.receipt_service import build_receipt
 from app.tools.download_tools import prepare_download_execution
-from app.domain.scoring import score_candidates
 from app.tools.search_tools import search_mteam_candidates
 
 
-def extract_constraints_node(state: dict, extractor) -> dict:
-    """Extract structured search constraints from user text."""
+def keyword_finder_node(state: dict, keyword_finder) -> dict:
+    """Extract a single keyword from user text."""
 
-    return {"constraints": extractor.invoke(state["user_message"])}
+    raw_output = keyword_finder.invoke(state["user_message"])
+    keyword = _normalize_keyword_output(raw_output)
+    return {"keyword": keyword}
+
+
+def _normalize_keyword_output(raw_output: Any) -> str:
+    if isinstance(raw_output, str) and raw_output.strip():
+        return raw_output.strip()
+
+    if isinstance(raw_output, dict):
+        if "query_text" in raw_output:
+            raise TypeError("keyword_finder output must not contain query_text.")
+        value = raw_output.get("keyword")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    raise TypeError(
+        'keyword_finder must return a non-empty string or include a non-empty "keyword" field'
+    )
 
 
 def search_node(state: dict, search_tool) -> dict:
-    """Execute search using normalized constraints."""
+    """Execute search using one keyword."""
 
-    results = search_mteam_candidates(search_tool, state["constraints"])
+    results = search_mteam_candidates(search_tool, state["keyword"])
     normalized_results = [
         item if isinstance(item, ResourceCandidate) else ResourceCandidate.model_validate(item)
         for item in results
@@ -27,44 +44,36 @@ def search_node(state: dict, search_tool) -> dict:
     return {"search_results": normalized_results}
 
 
-def _build_confirmation_payload(scored: list[ScoredCandidate]) -> dict:
-    if not scored:
+def _build_confirmation_payload(candidates: list[ResourceCandidate]) -> dict:
+    if not candidates:
         return {
             "summary": "I couldn't find matching candidates. You can refine your request.",
             "recommended_result_id": None,
             "results": [],
-            "explanation": "No candidates were returned from the search tool.",
         }
 
-    top = scored[0]
-    explanation = (
-        "This result ranked first based on deterministic relevance and availability rules."
-    )
+    top = candidates[0]
     return {
         "summary": "I found matching candidates and paused for confirmation.",
-        "recommended_result_id": top.candidate.id,
+        "recommended_result_id": top.id,
         "results": [
             {
-                "id": item.candidate.id,
-                "title": item.candidate.title,
-                "score": item.score,
-                "seeders": item.candidate.seeders,
-                "resolution": item.candidate.resolution,
-                "reasons": item.reasons,
+                "id": item.id,
+                "title": item.title,
+                "seeders": item.seeders,
+                "resolution": item.resolution,
+                "size": item.size,
             }
-            for item in scored[:5]
+            for item in candidates[:3]
         ],
-        "explanation": explanation,
     }
 
 
-def score_results_node(state: dict) -> dict:
-    """Rank search results and convert them into a UI-ready confirmation payload."""
+def confirmation_payload_node(state: dict) -> dict:
+    """Convert search results into a minimal UI-ready confirmation payload."""
 
-    scored = score_candidates(state["constraints"], state.get("search_results", []))
-    payload = _build_confirmation_payload(scored)
+    payload = _build_confirmation_payload(state.get("search_results", []))
     return {
-        "scored_results": scored,
         "confirmation_payload": payload,
         "status": "awaiting_confirmation",
     }
@@ -89,7 +98,7 @@ def execute_download_with_executor_node(
     qb_category = str(payload.get("qb_category", "movie"))
     execution_outcome = download_executor(selected_result, qb_category)
     qb_hash = execution_outcome.get("qb_hash")
-    status = str(execution_outcome.get("status", "submitted"))
+    status = str(execution_outcome.get("status", "submitted_paused"))
     receipt = build_receipt(
         resource_title=execution["resource_title"],
         external_id=execution["external_id"],
@@ -106,7 +115,7 @@ def execute_download_with_executor_node(
     return {
         "confirmation_payload": enriched_payload,
         "receipt": receipt,
-        "status": "completed" if status == "submitted" else status,
+        "status": "completed" if status in {"submitted", "submitted_paused"} else status,
     }
 
 
@@ -128,4 +137,4 @@ def _default_download_executor(selected_result: dict[str, Any], qb_category: str
     """Fallback executor used in tests/dev when adapters are not injected."""
     _ = selected_result
     _ = qb_category
-    return {"status": "submitted", "qb_hash": "stub-hash"}
+    return {"status": "submitted_paused", "qb_hash": "stub-hash"}

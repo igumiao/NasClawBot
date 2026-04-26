@@ -2,7 +2,7 @@
 
 from typing import Any, TypedDict
 
-from app.domain.models import ResourceCandidate, ScoredCandidate
+from app.domain.models import ResourceCandidate
 
 
 class AgentState(TypedDict, total=False):
@@ -10,8 +10,9 @@ class AgentState(TypedDict, total=False):
 
     session_id: str
     user_message: str
-    constraints: dict[str, Any]
+    keyword: str
     search_results: list[ResourceCandidate]
-    scored_results: list[ScoredCandidate]
     confirmation_payload: dict[str, Any]
+    receipt: dict[str, Any]
     status: str
+    error: str
