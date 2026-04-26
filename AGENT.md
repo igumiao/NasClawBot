@@ -108,6 +108,12 @@ Important keys:
 
 The current loader lives in `app/config.py`.
 
+Project Python environment:
+
+- prefer the project-local `.venv` at `D:\Agent\NasClawBot\.venv`,
+- create or refresh it with `C:\Users\10762\anaconda3\envs\python311\python.exe -m venv .venv`,
+- prefer `.\scripts\python.ps1` over bare `python` in PowerShell so agents do not silently fall back to the shell default interpreter.
+
 ## Verified External Behavior
 
 These points are verified and should be treated as facts unless re-tested:
@@ -209,6 +215,12 @@ When starting a new change:
    - or UI/API integration,
 4. run the smallest relevant test set first,
 5. only then widen to end-to-end checks.
+
+Python command discipline:
+
+- in PowerShell, prefer `.\scripts\python.ps1 ...` instead of bare `python`,
+- if `.venv` is missing, create it before running install or test commands,
+- keep commands project-local so sub agents do not drift onto another interpreter.
 
 When changing search quality:
 
