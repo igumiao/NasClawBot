@@ -49,6 +49,7 @@ class Settings(BaseModel):
     llm_model: str = _get_env("LLM_MODEL", "gpt-4o-mini")
     llm_api_key: str = _get_env("LLM_API_KEY")
     llm_base_url: str = _get_env("LLM_BASE_URL", "https://api.openai.com/v1")
+    llm_reasoning_split: bool = _get_env("LLM_REASONING_SPLIT", "true")
     database_path: str = _get_env("DATABASE_PATH", "nas_media_agent.db")
 
 
