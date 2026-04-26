@@ -6,6 +6,7 @@ import pytest
 
 from app.api import chat_routes
 from app.api.chat_routes import AdapterDownloadExecutor
+from app.domain.models import ConfirmationPayload
 from app.main import create_app
 from app.storage.session_store import SessionStore
 
@@ -150,6 +151,54 @@ def test_confirm_reject_and_refine_returns_route_level_phase2a_error():
     body = response.json()
     assert body["status"] == "error"
     assert body["error"] == "Phase 2A does not support reject_and_refine on /confirm."
+
+
+def test_confirm_endpoint_parses_confirmation_payload_to_model():
+    captured: dict[str, object] = {}
+
+    class CapturingRunner:
+        def run_chat(self, session_id: str, message: str) -> dict:
+            _ = (session_id, message)
+            return {"session_id": session_id, "status": "awaiting_confirmation"}
+
+        def run_confirm(
+            self,
+            session_id: str,
+            *,
+            action: str,
+            confirmation_payload,
+            selected_result_id: str | None = None,
+        ) -> dict:
+            captured["confirmation_payload"] = confirmation_payload
+            captured["selected_result_id"] = selected_result_id
+            return {"session_id": session_id, "status": "canceled", "messages": ["Request canceled by user."]}
+
+    client = TestClient(create_app(workflow_runner=CapturingRunner()))
+    response = client.post(
+        "/confirm",
+        json={
+            "session_id": "s1",
+            "action": "cancel",
+            "selected_result_id": "x1",
+            "confirmation_payload": {
+                "summary": "pick one",
+                "recommended_result_id": "x1",
+                "results": [
+                    {
+                        "id": "x1",
+                        "title": "Fake Item",
+                        "seeders": 0,
+                        "resolution": "1080p",
+                        "size": "10 GB",
+                    }
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert isinstance(captured["confirmation_payload"], ConfirmationPayload)
+    assert captured["selected_result_id"] == "x1"
 
 
 def test_confirm_does_not_forward_feedback_text_kwarg():
@@ -331,3 +380,181 @@ def test_build_default_runner_wires_find_keyword_llm(monkeypatch: pytest.MonkeyP
     assert isinstance(captured["search_tool"], chat_routes.AdapterSearchTool)
     assert callable(captured["download_executor"])
     assert isinstance(runner, FakeRunner)
+
+
+def test_list_qb_torrents_endpoint_returns_adapter_rows(monkeypatch: pytest.MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    class FakeQBAdapter:
+        def __init__(self, base_url: str, username: str, password: str):
+            captured["init"] = (base_url, username, password)
+
+        def list_torrents(self, **kwargs):
+            captured["list_kwargs"] = kwargs
+            return [
+                {
+                    "hash": "abc123",
+                    "name": "Dune Part Two",
+                    "category": "movie",
+                    "tags": ["mteam"],
+                    "state": "downloading",
+                    "progress": 0.42,
+                    "download_speed": 1024,
+                    "upload_speed": 128,
+                    "eta": 3600,
+                    "save_path": "/downloads/movie",
+                    "size": 123456,
+                    "total_size": 654321,
+                }
+            ]
+
+    class FakeSettings:
+        qb_base_url = "https://qb.local"
+        qb_username = "user"
+        qb_password = "pass"
+
+    monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
+
+    client = TestClient(create_app(workflow_runner=FakeRunner()))
+    response = client.get("/qb/torrents", params={"category": "movie", "tag": "mteam", "limit": 10})
+
+    assert response.status_code == 200
+    assert captured["init"] == ("https://qb.local", "user", "pass")
+    assert captured["list_kwargs"] == {
+        "category": "movie",
+        "tag": "mteam",
+        "limit": 10,
+        "status_filter": None,
+        "sort": None,
+        "reverse": None,
+    }
+    body = response.json()
+    assert body["items"][0]["hash"] == "abc123"
+    assert body["items"][0]["progress"] == 0.42
+
+
+def test_get_qb_torrent_endpoint_returns_not_found_when_missing(monkeypatch: pytest.MonkeyPatch):
+    class FakeQBAdapter:
+        def __init__(self, base_url: str, username: str, password: str):
+            _ = (base_url, username, password)
+
+        def get_torrent(self, torrent_hash: str):
+            assert torrent_hash == "missing"
+            return None
+
+    class FakeSettings:
+        qb_base_url = "https://qb.local"
+        qb_username = "user"
+        qb_password = "pass"
+
+    monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
+
+    client = TestClient(create_app(workflow_runner=FakeRunner()))
+    response = client.get("/qb/torrents/missing")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Torrent not found: missing"
+
+
+def test_get_qb_torrent_endpoint_returns_detail_payload(monkeypatch: pytest.MonkeyPatch):
+    class FakeQBAdapter:
+        def __init__(self, base_url: str, username: str, password: str):
+            _ = (base_url, username, password)
+
+        def get_torrent(self, torrent_hash: str):
+            assert torrent_hash == "abc123"
+            return {
+                "hash": "abc123",
+                "name": "Dune Part Two",
+                "category": "movie",
+                "tags": ["mteam"],
+                "state": "downloading",
+                "progress": 0.6,
+                "download_speed": 4096,
+                "upload_speed": 512,
+                "eta": 1800,
+                "save_path": "/downloads/movie",
+                "size": 123456,
+                "total_size": 654321,
+                "comment": "from mteam",
+                "total_uploaded": 999,
+                "share_ratio": 0.5,
+                "creation_date": 1710000000,
+            }
+
+    class FakeSettings:
+        qb_base_url = "https://qb.local"
+        qb_username = "user"
+        qb_password = "pass"
+
+    monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
+
+    client = TestClient(create_app(workflow_runner=FakeRunner()))
+    response = client.get("/qb/torrents/abc123")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["hash"] == "abc123"
+    assert body["progress"] == 0.6
+    assert body["download_speed"] == 4096
+
+
+def test_qb_torrent_action_endpoint_dispatches_control(monkeypatch: pytest.MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    class FakeQBAdapter:
+        def __init__(self, base_url: str, username: str, password: str):
+            _ = (base_url, username, password)
+
+        def control_torrent(self, torrent_hash: str, *, action: str, delete_files: bool = False):
+            captured["control"] = {
+                "torrent_hash": torrent_hash,
+                "action": action,
+                "delete_files": delete_files,
+            }
+            return {"ok": True, "status": "pause", "qb_hash": torrent_hash}
+
+    class FakeSettings:
+        qb_base_url = "https://qb.local"
+        qb_username = "user"
+        qb_password = "pass"
+
+    monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
+
+    client = TestClient(create_app(workflow_runner=FakeRunner()))
+    response = client.post("/qb/torrents/abc123/actions", json={"action": "pause"})
+
+    assert response.status_code == 200
+    assert captured["control"] == {
+        "torrent_hash": "abc123",
+        "action": "pause",
+        "delete_files": False,
+    }
+    assert response.json()["status"] == "pause"
+
+
+def test_qb_torrent_action_endpoint_rejects_invalid_action(monkeypatch: pytest.MonkeyPatch):
+    class FakeQBAdapter:
+        def __init__(self, base_url: str, username: str, password: str):
+            _ = (base_url, username, password)
+
+        def control_torrent(self, torrent_hash: str, *, action: str, delete_files: bool = False):
+            _ = (torrent_hash, action, delete_files)
+            raise AssertionError("route validation should reject invalid action before adapter call")
+
+    class FakeSettings:
+        qb_base_url = "https://qb.local"
+        qb_username = "user"
+        qb_password = "pass"
+
+    monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
+
+    client = TestClient(create_app(workflow_runner=FakeRunner()))
+    response = client.post("/qb/torrents/abc123/actions", json={"action": "start-now"})
+
+    assert response.status_code == 422

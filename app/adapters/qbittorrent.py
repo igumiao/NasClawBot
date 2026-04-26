@@ -1,22 +1,37 @@
-"""qBittorrent adapter for URL-based torrent submission.
+"""qBittorrent adapter built on top of the qbittorrent-api client.
 
-Task 9 keeps qB integration scoped to what the MVP needs:
-- login,
+The adapter keeps the current workflow-facing surface small while exposing a
+few higher-value task management operations for future agent features:
+- login via the maintained client library,
 - category listing,
 - add-by-url (no local .torrent file write),
-- and deterministic name generation based on external ids.
+- task listing,
+- single-task detail lookup,
+- and basic task control operations.
 """
 
 from dataclasses import dataclass
 import re
 from typing import Any
 
-import httpx
+try:
+    import qbittorrentapi
+except ModuleNotFoundError:  # pragma: no cover - exercised via dependency install/runtime
+    qbittorrentapi = None
+
+
+def _read_value(payload: Any, key: str, default: Any = None) -> Any:
+    """Read values from qB wrapper objects or plain dicts with one helper."""
+    if payload is None:
+        return default
+    if isinstance(payload, dict):
+        return payload.get(key, default)
+    return getattr(payload, key, default)
 
 
 @dataclass(slots=True)
 class QBittorrentAdapter:
-    """Boundary object for qBittorrent Web API specifics."""
+    """Boundary object for qBittorrent task operations."""
 
     base_url: str
     username: str
@@ -24,21 +39,28 @@ class QBittorrentAdapter:
     timeout_seconds: float = 10.0
 
     def _normalized_base_url(self) -> str:
-        """Avoid trailing-slash inconsistencies across endpoint builders."""
         return self.base_url.rstrip("/")
 
-    def login_endpoint(self) -> str:
-        return f"{self._normalized_base_url()}/api/v2/auth/login"
+    def _is_configured(self) -> bool:
+        return bool(self.base_url.strip() and self.username.strip() and self.password.strip())
 
-    def add_torrent_endpoint(self) -> str:
-        return f"{self._normalized_base_url()}/api/v2/torrents/add"
+    def _build_client(self):
+        if qbittorrentapi is None:
+            raise RuntimeError("qbittorrent-api is not installed")
+        return qbittorrentapi.Client(
+            host=self._normalized_base_url(),
+            username=self.username,
+            password=self.password,
+            REQUESTS_ARGS={"timeout": self.timeout_seconds},
+        )
 
-    def categories_endpoint(self) -> str:
-        return f"{self._normalized_base_url()}/api/v2/torrents/categories"
-
-    def build_login_payload(self) -> dict[str, str]:
-        """Payload expected by qB login endpoint."""
-        return {"username": self.username, "password": self.password}
+    def login(self):
+        """Create and authenticate a qBittorrent API client."""
+        if not self._is_configured():
+            return None
+        client = self._build_client()
+        client.auth_log_in()
+        return client
 
     def build_add_payload(
         self,
@@ -47,11 +69,12 @@ class QBittorrentAdapter:
         rename: str,
         paused: bool = False,
         tags: list[str] | None = None,
-    ) -> dict[str, str]:
-        """Validate and build the add-torrent form payload."""
+    ) -> dict[str, Any]:
+        """Validate and build the qbittorrent-api add kwargs."""
         clean_url = url.strip()
         clean_category = category.strip()
         clean_rename = rename.strip()
+        clean_tags = [tag.strip() for tag in (tags or []) if tag.strip()]
         if not clean_url:
             raise ValueError("url must not be empty")
         if not clean_category:
@@ -59,39 +82,23 @@ class QBittorrentAdapter:
         if not clean_rename:
             raise ValueError("rename must not be empty")
 
-        payload: dict[str, str] = {
+        payload: dict[str, Any] = {
             "urls": clean_url,
             "category": clean_category,
             "rename": clean_rename,
-            "paused": "true" if paused else "false",
+            "is_paused": paused,
         }
-        # qB expects comma-separated tag text in form payloads.
-        if tags:
-            payload["tags"] = ",".join(tag.strip() for tag in tags if tag.strip())
+        if clean_tags:
+            payload["tags"] = clean_tags
         return payload
-
-    def _is_configured(self) -> bool:
-        return bool(self.base_url.strip() and self.username.strip() and self.password.strip())
-
-    def login(self) -> httpx.Cookies | None:
-        """Log in and return auth cookies when available."""
-        if not self._is_configured():
-            return None
-        with httpx.Client(timeout=self.timeout_seconds) as client:
-            response = client.post(self.login_endpoint(), data=self.build_login_payload())
-            response.raise_for_status()
-            return response.cookies
 
     def list_categories(self) -> dict[str, Any]:
         """Read qB categories map, keyed by category name."""
-        cookies = self.login()
-        if cookies is None:
+        client = self.login()
+        if client is None:
             return {}
-        with httpx.Client(timeout=self.timeout_seconds, cookies=cookies) as client:
-            response = client.get(self.categories_endpoint())
-            response.raise_for_status()
-            payload = response.json()
-            return payload if isinstance(payload, dict) else {}
+        categories = _read_value(_read_value(client, "torrent_categories"), "categories", {})
+        return categories if isinstance(categories, dict) else {}
 
     def add_torrent_url(
         self,
@@ -102,8 +109,8 @@ class QBittorrentAdapter:
         tags: list[str] | None = None,
     ) -> dict[str, Any]:
         """Submit tokenized URL to qB and return structured result."""
-        cookies = self.login()
-        if cookies is None:
+        client = self.login()
+        if client is None:
             return {"ok": False, "status": "not_configured", "qb_hash": None}
         payload = self.build_add_payload(
             url=url,
@@ -112,18 +119,132 @@ class QBittorrentAdapter:
             paused=paused,
             tags=tags,
         )
-        with httpx.Client(timeout=self.timeout_seconds, cookies=cookies) as client:
-            response = client.post(self.add_torrent_endpoint(), data=payload)
-            response.raise_for_status()
-            body = response.text.strip().lower()
-            ok = body in {"ok.", "ok"}
-            submitted_status = "submitted_paused" if paused else "submitted"
-            return {
-                "ok": ok,
-                "status": submitted_status if ok else "unknown",
-                "qb_hash": None,
-                "raw_response": response.text,
+        raw_response = client.torrents_add(**payload)
+        body = str(raw_response).strip().lower()
+        ok = body in {"ok.", "ok", "true"}
+        submitted_status = "submitted_paused" if paused else "submitted"
+        return {
+            "ok": ok,
+            "status": submitted_status if ok else "unknown",
+            "qb_hash": None,
+            "raw_response": raw_response,
+        }
+
+    def _serialize_torrent_row(self, torrent: Any) -> dict[str, Any]:
+        tags_value = str(_read_value(torrent, "tags", "") or "")
+        return {
+            "hash": str(_read_value(torrent, "hash", "") or ""),
+            "name": str(_read_value(torrent, "name", "") or ""),
+            "category": str(_read_value(torrent, "category", "") or ""),
+            "tags": [tag.strip() for tag in tags_value.split(",") if tag.strip()],
+            "state": str(_read_value(torrent, "state", "") or ""),
+            "progress": float(_read_value(torrent, "progress", 0.0) or 0.0),
+            "download_speed": int(_read_value(torrent, "dlspeed", 0) or 0),
+            "upload_speed": int(_read_value(torrent, "upspeed", 0) or 0),
+            "eta": int(_read_value(torrent, "eta", 0) or 0),
+            "save_path": str(_read_value(torrent, "save_path", "") or ""),
+            "size": int(_read_value(torrent, "size", 0) or 0),
+            "total_size": int(_read_value(torrent, "total_size", 0) or 0),
+        }
+
+    def list_torrents(
+        self,
+        *,
+        category: str | None = None,
+        tag: str | None = None,
+        limit: int | None = None,
+        status_filter: str | None = None,
+        sort: str | None = None,
+        reverse: bool | None = None,
+    ) -> list[dict[str, Any]]:
+        """List tasks with lightweight structured fields for UI/agent use."""
+        client = self.login()
+        if client is None:
+            return []
+
+        kwargs: dict[str, Any] = {}
+        if category and category.strip():
+            kwargs["category"] = category.strip()
+        if tag and tag.strip():
+            kwargs["tag"] = tag.strip()
+        if limit is not None:
+            kwargs["limit"] = limit
+        if status_filter and status_filter.strip():
+            kwargs["status_filter"] = status_filter.strip()
+        if sort and sort.strip():
+            kwargs["sort"] = sort.strip()
+        if reverse is not None:
+            kwargs["reverse"] = reverse
+
+        rows = client.torrents_info(**kwargs)
+        return [self._serialize_torrent_row(row) for row in rows]
+
+    def get_torrent(self, torrent_hash: str) -> dict[str, Any] | None:
+        """Return one task with merged properties when found."""
+        clean_hash = torrent_hash.strip()
+        if not clean_hash:
+            raise ValueError("torrent_hash must not be empty")
+
+        client = self.login()
+        if client is None:
+            return None
+
+        rows = client.torrents_info(torrent_hashes=clean_hash)
+        if not rows:
+            return None
+        result = self._serialize_torrent_row(rows[0])
+        properties = client.torrents_properties(torrent_hash=clean_hash)
+        result.update(
+            {
+                "comment": str(_read_value(properties, "comment", "") or ""),
+                "total_uploaded": int(_read_value(properties, "total_uploaded", 0) or 0),
+                "share_ratio": float(_read_value(properties, "share_ratio", 0.0) or 0.0),
+                "creation_date": int(_read_value(properties, "creation_date", 0) or 0),
             }
+        )
+        return result
+
+    def control_torrent(
+        self,
+        torrent_hash: str,
+        *,
+        action: str,
+        delete_files: bool = False,
+    ) -> dict[str, Any]:
+        """Dispatch supported lifecycle actions to qBittorrent."""
+        clean_hash = torrent_hash.strip()
+        if not clean_hash:
+            raise ValueError("torrent_hash must not be empty")
+
+        normalized_action = action.strip().lower()
+        action_map = {
+            "pause": "pause",
+            "resume": "resume",
+            "recheck": "recheck",
+            "reannounce": "reannounce",
+            "delete": "delete",
+        }
+        if normalized_action not in action_map:
+            raise ValueError(f"Unsupported torrent action: {action}")
+
+        client = self.login()
+        if client is None:
+            return {"ok": False, "status": "not_configured", "qb_hash": clean_hash}
+
+        if normalized_action == "pause":
+            client.torrents_pause(torrent_hashes=clean_hash)
+        elif normalized_action == "resume":
+            client.torrents_resume(torrent_hashes=clean_hash)
+        elif normalized_action == "recheck":
+            client.torrents_recheck(torrent_hashes=clean_hash)
+        elif normalized_action == "reannounce":
+            client.torrents_reannounce(torrent_hashes=clean_hash)
+        else:
+            client.torrents_delete(
+                torrent_hashes=clean_hash,
+                delete_files=delete_files,
+            )
+        return {"ok": True, "status": normalized_action, "qb_hash": clean_hash}
 
     @staticmethod
     def generate_mteam_torrent_name(mteam_id: str, detail: dict[str, Any], qb_category: str) -> str:

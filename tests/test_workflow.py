@@ -1,9 +1,10 @@
-import httpx
+from types import SimpleNamespace
+
 import pytest
 
 import app.adapters.qbittorrent as qb_module
 from app.adapters.qbittorrent import QBittorrentAdapter
-from app.domain.models import ResourceCandidate
+from app.domain.models import ConfirmationCandidate, ConfirmationPayload, ResourceCandidate
 from app.services.receipt_service import build_receipt
 from app.workflow.graph import build_workflow
 
@@ -44,13 +45,16 @@ class StubSearchTool:
 def test_workflow_returns_confirmation_payload():
     graph = build_workflow(keyword_finder=StubExtractor(), search_tool=StubSearchTool())
     result = graph.invoke({"session_id": "s1", "user_message": "I want to watch Dune tonight"})
+    payload = result["confirmation_payload"]
 
-    assert result["confirmation_payload"]["recommended_result_id"] == "2"
-    assert len(result["confirmation_payload"]["results"]) == 2
-    assert result["confirmation_payload"]["results"][0]["size"] == "12 GB"
-    assert "score" not in result["confirmation_payload"]["results"][0]
-    assert "reasons" not in result["confirmation_payload"]["results"][0]
-    assert "explanation" not in result["confirmation_payload"]
+    assert isinstance(payload, ConfirmationPayload)
+    assert payload.recommended_result_id == "2"
+    assert len(payload.results) == 2
+    assert isinstance(payload.results[0], ConfirmationCandidate)
+    assert payload.results[0].size == "12 GB"
+    assert "score" not in payload.results[0].model_dump()
+    assert "reasons" not in payload.results[0].model_dump()
+    assert "explanation" not in payload.model_dump()
     assert result["status"] == "awaiting_confirmation"
 
 
@@ -88,9 +92,9 @@ def test_workflow_executes_approved_selection_and_returns_receipt():
     )
 
     assert result["status"] == "completed"
-    assert result["confirmation_payload"]["execution_result"]["external_id"] == "2"
-    assert result["confirmation_payload"]["receipt"]["status"] == "submitted_paused"
-    assert result["confirmation_payload"]["receipt"]["qb_hash"] == "stub-hash"
+    assert result["confirmation_payload"].execution_result["external_id"] == "2"
+    assert result["confirmation_payload"].receipt["status"] == "submitted_paused"
+    assert result["confirmation_payload"].receipt["qb_hash"] == "stub-hash"
 
 
 def test_workflow_uses_injected_download_executor():
@@ -126,9 +130,9 @@ def test_workflow_uses_injected_download_executor():
 
     assert captured["selected_id"] == "2"
     assert captured["category"] == "movie"
-    assert result["confirmation_payload"]["receipt"]["external_id"] == "2"
-    assert result["confirmation_payload"]["receipt"]["qb_hash"] == "injected-hash"
-    assert result["confirmation_payload"]["receipt"]["status"] == "submitted_paused"
+    assert result["confirmation_payload"].receipt["external_id"] == "2"
+    assert result["confirmation_payload"].receipt["qb_hash"] == "injected-hash"
+    assert result["confirmation_payload"].receipt["status"] == "submitted_paused"
 
 
 def test_workflow_limits_confirmation_payload_to_first_three_results():
@@ -181,7 +185,7 @@ def test_workflow_limits_confirmation_payload_to_first_three_results():
     graph = build_workflow(keyword_finder=StubExtractor(), search_tool=FourResultSearchTool())
     result = graph.invoke({"session_id": "s1", "user_message": "find dune"})
 
-    assert [item["id"] for item in result["confirmation_payload"]["results"]] == ["1", "2", "3"]
+    assert [item.id for item in result["confirmation_payload"].results] == ["1", "2", "3"]
 
 
 def test_build_workflow_uses_default_keyword_finder():
@@ -254,40 +258,23 @@ def test_workflow_executor_missing_status_defaults_to_submitted_paused():
         }
     )
 
-    assert result["confirmation_payload"]["receipt"]["status"] == "submitted_paused"
+    assert result["confirmation_payload"].receipt["status"] == "submitted_paused"
 
 
 def test_qb_add_torrent_url_requires_ok_body_not_only_http_200(monkeypatch):
-    class FakeResponse:
-        def __init__(self, text: str):
-            self.status_code = 200
-            self.text = text
+    class FakeClient:
+        def __init__(self, **kwargs):
+            _ = kwargs
 
-        def raise_for_status(self):
+        def auth_log_in(self):
             return None
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs):
-            _ = args
+        def torrents_add(self, **kwargs):
             _ = kwargs
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            _ = exc_type
-            _ = exc
-            _ = tb
-            return False
-
-        def post(self, *args, **kwargs):
-            _ = args
-            _ = kwargs
-            return FakeResponse("Queue accepted")
+            return "Queue accepted"
 
     adapter = QBittorrentAdapter(base_url="http://qb.local", username="u", password="p")
-    monkeypatch.setattr(QBittorrentAdapter, "login", lambda self: httpx.Cookies())
-    monkeypatch.setattr(qb_module.httpx, "Client", FakeClient)
+    monkeypatch.setattr(qb_module, "qbittorrentapi", SimpleNamespace(Client=FakeClient), raising=False)
 
     result = adapter.add_torrent_url(
         url="https://download.local/token",

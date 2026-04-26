@@ -5,6 +5,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from app.domain.models import ConfirmationPayload
 from app.llm.find_keyword_llm import FindKeywordLLM
 from app.tools.search_tools import SearchTool
 from app.workflow.nodes import (
@@ -83,7 +84,7 @@ class LangGraphWorkflowRunner:
         session_id: str,
         *,
         action: str,
-        confirmation_payload: dict[str, Any] | None,
+        confirmation_payload: dict[str, Any] | ConfirmationPayload | None,
         selected_result_id: str | None = None,
         feedback_text: str | None = None,
     ) -> dict[str, Any]:
@@ -116,7 +117,10 @@ class LangGraphWorkflowRunner:
                 "status": "error",
                 "error": "confirmation_payload is required for approve.",
             }
-        payload = dict(confirmation_payload)
+        if isinstance(confirmation_payload, ConfirmationPayload):
+            payload = confirmation_payload
+        else:
+            payload = ConfirmationPayload.model_validate(confirmation_payload)
         if selected_result_id:
-            payload["selected_result_id"] = selected_result_id
+            payload = payload.model_copy(update={"selected_result_id": selected_result_id})
         return self._graph.invoke({"session_id": session_id, "confirmation_payload": payload})
