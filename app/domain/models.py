@@ -1,12 +1,12 @@
-"""Domain models shared by workflow, scoring, and adapters.
+"""Domain models shared by workflow and adapters.
 
-Keeping these types centralized makes ranking and API contracts easier to
-understand during early development.
+Keeping these types centralized makes contracts easier to understand during
+early development.
 """
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 MediaType = Literal["movie", "tv", "anime", "unknown"]
 UrgencyLevel = Literal["normal", "high"]
@@ -38,11 +38,3 @@ class ResourceCandidate(BaseModel):
     size: str
     size_bytes: int | None = None
     source: str
-
-
-class ScoredCandidate(BaseModel):
-    """Candidate plus deterministic ranking output and reason tags."""
-
-    candidate: ResourceCandidate
-    score: float
-    reasons: list[str] = Field(default_factory=list)
