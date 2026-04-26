@@ -19,7 +19,7 @@ Current implemented baseline:
 - return a structured receipt,
 - expose qBittorrent task list / detail / control APIs for future management surfaces.
 
-This repository is already beyond a pure prototype: adapters, workflow, API, UI, storage, tests, qB task-management routes, and real connectivity checks exist. The project is now best described as a "Phase 2A engineering baseline" rather than only a Phase 1 MVP, although it still has a large gap to the intended full Agent product.
+This repository is already beyond a pure prototype: adapters, workflow, API, UI, storage, tests, qB task-management routes, and real connectivity checks exist. The Phase 2A baseline should now be treated as complete and stable enough to build on, although the project still has a large gap to the intended full Agent product.
 
 ## Long-Term Agent Direction
 
@@ -85,7 +85,7 @@ Repository structure:
 - `app/services/`
   receipt construction.
 - `app/llm/`
-  currently placeholder / heuristic LLM layer.
+  narrow OpenAI-compatible keyword extraction layer for the current search path.
 - `frontend/`
   plain HTML/CSS/JS browser shell.
 - `scripts/`
@@ -210,7 +210,7 @@ These are known issues, not surprises:
 - keyword normalization and fallback rewrite are still weak,
 - full natural-language requests with compound constraints are still fragile,
 - refine flow does not yet do true structured constraint merging,
-- `confirmation_payload` still carries some data that should eventually become proper state fields,
+- confirmation models are typed now, but execution/session data is still flatter than a future Agent-oriented state model will likely need,
 - layered memory is not really present yet,
 - "environment awareness" is still narrow and mostly adapter-level,
 - qB management is exposed as endpoints but not yet integrated into a richer agent loop,
@@ -269,4 +269,4 @@ After that search-understanding stage becomes stable, the next worthwhile direct
 4. enrich human-in-the-loop branches beyond simple accept / reject,
 5. decide whether qB task-management APIs should become an explicit worker/tool surface inside a broader agent workflow.
 
-If you are a future Codex agent, start with search/refine understanding unless the user explicitly redirects you, but keep the longer-term Agent showcase goal in mind while designing changes.
+If you are a future Codex agent, treat Phase 2A as done, start from search/refine understanding unless the user explicitly redirects you, and keep the longer-term Agent showcase goal in mind while designing changes.

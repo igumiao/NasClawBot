@@ -1,5 +1,11 @@
 # Phase 2A Status Handoff
 
+## Status
+
+Phase 2A should now be treated as `DONE` for the current repository baseline.
+
+That does not mean the product is finished. It means the current simplified search/confirm/download-management baseline is complete enough that the next work should be framed as a new phase, not as more cleanup inside Phase 2A.
+
 ## Purpose
 
 This document is the current handoff baseline for `NasClawBot` after the Phase 2A search-path work and the first qBittorrent task-management expansion.
@@ -75,7 +81,9 @@ The recent qB-focused changes extend the adapter and API from "submit only" to "
 
 ### API Layer
 
-`app/api/chat_routes.py` now exposes:
+qB management routes now live in `app/api/qb_routes.py` and are mounted by the main API app.
+
+The current backend exposes:
 
 - `GET /qb/torrents`
 - `GET /qb/torrents/{torrent_hash}`
@@ -140,7 +148,7 @@ If you are extending this codebase next:
 - read this handoff file,
 - inspect `app/llm/find_keyword_llm.py`,
 - inspect `app/workflow/graph.py` and `app/workflow/nodes.py`,
-- inspect `app/adapters/qbittorrent.py` and `app/api/chat_routes.py`,
+- inspect `app/adapters/qbittorrent.py`, `app/api/chat_routes.py`, and `app/api/qb_routes.py`,
 - run the smallest relevant test slice first,
 - prefer `.\scripts\python.ps1 ...` over bare `python` in PowerShell.
 
@@ -154,7 +162,7 @@ Recommended verification slices:
 
 The current repository baseline is:
 
-- Phase 2A search path complete,
+- Phase 2A search path complete and considered done,
 - paused qB approval path working,
 - first qB task-management backend surfaces present,
 - next meaningful work centered on search/refine quality and stronger agent behavior, not basic integration plumbing.
