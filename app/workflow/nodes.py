@@ -22,8 +22,6 @@ def _normalize_keyword_output(raw_output: Any) -> str:
         return raw_output.strip()
 
     if isinstance(raw_output, dict):
-        if "query_text" in raw_output:
-            raise TypeError("keyword_finder output must not contain query_text.")
         value = raw_output.get("keyword")
         if isinstance(value, str) and value.strip():
             return value.strip()

@@ -1,49 +1,8 @@
-"""LLM client interfaces and shared OpenAI-compatible helper.
-
-The workflow depends on an `invoke(message)` contract and Task 1 introduces
-an API-call helper that can be shared by LLM modules.
-"""
-
-from typing import Protocol
+"""Shared OpenAI-compatible helper for LLM-backed workflow modules."""
 
 import httpx
 
 from app.config import get_settings
-
-
-class ConstraintExtractor(Protocol):
-    """Interface for extracting structured constraints from user language."""
-
-    def invoke(self, message: str) -> dict:
-        ...
-
-
-class LocalConstraintExtractor:
-    """Heuristic extractor used as a safe default during early development."""
-
-    def invoke(self, message: str) -> dict:
-        lowered = message.lower()
-        optimization_goal = "speed" if any(
-            token in lowered for token in ("tonight", "quick", "fast", "马上", "今晚")
-        ) else "balanced"
-        urgency = "high" if optimization_goal == "speed" else "normal"
-
-        media_type = "unknown"
-        if any(token in lowered for token in ("movie", "film", "电影")):
-            media_type = "movie"
-        elif any(token in lowered for token in ("series", "show", "tv", "剧")):
-            media_type = "tv"
-
-        return {
-            "query_text": message,
-            "title": None,
-            "year": None,
-            "media_type": media_type,
-            "preferred_resolution": None,
-            "allow_season_pack": True,
-            "urgency": urgency,
-            "optimization_goal": optimization_goal,
-        }
 
 
 def call_openai_compatible_chat(
