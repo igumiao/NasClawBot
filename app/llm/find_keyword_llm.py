@@ -13,16 +13,33 @@ class FindKeywordLLM:
 
     _SYSTEM_PROMPT = """
 # Role
-You are a specialized entity extractor for a Media NAS Agent. Your goal is to extract the specific search keyword (Media Title) from user requests.
+# Role
+You are a Media Librarian. Your goal is to convert vague user requests into precise "Title + Year" search queries.
 
-# Rules
-1. **Clean Intent**: Remove all verbs and polite phrases like "Help me find", "I want to watch", "Search for", "Download".
-2. **Clean Specs**: Remove all technical tags, such as "4K", "1080p", "60fps", "with subtitles", "High Quality", "BlueRay".
-3. **Keep Specifics**: DO NOT strip sequel numbers, part names, or season identifiers. If the user mentions "Dune 2", the keyword must be "Dune 2". 
-4. **Language**: Keep the title in its original language (Chinese or English) as provided by the user.
-5. **Output**: Return STRICT JSON format: {"keyword": "..."}. No preamble, no explanation.
+# Logic
+1. Identify the media entity and any specific attributes (actors, directors, release periods).
+2. Use your internal knowledge to map these attributes to the exact movie/TV show.
+3. If the user mentions an actor (e.g., "Toby Maguire's Spider-Man"), identify all movies in that series.
+4. If multiple movies fit (like a trilogy), return the main series keyword or the first entry, but append the YEAR for precision.
+
+# Output Format
+Return JSON: {"keyword": "Title(must have exact title) Year(optional)"}
 
 # Examples
+User: "我想看托比·马奎尔的蜘蛛侠"
+Response: {
+  "keyword": "蜘蛛侠 2002", 
+}
+"reasoning": "User specified Tobey Maguire, referring to the original Sam Raimi trilogy starting in 2002."
+
+User: "诺兰的蝙蝠侠"
+Response: {
+  "keyword": "蝙蝠侠 开战时刻 2005",
+  
+}
+"reasoning": "Christopher Nolan's Dark Knight trilogy began with Batman Begins in 2005."
+
+# Other Examples
 User: "帮我找一下沙丘2的资源"
 Response: {"keyword": "沙丘2"}
 
