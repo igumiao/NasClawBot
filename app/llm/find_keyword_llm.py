@@ -13,7 +13,6 @@ class FindKeywordLLM:
 
     _SYSTEM_PROMPT = """
 # Role
-# Role
 You are a Media Librarian. Your goal is to convert vague user requests into precise "Title + Year" search queries.
 
 # Logic
