@@ -20,7 +20,7 @@ def test_invoke_returns_keyword_dict():
 
     result = llm.invoke("我想看沙丘2")
 
-    assert result == {"keyword": "沙丘2"}
+    assert result == {"keyword": "沙丘2"}, "keyword extraction should return the parsed keyword"
 
 
 def test_invoke_logs_extracted_keyword(caplog):
@@ -29,13 +29,13 @@ def test_invoke_logs_extracted_keyword(caplog):
     with caplog.at_level(logging.INFO, logger="app.llm.find_keyword_llm"):
         llm.invoke("我想看沙丘2")
 
-    assert "LLM keyword extraction succeeded keyword=沙丘2" in caplog.text
+    assert "LLM keyword extraction succeeded keyword=沙丘2" in caplog.text, "success log should include the extracted keyword"
 
 
 def test_invoke_trims_keyword_whitespace():
     llm = FindKeywordLLM(chat_caller=lambda **kwargs: '{"keyword":"  沙丘2  "}')
 
-    assert llm.invoke("我想看沙丘2") == {"keyword": "沙丘2"}
+    assert llm.invoke("我想看沙丘2") == {"keyword": "沙丘2"}, "whitespace around the keyword should be trimmed"
 
 
 def test_invoke_accepts_json_wrapped_in_code_fence():
@@ -43,7 +43,7 @@ def test_invoke_accepts_json_wrapped_in_code_fence():
         chat_caller=lambda **kwargs: '```json\n{"keyword":"沙丘2"}\n```'
     )
 
-    assert llm.invoke("我想看沙丘2") == {"keyword": "沙丘2"}
+    assert llm.invoke("我想看沙丘2") == {"keyword": "沙丘2"}, "code-fenced JSON should still be parsed"
 
 
 def test_invoke_accepts_json_after_think_block():
@@ -51,7 +51,7 @@ def test_invoke_accepts_json_after_think_block():
         chat_caller=lambda **kwargs: '<think>\ninner-reasoning\n</think>\n{"keyword":"沙丘2"}'
     )
 
-    assert llm.invoke("我想看沙丘2") == {"keyword": "沙丘2"}
+    assert llm.invoke("我想看沙丘2") == {"keyword": "沙丘2"}, "JSON after think block should still be parsed"
 
 
 def test_invoke_raises_for_non_json_output():
@@ -79,8 +79,8 @@ def test_invoke_forwards_message_to_chat_caller():
     llm = FindKeywordLLM(chat_caller=fake_chat_caller)
     llm.invoke("我想看沙丘2")
 
-    assert "Media Librarian" in captured["system_prompt"]
-    assert captured["user_prompt"] == "我想看沙丘2"
+    assert "Media Librarian" in captured["system_prompt"], "system prompt should include the media librarian role"
+    assert captured["user_prompt"] == "我想看沙丘2", "user prompt should be forwarded unchanged"
 
 
 def _fake_sdk_response(content):
@@ -130,12 +130,12 @@ def test_chat_helper_uses_openai_sdk_with_configured_base_url_and_model(monkeypa
 
     result = call_openai_compatible_chat(system_prompt="s", user_prompt="u")
 
-    assert result == '{"keyword":"沙丘2"}'
+    assert result == '{"keyword":"沙丘2"}', "chat helper should return the raw SDK content"
     assert captured["client_kwargs"] == {
         "api_key": "k",
         "base_url": "https://example.invalid/v1",
         "timeout": 30.0,
-    }
+    }, "OpenAI client should be created with the configured base URL and API key"
     assert captured["create_kwargs"] == {
         "model": "fake-model",
         "messages": [
@@ -145,7 +145,7 @@ def test_chat_helper_uses_openai_sdk_with_configured_base_url_and_model(monkeypa
         "temperature": 0.7,
         "max_tokens": 2048,
         "extra_body": {"reasoning_split": True},
-    }
+    }, "chat completion should be created with the expected request payload"
 
 
 def test_chat_helper_logs_metadata_without_secret_or_raw_output(monkeypatch, caplog):
@@ -165,11 +165,11 @@ def test_chat_helper_logs_metadata_without_secret_or_raw_output(monkeypatch, cap
     with caplog.at_level(logging.INFO, logger="app.llm.client"):
         call_openai_compatible_chat(system_prompt="s", user_prompt="u")
 
-    assert "LLM chat completion started model=fake-model" in caplog.text
-    assert "base_url=https://example.invalid/v1" in caplog.text
-    assert "LLM chat completion succeeded model=fake-model" in caplog.text
-    assert "secret-key" not in caplog.text
-    assert '{"keyword":"沙丘2"}' not in caplog.text
+    assert "LLM chat completion started model=fake-model" in caplog.text, "start log should mention the model"
+    assert "base_url=https://example.invalid/v1" in caplog.text, "start log should mention the configured base URL"
+    assert "LLM chat completion succeeded model=fake-model" in caplog.text, "success log should mention the model"
+    assert "secret-key" not in caplog.text, "logs should not leak the API key"
+    assert '{"keyword":"沙丘2"}' not in caplog.text, "logs should not echo raw model output when disabled"
 
 
 def test_chat_helper_logs_raw_output_preview_when_enabled(monkeypatch, caplog):
@@ -194,9 +194,9 @@ def test_chat_helper_logs_raw_output_preview_when_enabled(monkeypatch, caplog):
     with caplog.at_level(logging.DEBUG, logger="app.llm.client"):
         call_openai_compatible_chat(system_prompt="s", user_prompt="u")
 
-    assert "LLM raw output preview" in caplog.text
-    assert "raw_preview=" in caplog.text
-    assert "secret-key" not in caplog.text
+    assert "LLM raw output preview" in caplog.text, "raw output preview should be logged when enabled"
+    assert "raw_preview=" in caplog.text, "raw output preview log should include the preview field"
+    assert "secret-key" not in caplog.text, "logs should not leak the API key"
 
 
 def test_chat_helper_omits_reasoning_split_when_disabled(monkeypatch):
@@ -224,8 +224,8 @@ def test_chat_helper_omits_reasoning_split_when_disabled(monkeypatch):
     call_openai_compatible_chat(system_prompt="s", user_prompt="u")
 
     create_kwargs = captured.get("create_kwargs")
-    assert isinstance(create_kwargs, dict)
-    assert "extra_body" not in create_kwargs
+    assert isinstance(create_kwargs, dict), "chat completion kwargs should be captured as a dict"
+    assert "extra_body" not in create_kwargs, "extra_body should be omitted when reasoning split is disabled"
 
 
 def test_chat_helper_raises_for_missing_message(monkeypatch):
@@ -279,4 +279,4 @@ def test_chat_helper_raises_clearly_when_api_key_missing(monkeypatch):
     with pytest.raises(ValueError, match="LLM_API_KEY"):
         call_openai_compatible_chat(system_prompt="s", user_prompt="u")
 
-    assert called["post"] is False
+    assert called["post"] is False, "helper should fail before attempting an OpenAI request when API key is missing"

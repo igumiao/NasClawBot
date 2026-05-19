@@ -5,8 +5,8 @@ from pathlib import Path
 def _load_keyword_probe_module():
     script_path = Path(__file__).resolve().parents[1] / "scripts" / "keyword_probe.py"
     spec = spec_from_file_location("keyword_probe", script_path)
-    assert spec is not None
-    assert spec.loader is not None
+    assert spec is not None, "scripts/keyword_probe.py should be loadable as a module"
+    assert spec.loader is not None, "keyword_probe module should have a loader"
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -46,4 +46,4 @@ def test_summarize_results_keeps_count_and_top_candidates():
                 "size_bytes": 10737418240,
             }
         ],
-    }
+    }, "summary should keep the count and top candidate payload intact"
