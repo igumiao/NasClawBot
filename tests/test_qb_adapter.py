@@ -18,10 +18,10 @@ def test_qb_add_payload_contains_url_and_category():
         rename="[123] Dune",
     )
 
-    assert payload["urls"] == "https://download.local/token"
-    assert payload["category"] == "movie"
-    assert payload["rename"] == "[123] Dune"
-    assert payload["is_paused"] is False
+    assert payload["urls"] == "https://download.local/token", "add payload should forward the torrent URL"
+    assert payload["category"] == "movie", "add payload should forward the category"
+    assert payload["rename"] == "[123] Dune", "add payload should forward the rename value"
+    assert payload["is_paused"] is False, "add payload should default to unpaused"
 
 
 def test_qb_add_payload_supports_tags_and_paused():
@@ -38,8 +38,8 @@ def test_qb_add_payload_supports_tags_and_paused():
         tags=["mteam", "night-watch"],
     )
 
-    assert payload["is_paused"] is True
-    assert payload["tags"] == ["mteam", "night-watch"]
+    assert payload["is_paused"] is True, "paused flag should be preserved in add payload"
+    assert payload["tags"] == ["mteam", "night-watch"], "tag list should preserve non-empty tags"
 
 
 def test_qb_add_payload_rejects_empty_url():
@@ -82,14 +82,14 @@ def test_qb_add_torrent_url_delegates_to_qbittorrent_api_client(monkeypatch: pyt
         tags=["mteam"],
     )
 
-    assert captured["client_kwargs"]["host"] == "http://qb.local"
-    assert captured["logged_in"] is True
-    assert captured["add_kwargs"]["urls"] == "https://download.local/token"
-    assert captured["add_kwargs"]["category"] == "movie"
-    assert captured["add_kwargs"]["rename"] == "[123] Dune"
-    assert captured["add_kwargs"]["is_paused"] is True
-    assert captured["add_kwargs"]["tags"] == ["mteam"]
-    assert result["status"] == "submitted_paused"
+    assert captured["client_kwargs"]["host"] == "http://qb.local", "client host should be normalized without trailing slash"
+    assert captured["logged_in"] is True, "adapter should log in before adding a torrent"
+    assert captured["add_kwargs"]["urls"] == "https://download.local/token", "torrent URL should be forwarded to qB"
+    assert captured["add_kwargs"]["category"] == "movie", "category should be forwarded to qB"
+    assert captured["add_kwargs"]["rename"] == "[123] Dune", "rename should be forwarded to qB"
+    assert captured["add_kwargs"]["is_paused"] is True, "paused flag should be forwarded to qB"
+    assert captured["add_kwargs"]["tags"] == ["mteam"], "tags should be forwarded to qB"
+    assert result["status"] == "submitted_paused", "paused add should report submitted_paused"
 
 
 def test_qb_add_torrent_url_reports_submitted_when_not_paused(monkeypatch: pytest.MonkeyPatch):
@@ -107,7 +107,7 @@ def test_qb_add_torrent_url_reports_submitted_when_not_paused(monkeypatch: pytes
             return None
 
         def torrents_add(self, **kwargs):
-            assert kwargs["is_paused"] is False
+            assert kwargs["is_paused"] is False, "default add should submit unpaused"
             return "ok"
 
     monkeypatch.setattr(qb_module, "qbittorrentapi", SimpleNamespace(Client=FakeClient), raising=False)
@@ -119,7 +119,7 @@ def test_qb_add_torrent_url_reports_submitted_when_not_paused(monkeypatch: pytes
         paused=False,
     )
 
-    assert result["status"] == "submitted"
+    assert result["status"] == "submitted", "unpaused add should report submitted"
 
 
 def test_qb_list_categories_reads_qbittorrent_api_categories(monkeypatch: pytest.MonkeyPatch):
@@ -146,8 +146,8 @@ def test_qb_list_categories_reads_qbittorrent_api_categories(monkeypatch: pytest
 
     categories = adapter.list_categories()
 
-    assert categories["movie"]["savePath"] == "/downloads/movie"
-    assert categories["tv"]["savePath"] == "/downloads/tv"
+    assert categories["movie"]["savePath"] == "/downloads/movie", "movie category should be read from qB categories"
+    assert categories["tv"]["savePath"] == "/downloads/tv", "tv category should be read from qB categories"
 
 
 def test_qb_list_torrents_returns_structured_rows(monkeypatch: pytest.MonkeyPatch):
@@ -188,9 +188,9 @@ def test_qb_list_torrents_returns_structured_rows(monkeypatch: pytest.MonkeyPatc
 
     rows = adapter.list_torrents(category="movie", tag="mteam", limit=5)
 
-    assert captured["list_kwargs"]["category"] == "movie"
-    assert captured["list_kwargs"]["tag"] == "mteam"
-    assert captured["list_kwargs"]["limit"] == 5
+    assert captured["list_kwargs"]["category"] == "movie", "list_torrents should forward category filter"
+    assert captured["list_kwargs"]["tag"] == "mteam", "list_torrents should forward tag filter"
+    assert captured["list_kwargs"]["limit"] == 5, "list_torrents should forward limit"
     assert rows == [
         {
             "hash": "abc123",
@@ -206,7 +206,7 @@ def test_qb_list_torrents_returns_structured_rows(monkeypatch: pytest.MonkeyPatc
             "size": 123456,
             "total_size": 654321,
         }
-    ]
+    ], "list_torrents should normalize the returned rows"
 
 
 def test_qb_get_torrent_returns_combined_info_and_properties(monkeypatch: pytest.MonkeyPatch):
@@ -224,7 +224,7 @@ def test_qb_get_torrent_returns_combined_info_and_properties(monkeypatch: pytest
             return None
 
         def torrents_info(self, **kwargs):
-            assert kwargs["torrent_hashes"] == "abc123"
+            assert kwargs["torrent_hashes"] == "abc123", "detail lookup should request the selected hash"
             return [
                 SimpleNamespace(
                     hash="abc123",
@@ -243,7 +243,7 @@ def test_qb_get_torrent_returns_combined_info_and_properties(monkeypatch: pytest
             ]
 
         def torrents_properties(self, **kwargs):
-            assert kwargs["torrent_hash"] == "abc123"
+            assert kwargs["torrent_hash"] == "abc123", "detail lookup should request properties for the selected hash"
             return SimpleNamespace(
                 comment="from mteam",
                 total_uploaded=999,
@@ -272,7 +272,7 @@ def test_qb_get_torrent_returns_combined_info_and_properties(monkeypatch: pytest
         "total_uploaded": 999,
         "share_ratio": 0.5,
         "creation_date": 1710000000,
-    }
+    }, "get_torrent should merge info and properties into one row"
 
 
 def test_qb_get_torrent_returns_none_when_missing(monkeypatch: pytest.MonkeyPatch):
@@ -295,7 +295,7 @@ def test_qb_get_torrent_returns_none_when_missing(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(qb_module, "qbittorrentapi", SimpleNamespace(Client=FakeClient), raising=False)
 
-    assert adapter.get_torrent("missing") is None
+    assert adapter.get_torrent("missing") is None, "missing torrent hash should return None"
 
 
 @pytest.mark.parametrize(
@@ -353,9 +353,9 @@ def test_qb_control_torrent_dispatches_actions(
 
     result = adapter.control_torrent("abc123", action=action, **extra_kwargs)
 
-    assert captured["call"] == expected_call
-    assert captured["kwargs"] == expected_payload
-    assert result == {"ok": True, "status": action, "qb_hash": "abc123"}
+    assert captured["call"] == expected_call, "control_torrent should dispatch the expected qB method"
+    assert captured["kwargs"] == expected_payload, "control_torrent should forward the expected qB payload"
+    assert result == {"ok": True, "status": action, "qb_hash": "abc123"}, "control_torrent should report success for supported actions"
 
 
 def test_qb_control_torrent_rejects_unknown_action():

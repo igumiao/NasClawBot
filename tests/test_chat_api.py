@@ -68,22 +68,22 @@ class FakeRunner:
 def test_health_endpoint_returns_ok():
     client = TestClient(create_app())
     response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    assert response.status_code == 200, "/health should respond with HTTP 200"
+    assert response.json()["status"] == "ok", "/health should report ok status"
 
 
 def test_index_page_is_served():
     client = TestClient(create_app())
     response = client.get("/")
-    assert response.status_code == 200
-    assert "fnOS Media Agent" in response.text
+    assert response.status_code == 200, "/ should serve the frontend page"
+    assert "fnOS Media Agent" in response.text, "index page should contain the app title"
 
 
 def test_create_app_allows_workflow_override():
     client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.post("/chat", json={"session_id": "s1", "message": "hello"})
-    assert response.status_code == 200
-    assert response.json()["confirmation_payload"]["summary"] == "fake:hello"
+    assert response.status_code == 200, "/chat should accept the overridden workflow runner"
+    assert response.json()["confirmation_payload"]["summary"] == "fake:hello", "overridden runner should shape the summary"
 
 
 def test_chat_endpoint_returns_confirmation_payload():
@@ -92,11 +92,11 @@ def test_chat_endpoint_returns_confirmation_payload():
         "/chat",
         json={"session_id": "s1", "message": "I want to watch Dune tonight"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, "/chat should respond with HTTP 200"
     body = response.json()
-    assert body["status"] == "awaiting_confirmation"
-    assert body["confirmation_payload"]["recommended_result_id"] == "x1"
-    assert body["confirmation_payload"]["results"]
+    assert body["status"] == "awaiting_confirmation", "chat response should remain awaiting confirmation"
+    assert body["confirmation_payload"]["recommended_result_id"] == "x1", "chat response should preserve the recommended result"
+    assert body["confirmation_payload"]["results"], "chat response should include search results"
 
 
 def test_confirm_approve_returns_completed_with_receipt():
@@ -115,11 +115,11 @@ def test_confirm_approve_returns_completed_with_receipt():
             "confirmation_payload": payload,
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, "/confirm should accept approved selections"
     body = response.json()
-    assert body["status"] == "completed"
-    assert body["receipt"]["status"] == "submitted_paused"
-    assert body["receipt"]["external_id"] == payload["recommended_result_id"]
+    assert body["status"] == "completed", "approve should complete the workflow"
+    assert body["receipt"]["status"] == "submitted_paused", "approve should preserve the submitted_paused receipt status"
+    assert body["receipt"]["external_id"] == payload["recommended_result_id"], "receipt should preserve the chosen external id"
 
 
 def test_confirm_reject_and_refine_returns_route_level_phase2a_error():
@@ -148,10 +148,10 @@ def test_confirm_reject_and_refine_returns_route_level_phase2a_error():
             "confirmation_payload": {"results": []},
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, "/confirm should return a route-level validation response"
     body = response.json()
-    assert body["status"] == "error"
-    assert body["error"] == "Phase 2A does not support reject_and_refine on /confirm."
+    assert body["status"] == "error", "reject_and_refine should be rejected at the route level"
+    assert body["error"] == "Phase 2A does not support reject_and_refine on /confirm.", "route error text should stay stable"
 
 
 def test_confirm_endpoint_parses_confirmation_payload_to_model():
@@ -197,9 +197,9 @@ def test_confirm_endpoint_parses_confirmation_payload_to_model():
         },
     )
 
-    assert response.status_code == 200
-    assert isinstance(captured["confirmation_payload"], ConfirmationPayload)
-    assert captured["selected_result_id"] == "x1"
+    assert response.status_code == 200, "/confirm should accept a typed confirmation payload"
+    assert isinstance(captured["confirmation_payload"], ConfirmationPayload), "route should coerce confirmation payload to model"
+    assert captured["selected_result_id"] == "x1", "route should forward the selected result id"
 
 
 def test_confirm_does_not_forward_feedback_text_kwarg():
@@ -229,8 +229,8 @@ def test_confirm_does_not_forward_feedback_text_kwarg():
             "confirmation_payload": {"results": []},
         },
     )
-    assert response.status_code == 200
-    assert response.json()["status"] == "canceled"
+    assert response.status_code == 200, "/confirm should accept cancel requests"
+    assert response.json()["status"] == "canceled", "cancel should return canceled status"
 
 
 def test_session_store_round_trip():
@@ -247,8 +247,8 @@ def test_session_store_round_trip():
     )
 
     record = store.get("s1")
-    assert record is not None
-    assert record["status"] == "awaiting_confirmation"
+    assert record is not None, "session store should return the inserted record"
+    assert record["status"] == "awaiting_confirmation", "session store should persist the status"
 
     db_path.unlink(missing_ok=True)
 
@@ -281,8 +281,8 @@ def test_adapter_download_executor_blocks_non_torrent_download_url():
     executor = AdapterDownloadExecutor(FakeMTeamAdapter(), FakeQBAdapter())
     result = executor({"id": "1172412", "title": "Fake"}, "movie")
 
-    assert result["status"] == "download_url_invalid"
-    assert result["qb_hash"] is None
+    assert result["status"] == "download_url_invalid", "invalid torrent URL should be rejected before qB submission"
+    assert result["qb_hash"] is None, "invalid torrent URL should not produce a qB hash"
 
 
 def test_adapter_download_executor_submits_paused_and_returns_paused_status():
@@ -290,11 +290,11 @@ def test_adapter_download_executor_submits_paused_and_returns_paused_status():
 
     class FakeMTeamAdapter:
         def get_torrent_details(self, torrent_id: str):
-            assert torrent_id == "1172412"
+            assert torrent_id == "1172412", "download executor should request details for the selected torrent"
             return {"name": "Fake Item"}
 
         def get_torrent_download_url(self, torrent_id: str):
-            assert torrent_id == "1172412"
+            assert torrent_id == "1172412", "download executor should request a token for the selected torrent"
             return "https://download.local/file.torrent"
 
         def is_download_url_torrent(self, url: str) -> bool:
@@ -303,8 +303,8 @@ def test_adapter_download_executor_submits_paused_and_returns_paused_status():
     class FakeQBAdapter:
         def generate_mteam_torrent_name(self, mteam_id, detail, qb_category):
             _ = detail
-            assert mteam_id == "1172412"
-            assert qb_category == "movie"
+            assert mteam_id == "1172412", "qB name generation should use the M-Team id"
+            assert qb_category == "movie", "qB name generation should receive the target category"
             return "[1172412][movie][Fake.Item]"
 
         def add_torrent_url(self, **kwargs):
@@ -314,27 +314,27 @@ def test_adapter_download_executor_submits_paused_and_returns_paused_status():
     executor = AdapterDownloadExecutor(FakeMTeamAdapter(), FakeQBAdapter())
     result = executor({"id": "1172412", "title": "Fake"}, "movie")
 
-    assert calls["paused"] is True
-    assert calls["category"] == "movie"
-    assert calls["tags"] == ["mteam"]
-    assert result["status"] == "submitted_paused"
-    assert result["qb_hash"] == "abc123"
+    assert calls["paused"] is True, "download submission should pause the torrent by default"
+    assert calls["category"] == "movie", "download submission should preserve the qB category"
+    assert calls["tags"] == ["mteam"], "download submission should tag the torrent as mteam"
+    assert result["status"] == "submitted_paused", "download submission should report submitted_paused"
+    assert result["qb_hash"] == "abc123", "download submission should return the qB hash"
 
 
 def test_adapter_search_tool_accepts_keyword_string():
     class FakeMTeamAdapter:
         def search_torrents_by_keyword(self, *, keyword: str, page: int, page_size: int):
-            assert keyword == "dune"
-            assert page == 1
-            assert page_size == 20
+            assert keyword == "dune", "search tool should forward the normalized keyword"
+            assert page == 1, "search tool should use the default page"
+            assert page_size == 20, "search tool should use the default page size"
             return [{"id": "1", "title": "Dune.2021.2160p", "seeders": 42, "size": "1.2 GB"}]
 
     tool = chat_routes.AdapterSearchTool(FakeMTeamAdapter())
     results = tool("dune")
 
-    assert len(results) == 1
-    assert results[0].title == "Dune.2021.2160p"
-    assert results[0].resolution == "2160p"
+    assert len(results) == 1, "search tool should return one normalized result"
+    assert results[0].title == "Dune.2021.2160p", "search tool should preserve the title"
+    assert results[0].resolution == "2160p", "search tool should infer resolution from the title"
 
 
 def test_build_default_runner_wires_find_keyword_llm(monkeypatch: pytest.MonkeyPatch):
@@ -377,10 +377,10 @@ def test_build_default_runner_wires_find_keyword_llm(monkeypatch: pytest.MonkeyP
 
     runner = chat_routes._build_default_runner()
 
-    assert isinstance(captured["keyword_finder"], FakeFindKeywordLLM)
-    assert isinstance(captured["search_tool"], chat_routes.AdapterSearchTool)
-    assert callable(captured["download_executor"])
-    assert isinstance(runner, FakeRunner)
+    assert isinstance(captured["keyword_finder"], FakeFindKeywordLLM), "default runner should wire the keyword finder"
+    assert isinstance(captured["search_tool"], chat_routes.AdapterSearchTool), "default runner should wire the search tool"
+    assert callable(captured["download_executor"]), "default runner should wire the download executor"
+    assert isinstance(runner, FakeRunner), "default runner should build the workflow runner"
 
 
 def test_list_qb_torrents_endpoint_returns_adapter_rows(monkeypatch: pytest.MonkeyPatch):
@@ -420,8 +420,8 @@ def test_list_qb_torrents_endpoint_returns_adapter_rows(monkeypatch: pytest.Monk
     client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.get("/qb/torrents", params={"category": "movie", "tag": "mteam", "limit": 10})
 
-    assert response.status_code == 200
-    assert captured["init"] == ("https://qb.local", "user", "pass")
+    assert response.status_code == 200, "/qb/torrents should respond with HTTP 200"
+    assert captured["init"] == ("https://qb.local", "user", "pass"), "qb adapter should be initialized with the configured settings"
     assert captured["list_kwargs"] == {
         "category": "movie",
         "tag": "mteam",
@@ -429,10 +429,10 @@ def test_list_qb_torrents_endpoint_returns_adapter_rows(monkeypatch: pytest.Monk
         "status_filter": None,
         "sort": None,
         "reverse": None,
-    }
+    }, "qb torrent listing should forward query params"
     body = response.json()
-    assert body["items"][0]["hash"] == "abc123"
-    assert body["items"][0]["progress"] == 0.42
+    assert body["items"][0]["hash"] == "abc123", "qb torrent listing should include the hash"
+    assert body["items"][0]["progress"] == 0.42, "qb torrent listing should include the progress"
 
 
 def test_get_qb_torrent_endpoint_returns_not_found_when_missing(monkeypatch: pytest.MonkeyPatch):
@@ -441,7 +441,7 @@ def test_get_qb_torrent_endpoint_returns_not_found_when_missing(monkeypatch: pyt
             _ = (base_url, username, password)
 
         def get_torrent(self, torrent_hash: str):
-            assert torrent_hash == "missing"
+            assert torrent_hash == "missing", "missing torrent lookup should query the missing hash"
             return None
 
     class FakeSettings:
@@ -455,8 +455,8 @@ def test_get_qb_torrent_endpoint_returns_not_found_when_missing(monkeypatch: pyt
     client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.get("/qb/torrents/missing")
 
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Torrent not found: missing"
+    assert response.status_code == 404, "/qb/torrents/{hash} should return 404 when missing"
+    assert response.json()["detail"] == "Torrent not found: missing", "missing torrent response should preserve the hash"
 
 
 def test_get_qb_torrent_endpoint_returns_detail_payload(monkeypatch: pytest.MonkeyPatch):
@@ -465,7 +465,7 @@ def test_get_qb_torrent_endpoint_returns_detail_payload(monkeypatch: pytest.Monk
             _ = (base_url, username, password)
 
         def get_torrent(self, torrent_hash: str):
-            assert torrent_hash == "abc123"
+            assert torrent_hash == "abc123", "detail lookup should query the requested hash"
             return {
                 "hash": "abc123",
                 "name": "Dune Part Two",
@@ -496,11 +496,11 @@ def test_get_qb_torrent_endpoint_returns_detail_payload(monkeypatch: pytest.Monk
     client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.get("/qb/torrents/abc123")
 
-    assert response.status_code == 200
+    assert response.status_code == 200, "/qb/torrents/{hash} should return HTTP 200 for found torrents"
     body = response.json()
-    assert body["hash"] == "abc123"
-    assert body["progress"] == 0.6
-    assert body["download_speed"] == 4096
+    assert body["hash"] == "abc123", "detail response should include the torrent hash"
+    assert body["progress"] == 0.6, "detail response should include the progress"
+    assert body["download_speed"] == 4096, "detail response should include the download speed"
 
 
 def test_qb_torrent_action_endpoint_dispatches_control(monkeypatch: pytest.MonkeyPatch):
@@ -529,13 +529,13 @@ def test_qb_torrent_action_endpoint_dispatches_control(monkeypatch: pytest.Monke
     client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.post("/qb/torrents/abc123/actions", json={"action": "pause"})
 
-    assert response.status_code == 200
+    assert response.status_code == 200, "/qb/torrents/{hash}/actions should accept supported actions"
     assert captured["control"] == {
         "torrent_hash": "abc123",
         "action": "pause",
         "delete_files": False,
-    }
-    assert response.json()["status"] == "pause"
+    }, "qb action endpoint should forward the control request"
+    assert response.json()["status"] == "pause", "qb action endpoint should echo the returned action"
 
 
 def test_qb_torrent_action_endpoint_rejects_invalid_action(monkeypatch: pytest.MonkeyPatch):
@@ -558,4 +558,4 @@ def test_qb_torrent_action_endpoint_rejects_invalid_action(monkeypatch: pytest.M
     client = TestClient(create_app(workflow_runner=FakeRunner()))
     response = client.post("/qb/torrents/abc123/actions", json={"action": "start-now"})
 
-    assert response.status_code == 422
+    assert response.status_code == 422, "invalid qB action should be rejected by route validation"

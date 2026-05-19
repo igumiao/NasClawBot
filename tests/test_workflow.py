@@ -18,7 +18,7 @@ class StubExtractor:
 
 class StubSearchTool:
     def __call__(self, keyword: str):
-        assert keyword == "dune"
+        assert keyword == "dune", "workflow should normalize the extracted keyword before search"
         return [
             ResourceCandidate(
                 id="2",
@@ -48,15 +48,15 @@ def test_workflow_returns_confirmation_payload():
     result = graph.invoke({"session_id": "s1", "user_message": "I want to watch Dune tonight"})
     payload = result["confirmation_payload"]
 
-    assert isinstance(payload, ConfirmationPayload)
-    assert payload.recommended_result_id == "2"
-    assert len(payload.results) == 2
-    assert isinstance(payload.results[0], ConfirmationCandidate)
-    assert payload.results[0].size == "12 GB"
-    assert "score" not in payload.results[0].model_dump()
-    assert "reasons" not in payload.results[0].model_dump()
-    assert "explanation" not in payload.model_dump()
-    assert result["status"] == "awaiting_confirmation"
+    assert isinstance(payload, ConfirmationPayload), "workflow should produce a confirmation payload model"
+    assert payload.recommended_result_id == "2", "highest-seeder result should be recommended"
+    assert len(payload.results) == 2, "search results should be preserved in the payload"
+    assert isinstance(payload.results[0], ConfirmationCandidate), "payload entries should be confirmation candidates"
+    assert payload.results[0].size == "12 GB", "top candidate should keep the original size string"
+    assert "score" not in payload.results[0].model_dump(), "candidate model should not leak score"
+    assert "reasons" not in payload.results[0].model_dump(), "candidate model should not leak reasons"
+    assert "explanation" not in payload.model_dump(), "payload model should not leak explanation"
+    assert result["status"] == "awaiting_confirmation", "workflow should stop at awaiting_confirmation"
 
 
 def test_workflow_logs_keyword_search_and_confirmation(caplog):
@@ -65,9 +65,9 @@ def test_workflow_logs_keyword_search_and_confirmation(caplog):
     with caplog.at_level(logging.INFO, logger="app.workflow.nodes"):
         graph.invoke({"session_id": "s1", "user_message": "I want to watch Dune tonight"})
 
-    assert "Keyword extracted session_id=s1 keyword=dune" in caplog.text
-    assert "Search completed session_id=s1 keyword=dune result_count=2" in caplog.text
-    assert "Confirmation payload built session_id=s1 result_count=2 recommended_result_id=2" in caplog.text
+    assert "Keyword extracted session_id=s1 keyword=dune" in caplog.text, "keyword extraction log should be emitted"
+    assert "Search completed session_id=s1 keyword=dune result_count=2" in caplog.text, "search completion log should be emitted"
+    assert "Confirmation payload built session_id=s1 result_count=2 recommended_result_id=2" in caplog.text, "confirmation payload log should be emitted"
 
 
 def test_receipt_builder_reports_duplicate_result():
@@ -79,8 +79,8 @@ def test_receipt_builder_reports_duplicate_result():
         status="already_exists",
     )
 
-    assert receipt["status"] == "already_exists"
-    assert receipt["external_id"] == "123"
+    assert receipt["status"] == "already_exists", "duplicate receipt should report already_exists"
+    assert receipt["external_id"] == "123", "duplicate receipt should preserve the external id"
 
 
 def test_workflow_executes_approved_selection_and_returns_receipt():
@@ -103,10 +103,10 @@ def test_workflow_executes_approved_selection_and_returns_receipt():
         }
     )
 
-    assert result["status"] == "completed"
-    assert result["confirmation_payload"].execution_result["external_id"] == "2"
-    assert result["confirmation_payload"].receipt["status"] == "submitted_paused"
-    assert result["confirmation_payload"].receipt["qb_hash"] == "stub-hash"
+    assert result["status"] == "completed", "approved workflow should complete"
+    assert result["confirmation_payload"].execution_result["external_id"] == "2", "approved selection should keep the chosen id"
+    assert result["confirmation_payload"].receipt["status"] == "submitted_paused", "default executor should report submitted_paused"
+    assert result["confirmation_payload"].receipt["qb_hash"] == "stub-hash", "default executor should attach the qB hash"
 
 
 def test_workflow_uses_injected_download_executor():
@@ -140,11 +140,11 @@ def test_workflow_uses_injected_download_executor():
         }
     )
 
-    assert captured["selected_id"] == "2"
-    assert captured["category"] == "movie"
-    assert result["confirmation_payload"].receipt["external_id"] == "2"
-    assert result["confirmation_payload"].receipt["qb_hash"] == "injected-hash"
-    assert result["confirmation_payload"].receipt["status"] == "submitted_paused"
+    assert captured["selected_id"] == "2", "download executor should receive the selected result id"
+    assert captured["category"] == "movie", "download executor should receive the qB category"
+    assert result["confirmation_payload"].receipt["external_id"] == "2", "receipt should preserve selected id"
+    assert result["confirmation_payload"].receipt["qb_hash"] == "injected-hash", "receipt should preserve injected qb hash"
+    assert result["confirmation_payload"].receipt["status"] == "submitted_paused", "download executor should preserve submitted_paused status"
 
 
 def test_workflow_logs_download_execution(caplog):
@@ -169,8 +169,8 @@ def test_workflow_logs_download_execution(caplog):
             }
         )
 
-    assert "Download execution started session_id=s1 selected_result_id=2 qb_category=movie" in caplog.text
-    assert "Download execution finished session_id=s1 selected_result_id=2 status=submitted_paused" in caplog.text
+    assert "Download execution started session_id=s1 selected_result_id=2 qb_category=movie" in caplog.text, "download start log should be emitted"
+    assert "Download execution finished session_id=s1 selected_result_id=2 status=submitted_paused" in caplog.text, "download finish log should be emitted"
 
 
 def test_workflow_limits_confirmation_payload_to_first_three_results():
@@ -223,12 +223,12 @@ def test_workflow_limits_confirmation_payload_to_first_three_results():
     graph = build_workflow(keyword_finder=StubExtractor(), search_tool=FourResultSearchTool())
     result = graph.invoke({"session_id": "s1", "user_message": "find dune"})
 
-    assert [item.id for item in result["confirmation_payload"].results] == ["1", "2", "3"]
+    assert [item.id for item in result["confirmation_payload"].results] == ["1", "2", "3"], "confirmation payload should keep only the first three results"
 
 
 def test_build_workflow_uses_default_keyword_finder():
     graph = build_workflow(search_tool=StubSearchTool())
-    assert graph is not None
+    assert graph is not None, "build_workflow should return a graph instance"
 
 
 def test_workflow_accepts_keyword_only_dict_payload():
@@ -240,7 +240,7 @@ def test_workflow_accepts_keyword_only_dict_payload():
     graph = build_workflow(keyword_finder=DictKeywordFinder(), search_tool=StubSearchTool())
     result = graph.invoke({"session_id": "s1", "user_message": "watch dune"})
 
-    assert result["keyword"] == "dune"
+    assert result["keyword"] == "dune", "keyword-only dict payload should be preserved"
 
 
 def test_workflow_accepts_keyword_dict_with_extra_metadata():
@@ -252,7 +252,7 @@ def test_workflow_accepts_keyword_dict_with_extra_metadata():
     graph = build_workflow(keyword_finder=KeywordWithMetadataFinder(), search_tool=StubSearchTool())
     result = graph.invoke({"session_id": "s1", "user_message": "watch dune"})
 
-    assert result["keyword"] == "dune"
+    assert result["keyword"] == "dune", "keyword metadata payload should still preserve keyword"
 
 
 def test_workflow_rejects_keyword_finder_output_without_keyword():
@@ -297,7 +297,7 @@ def test_workflow_executor_missing_status_defaults_to_submitted_paused():
         }
     )
 
-    assert result["confirmation_payload"].receipt["status"] == "submitted_paused"
+    assert result["confirmation_payload"].receipt["status"] == "submitted_paused", "executor missing status should default to submitted_paused"
 
 
 def test_qb_add_torrent_url_requires_ok_body_not_only_http_200(monkeypatch):
@@ -321,5 +321,5 @@ def test_qb_add_torrent_url_requires_ok_body_not_only_http_200(monkeypatch):
         rename="[123][movie][title]",
     )
 
-    assert result["ok"] is False
-    assert result["status"] == "unknown"
+    assert result["ok"] is False, "qB add should report failure when client returns unexpected body"
+    assert result["status"] == "unknown", "unexpected qB body should map to unknown status"
