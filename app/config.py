@@ -57,9 +57,9 @@ class Settings(BaseModel):
     qb_base_url: str = Field(default_factory=lambda: _get_env("QB_BASE_URL"))
     qb_username: str = Field(default_factory=lambda: _get_env("QB_USERNAME"))
     qb_password: str = Field(default_factory=lambda: _get_env("QB_PASSWORD"))
-    llm_model: str = Field(default_factory=lambda: _get_env("LLM_MODEL", "gpt-4o-mini"))
+    llm_model: str = Field(default_factory=lambda: _get_env("LLM_MODEL", "deepseek-v4-pro"))
     llm_api_key: str = Field(default_factory=lambda: _get_env("LLM_API_KEY"))
-    llm_base_url: str = Field(default_factory=lambda: _get_env("LLM_BASE_URL", "https://api.openai.com/v1"))
+    llm_base_url: str = Field(default_factory=lambda: _get_env("LLM_BASE_URL", "https://api.deepseek.com"))
     llm_reasoning_split: bool = Field(default_factory=lambda: _get_bool_env("LLM_REASONING_SPLIT", True))
     database_path: str = Field(default_factory=lambda: _get_env("DATABASE_PATH", "nas_media_agent.db"))
 

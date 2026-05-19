@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 
 from app.llm.client import call_openai_compatible_chat
 from app.llm.find_keyword_llm import FindKeywordLLM
@@ -10,17 +11,6 @@ class _FakeSettings:
         self.llm_api_key = api_key
         self.llm_base_url = "https://example.invalid/v1"
         self.llm_reasoning_split = True
-
-
-class _FakeResponse:
-    def __init__(self, payload: dict):
-        self._payload = payload
-
-    def raise_for_status(self):
-        return None
-
-    def json(self):
-        return self._payload
 
 
 def test_invoke_returns_keyword_dict():
@@ -78,36 +68,72 @@ def test_invoke_forwards_message_to_chat_caller():
     llm = FindKeywordLLM(chat_caller=fake_chat_caller)
     llm.invoke("我想看沙丘2")
 
-    assert "Return STRICT JSON format" in captured["system_prompt"]
+    assert "Media Librarian" in captured["system_prompt"]
     assert captured["user_prompt"] == "我想看沙丘2"
+
+
+def _fake_sdk_response(content):
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=content),
+            )
+        ]
+    )
 
 
 def test_chat_helper_raises_for_empty_choices(monkeypatch):
     monkeypatch.setattr("app.llm.client.get_settings", lambda: _FakeSettings(api_key="k"))
-    monkeypatch.setattr(
-        "app.llm.client.httpx.post",
-        lambda *args, **kwargs: _FakeResponse({"choices": []}),
-    )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            _ = kwargs
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **create_kwargs: SimpleNamespace(choices=[]),
+                )
+            )
+
+    monkeypatch.setattr("app.llm.client.OpenAI", FakeOpenAI, raising=False)
 
     with pytest.raises(ValueError, match="choices"):
         call_openai_compatible_chat(system_prompt="s", user_prompt="u")
 
 
-def test_chat_helper_includes_reasoning_split_from_settings(monkeypatch):
+def test_chat_helper_uses_openai_sdk_with_configured_base_url_and_model(monkeypatch):
     captured: dict[str, object] = {}
 
-    def fake_post(*args, **kwargs):
-        captured.update(kwargs)
-        return _FakeResponse({"choices": [{"message": {"content": '{"keyword":"沙丘2"}'}}]})
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured["client_kwargs"] = kwargs
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=self.create),
+            )
+
+        def create(self, **kwargs):
+            captured["create_kwargs"] = kwargs
+            return _fake_sdk_response('{"keyword":"沙丘2"}')
 
     monkeypatch.setattr("app.llm.client.get_settings", lambda: _FakeSettings(api_key="k"))
-    monkeypatch.setattr("app.llm.client.httpx.post", fake_post)
+    monkeypatch.setattr("app.llm.client.OpenAI", FakeOpenAI, raising=False)
 
-    call_openai_compatible_chat(system_prompt="s", user_prompt="u")
+    result = call_openai_compatible_chat(system_prompt="s", user_prompt="u")
 
-    body = captured.get("json")
-    assert isinstance(body, dict)
-    assert body["reasoning_split"] is True
+    assert result == '{"keyword":"沙丘2"}'
+    assert captured["client_kwargs"] == {
+        "api_key": "k",
+        "base_url": "https://example.invalid/v1",
+        "timeout": 30.0,
+    }
+    assert captured["create_kwargs"] == {
+        "model": "fake-model",
+        "messages": [
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "u"},
+        ],
+        "temperature": 0,
+        "extra_body": {"reasoning_split": True},
+    }
 
 
 def test_chat_helper_omits_reasoning_split_when_disabled(monkeypatch):
@@ -118,26 +144,42 @@ def test_chat_helper_omits_reasoning_split_when_disabled(monkeypatch):
             super().__init__(api_key=api_key)
             self.llm_reasoning_split = False
 
-    def fake_post(*args, **kwargs):
-        captured.update(kwargs)
-        return _FakeResponse({"choices": [{"message": {"content": '{"keyword":"沙丘2"}'}}]})
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            _ = kwargs
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=self.create),
+            )
+
+        def create(self, **kwargs):
+            captured["create_kwargs"] = kwargs
+            return _fake_sdk_response('{"keyword":"沙丘2"}')
 
     monkeypatch.setattr("app.llm.client.get_settings", lambda: _DisabledReasoningSettings(api_key="k"))
-    monkeypatch.setattr("app.llm.client.httpx.post", fake_post)
+    monkeypatch.setattr("app.llm.client.OpenAI", FakeOpenAI, raising=False)
 
     call_openai_compatible_chat(system_prompt="s", user_prompt="u")
 
-    body = captured.get("json")
-    assert isinstance(body, dict)
-    assert "reasoning_split" not in body
+    create_kwargs = captured.get("create_kwargs")
+    assert isinstance(create_kwargs, dict)
+    assert "extra_body" not in create_kwargs
 
 
 def test_chat_helper_raises_for_missing_message(monkeypatch):
     monkeypatch.setattr("app.llm.client.get_settings", lambda: _FakeSettings(api_key="k"))
-    monkeypatch.setattr(
-        "app.llm.client.httpx.post",
-        lambda *args, **kwargs: _FakeResponse({"choices": [{"index": 0}]}),
-    )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            _ = kwargs
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **create_kwargs: SimpleNamespace(
+                        choices=[SimpleNamespace(index=0)]
+                    ),
+                )
+            )
+
+    monkeypatch.setattr("app.llm.client.OpenAI", FakeOpenAI, raising=False)
 
     with pytest.raises(ValueError, match="message"):
         call_openai_compatible_chat(system_prompt="s", user_prompt="u")
@@ -145,12 +187,17 @@ def test_chat_helper_raises_for_missing_message(monkeypatch):
 
 def test_chat_helper_raises_for_non_string_content(monkeypatch):
     monkeypatch.setattr("app.llm.client.get_settings", lambda: _FakeSettings(api_key="k"))
-    monkeypatch.setattr(
-        "app.llm.client.httpx.post",
-        lambda *args, **kwargs: _FakeResponse(
-            {"choices": [{"message": {"content": {"keyword": "沙丘2"}}}]}
-        ),
-    )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            _ = kwargs
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **create_kwargs: _fake_sdk_response({"keyword": "沙丘2"}),
+                )
+            )
+
+    monkeypatch.setattr("app.llm.client.OpenAI", FakeOpenAI, raising=False)
 
     with pytest.raises(ValueError, match="content"):
         call_openai_compatible_chat(system_prompt="s", user_prompt="u")
@@ -161,10 +208,10 @@ def test_chat_helper_raises_clearly_when_api_key_missing(monkeypatch):
 
     def fake_post(*args, **kwargs):
         called["post"] = True
-        return _FakeResponse({"choices": [{"message": {"content": '{"keyword":"x"}'}}]})
+        return _fake_sdk_response('{"keyword":"x"}')
 
     monkeypatch.setattr("app.llm.client.get_settings", lambda: _FakeSettings(api_key=""))
-    monkeypatch.setattr("app.llm.client.httpx.post", fake_post)
+    monkeypatch.setattr("app.llm.client.OpenAI", fake_post, raising=False)
 
     with pytest.raises(ValueError, match="LLM_API_KEY"):
         call_openai_compatible_chat(system_prompt="s", user_prompt="u")
