@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import logging
 
 import pytest
 
@@ -56,6 +57,17 @@ def test_workflow_returns_confirmation_payload():
     assert "reasons" not in payload.results[0].model_dump()
     assert "explanation" not in payload.model_dump()
     assert result["status"] == "awaiting_confirmation"
+
+
+def test_workflow_logs_keyword_search_and_confirmation(caplog):
+    graph = build_workflow(keyword_finder=StubExtractor(), search_tool=StubSearchTool())
+
+    with caplog.at_level(logging.INFO, logger="app.workflow.nodes"):
+        graph.invoke({"session_id": "s1", "user_message": "I want to watch Dune tonight"})
+
+    assert "Keyword extracted session_id=s1 keyword=dune" in caplog.text
+    assert "Search completed session_id=s1 keyword=dune result_count=2" in caplog.text
+    assert "Confirmation payload built session_id=s1 result_count=2 recommended_result_id=2" in caplog.text
 
 
 def test_receipt_builder_reports_duplicate_result():
@@ -133,6 +145,32 @@ def test_workflow_uses_injected_download_executor():
     assert result["confirmation_payload"].receipt["external_id"] == "2"
     assert result["confirmation_payload"].receipt["qb_hash"] == "injected-hash"
     assert result["confirmation_payload"].receipt["status"] == "submitted_paused"
+
+
+def test_workflow_logs_download_execution(caplog):
+    graph = build_workflow(keyword_finder=StubExtractor(), search_tool=StubSearchTool())
+
+    with caplog.at_level(logging.INFO, logger="app.workflow.nodes"):
+        graph.invoke(
+            {
+                "session_id": "s1",
+                "confirmation_payload": {
+                    "qb_category": "movie",
+                    "selected_result_id": "2",
+                    "results": [
+                        {
+                            "id": "2",
+                            "title": "Dune Part Two 2024 1080p",
+                            "seeders": 120,
+                            "resolution": "1080p",
+                        }
+                    ],
+                },
+            }
+        )
+
+    assert "Download execution started session_id=s1 selected_result_id=2 qb_category=movie" in caplog.text
+    assert "Download execution finished session_id=s1 selected_result_id=2 status=submitted_paused" in caplog.text
 
 
 def test_workflow_limits_confirmation_payload_to_first_three_results():

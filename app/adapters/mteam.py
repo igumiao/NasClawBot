@@ -7,9 +7,12 @@ Task 9 keeps this adapter intentionally small but functional:
 """
 
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -116,14 +119,23 @@ class MTeamAdapter:
     def search_torrents_by_keyword(self, keyword: str, page: int = 1, page_size: int = 20) -> list[dict[str, Any]]:
         """Return normalized candidate rows from M-Team search."""
         if not self._is_configured():
+            logger.warning("M-Team search skipped: adapter is not configured")
             return []
+        logger.info(
+            "M-Team search started keyword=%s page=%s page_size=%s",
+            keyword,
+            page,
+            page_size,
+        )
         payload = self.build_search_payload(keyword=keyword, page=page, page_size=page_size)
         raw = self._post(self.search_endpoint(), json_payload=payload)
         data = self._response_data_or_none(raw)
         if not isinstance(data, dict):
+            logger.warning("M-Team search returned no usable data keyword=%s", keyword)
             return []
         items = data.get("data", [])
         if not isinstance(items, list):
+            logger.warning("M-Team search returned unexpected item list keyword=%s", keyword)
             return []
         normalized: list[dict[str, Any]] = []
         for item in items:
@@ -149,48 +161,74 @@ class MTeamAdapter:
                     "raw": item,
                 }
             )
+        logger.info(
+            "M-Team search finished keyword=%s result_count=%s",
+            keyword,
+            len(normalized),
+        )
         return normalized
 
     def get_torrent_details(self, torrent_id: str) -> dict[str, Any] | None:
         """Fetch full detail for a stable M-Team torrent id."""
         if not self._is_configured():
+            logger.warning("M-Team detail skipped: adapter is not configured torrent_id=%s", torrent_id)
             return None
+        logger.info("M-Team detail started torrent_id=%s", torrent_id)
         payload = self.build_detail_payload(torrent_id)
         raw = self._post(self.detail_endpoint(), data_payload=payload)
         data = self._response_data_or_none(raw)
+        logger.info(
+            "M-Team detail finished torrent_id=%s found=%s",
+            torrent_id,
+            isinstance(data, dict),
+        )
         return data if isinstance(data, dict) else None
 
     def get_torrent_download_url(self, torrent_id: str) -> str | None:
         """Generate one-time download URL via M-Team genDlToken endpoint."""
         if not self._is_configured():
+            logger.warning("M-Team download token skipped: adapter is not configured torrent_id=%s", torrent_id)
             return None
+        logger.info("M-Team download token started torrent_id=%s", torrent_id)
         payload = self.build_download_token_payload(torrent_id)
         raw = self._post(self.download_token_endpoint(), data_payload=payload)
         data = self._response_data_or_none(raw)
         if not data:
+            logger.warning("M-Team download token returned empty data torrent_id=%s", torrent_id)
             return None
         if not isinstance(data, str):
+            logger.warning("M-Team download token returned non-string data torrent_id=%s", torrent_id)
             return None
         url = data.strip()
+        logger.info(
+            "M-Team download token finished torrent_id=%s url_present=%s",
+            torrent_id,
+            url.startswith("http"),
+        )
         return url if url.startswith("http") else None
 
     def is_download_url_torrent(self, url: str) -> bool:
         """Validate that a token URL resolves to a torrent payload."""
         clean_url = (url or "").strip()
         if not clean_url.startswith("http"):
+            logger.warning("Torrent URL validation skipped: URL is not HTTP")
             return False
         try:
             with httpx.Client(timeout=self.timeout_seconds, follow_redirects=True) as client:
                 response = client.get(clean_url)
                 response.raise_for_status()
         except httpx.HTTPError:
+            logger.exception("Torrent URL validation failed during HTTP request")
             return False
 
         content_type = response.headers.get("content-type", "").lower()
         if "application/x-bittorrent" in content_type:
+            logger.info("Torrent URL validation succeeded content_type=%s", content_type)
             return True
         # Some servers may not set the content-type consistently; bencode starts with 'd'.
-        return response.content.startswith(b"d")
+        valid = response.content.startswith(b"d")
+        logger.info("Torrent URL validation finished valid=%s content_type=%s", valid, content_type)
+        return valid
 
     def search(self, keyword: str, page: int = 1, page_size: int = 20) -> list[dict[str, Any]]:
         return self.search_torrents_by_keyword(keyword=keyword, page=page, page_size=page_size)

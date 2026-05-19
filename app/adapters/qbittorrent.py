@@ -11,6 +11,7 @@ few higher-value task management operations for future agent features:
 """
 
 from dataclasses import dataclass
+import logging
 import re
 from typing import Any
 
@@ -18,6 +19,8 @@ try:
     import qbittorrentapi
 except ModuleNotFoundError:  # pragma: no cover - exercised via dependency install/runtime
     qbittorrentapi = None
+
+logger = logging.getLogger(__name__)
 
 
 def _read_value(payload: Any, key: str, default: Any = None) -> Any:
@@ -57,9 +60,11 @@ class QBittorrentAdapter:
     def login(self):
         """Create and authenticate a qBittorrent API client."""
         if not self._is_configured():
+            logger.warning("qB login skipped: adapter is not configured")
             return None
         client = self._build_client()
         client.auth_log_in()
+        logger.info("qB login succeeded base_url=%s", self._normalized_base_url())
         return client
 
     def build_add_payload(
@@ -98,6 +103,10 @@ class QBittorrentAdapter:
         if client is None:
             return {}
         categories = _read_value(_read_value(client, "torrent_categories"), "categories", {})
+        logger.info(
+            "qB categories listed count=%s",
+            len(categories) if isinstance(categories, dict) else 0,
+        )
         return categories if isinstance(categories, dict) else {}
 
     def add_torrent_url(
@@ -119,10 +128,23 @@ class QBittorrentAdapter:
             paused=paused,
             tags=tags,
         )
+        logger.info(
+            "qB add torrent started category=%s paused=%s tag_count=%s rename_chars=%s",
+            payload["category"],
+            paused,
+            len(payload.get("tags", [])),
+            len(payload["rename"]),
+        )
         raw_response = client.torrents_add(**payload)
         body = str(raw_response).strip().lower()
         ok = body in {"ok.", "ok", "true"}
         submitted_status = "submitted_paused" if paused else "submitted"
+        logger.info(
+            "qB add torrent finished ok=%s status=%s raw_response=%s",
+            ok,
+            submitted_status if ok else "unknown",
+            body,
+        )
         return {
             "ok": ok,
             "status": submitted_status if ok else "unknown",
@@ -177,7 +199,15 @@ class QBittorrentAdapter:
             kwargs["reverse"] = reverse
 
         rows = client.torrents_info(**kwargs)
-        return [self._serialize_torrent_row(row) for row in rows]
+        serialized = [self._serialize_torrent_row(row) for row in rows]
+        logger.info(
+            "qB torrents listed result_count=%s category=%s tag=%s status_filter=%s",
+            len(serialized),
+            kwargs.get("category"),
+            kwargs.get("tag"),
+            kwargs.get("status_filter"),
+        )
+        return serialized
 
     def get_torrent(self, torrent_hash: str) -> dict[str, Any] | None:
         """Return one task with merged properties when found."""
@@ -191,6 +221,7 @@ class QBittorrentAdapter:
 
         rows = client.torrents_info(torrent_hashes=clean_hash)
         if not rows:
+            logger.info("qB torrent detail not found qb_hash=%s", clean_hash)
             return None
         result = self._serialize_torrent_row(rows[0])
         properties = client.torrents_properties(torrent_hash=clean_hash)
@@ -202,6 +233,7 @@ class QBittorrentAdapter:
                 "creation_date": int(_read_value(properties, "creation_date", 0) or 0),
             }
         )
+        logger.info("qB torrent detail fetched qb_hash=%s state=%s", clean_hash, result.get("state"))
         return result
 
     def control_torrent(
@@ -231,6 +263,12 @@ class QBittorrentAdapter:
         if client is None:
             return {"ok": False, "status": "not_configured", "qb_hash": clean_hash}
 
+        logger.info(
+            "qB torrent action started qb_hash=%s action=%s delete_files=%s",
+            clean_hash,
+            normalized_action,
+            delete_files,
+        )
         if normalized_action == "pause":
             client.torrents_pause(torrent_hashes=clean_hash)
         elif normalized_action == "resume":
@@ -244,6 +282,7 @@ class QBittorrentAdapter:
                 torrent_hashes=clean_hash,
                 delete_files=delete_files,
             )
+        logger.info("qB torrent action finished qb_hash=%s action=%s", clean_hash, normalized_action)
         return {"ok": True, "status": normalized_action, "qb_hash": clean_hash}
 
     @staticmethod

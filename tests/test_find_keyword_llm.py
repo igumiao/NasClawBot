@@ -1,4 +1,5 @@
 import pytest
+import logging
 from types import SimpleNamespace
 
 from app.llm.client import call_openai_compatible_chat
@@ -6,11 +7,12 @@ from app.llm.find_keyword_llm import FindKeywordLLM
 
 
 class _FakeSettings:
-    def __init__(self, api_key: str = "k"):
+    def __init__(self, api_key: str = "k", log_raw_output: bool = False):
         self.llm_model = "fake-model"
         self.llm_api_key = api_key
         self.llm_base_url = "https://example.invalid/v1"
         self.llm_reasoning_split = True
+        self.llm_log_raw_output = log_raw_output
 
 
 def test_invoke_returns_keyword_dict():
@@ -19,6 +21,15 @@ def test_invoke_returns_keyword_dict():
     result = llm.invoke("我想看沙丘2")
 
     assert result == {"keyword": "沙丘2"}
+
+
+def test_invoke_logs_extracted_keyword(caplog):
+    llm = FindKeywordLLM(chat_caller=lambda **kwargs: '{"keyword":"沙丘2"}')
+
+    with caplog.at_level(logging.INFO, logger="app.llm.find_keyword_llm"):
+        llm.invoke("我想看沙丘2")
+
+    assert "LLM keyword extraction succeeded keyword=沙丘2" in caplog.text
 
 
 def test_invoke_trims_keyword_whitespace():
@@ -131,9 +142,61 @@ def test_chat_helper_uses_openai_sdk_with_configured_base_url_and_model(monkeypa
             {"role": "system", "content": "s"},
             {"role": "user", "content": "u"},
         ],
-        "temperature": 0,
+        "temperature": 0.7,
+        "max_tokens": 2048,
         "extra_body": {"reasoning_split": True},
     }
+
+
+def test_chat_helper_logs_metadata_without_secret_or_raw_output(monkeypatch, caplog):
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=self.create),
+            )
+
+        def create(self, **kwargs):
+            _ = kwargs
+            return _fake_sdk_response('{"keyword":"沙丘2"}')
+
+    monkeypatch.setattr("app.llm.client.get_settings", lambda: _FakeSettings(api_key="secret-key"))
+    monkeypatch.setattr("app.llm.client.OpenAI", FakeOpenAI, raising=False)
+
+    with caplog.at_level(logging.INFO, logger="app.llm.client"):
+        call_openai_compatible_chat(system_prompt="s", user_prompt="u")
+
+    assert "LLM chat completion started model=fake-model" in caplog.text
+    assert "base_url=https://example.invalid/v1" in caplog.text
+    assert "LLM chat completion succeeded model=fake-model" in caplog.text
+    assert "secret-key" not in caplog.text
+    assert '{"keyword":"沙丘2"}' not in caplog.text
+
+
+def test_chat_helper_logs_raw_output_preview_when_enabled(monkeypatch, caplog):
+    raw_output = '{"keyword":"' + ("沙" * 80) + '"}'
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=self.create),
+            )
+
+        def create(self, **kwargs):
+            _ = kwargs
+            return _fake_sdk_response(raw_output)
+
+    monkeypatch.setattr(
+        "app.llm.client.get_settings",
+        lambda: _FakeSettings(api_key="secret-key", log_raw_output=True),
+    )
+    monkeypatch.setattr("app.llm.client.OpenAI", FakeOpenAI, raising=False)
+
+    with caplog.at_level(logging.DEBUG, logger="app.llm.client"):
+        call_openai_compatible_chat(system_prompt="s", user_prompt="u")
+
+    assert "LLM raw output preview" in caplog.text
+    assert "raw_preview=" in caplog.text
+    assert "secret-key" not in caplog.text
 
 
 def test_chat_helper_omits_reasoning_split_when_disabled(monkeypatch):

@@ -48,6 +48,15 @@ def _get_bool_env(name: str, default: bool = False) -> bool:
     raise ValueError(f"{name} must be a boolean-like value.")
 
 
+def _get_log_level_env(name: str, default: str = "INFO") -> str:
+    """Resolve a logging level name with a clear validation error."""
+    value = _get_env(name, default).strip().upper()
+    valid_levels = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
+    if value not in valid_levels:
+        raise ValueError(f"{name} must be one of: {', '.join(sorted(valid_levels))}.")
+    return value
+
+
 class Settings(BaseModel):
     """Typed configuration surface used by the application."""
 
@@ -61,6 +70,8 @@ class Settings(BaseModel):
     llm_api_key: str = Field(default_factory=lambda: _get_env("LLM_API_KEY"))
     llm_base_url: str = Field(default_factory=lambda: _get_env("LLM_BASE_URL", "https://api.deepseek.com"))
     llm_reasoning_split: bool = Field(default_factory=lambda: _get_bool_env("LLM_REASONING_SPLIT", True))
+    llm_log_raw_output: bool = Field(default_factory=lambda: _get_bool_env("LLM_LOG_RAW_OUTPUT", False))
+    log_level: str = Field(default_factory=lambda: _get_log_level_env("LOG_LEVEL", "INFO"))
     database_path: str = Field(default_factory=lambda: _get_env("DATABASE_PATH", "nas_media_agent.db"))
 
 
