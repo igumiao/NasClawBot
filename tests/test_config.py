@@ -9,8 +9,8 @@ def test_settings_default_to_deepseek_v4_pro(monkeypatch):
 
     settings = config_module.get_settings()
 
-    assert settings.llm_model == "deepseek-v4-pro"
-    assert settings.llm_base_url == "https://api.deepseek.com"
+    assert settings.llm_model == "deepseek-v4-pro", "default LLM model should remain deepseek-v4-pro"
+    assert settings.llm_base_url == "https://api.deepseek.com", "default LLM base URL should remain the DeepSeek endpoint"
 
     config_module.get_settings.cache_clear()
 
@@ -21,7 +21,7 @@ def test_settings_parse_llm_reasoning_split_false_from_env(monkeypatch):
 
     settings = config_module.get_settings()
 
-    assert settings.llm_reasoning_split is False
+    assert settings.llm_reasoning_split is False, "LLM_REASONING_SPLIT=false should disable reasoning split"
 
     config_module.get_settings.cache_clear()
 
@@ -33,7 +33,7 @@ def test_settings_parse_logging_options_from_env(monkeypatch):
 
     settings = config_module.get_settings()
 
-    assert settings.log_level == "DEBUG"
-    assert settings.llm_log_raw_output is True
+    assert settings.log_level == "DEBUG", "LOG_LEVEL=debug should normalize to DEBUG"
+    assert settings.llm_log_raw_output is True, "LLM_LOG_RAW_OUTPUT=true should enable raw output logging"
 
     config_module.get_settings.cache_clear()
