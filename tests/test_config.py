@@ -24,3 +24,16 @@ def test_settings_parse_llm_reasoning_split_false_from_env(monkeypatch):
     assert settings.llm_reasoning_split is False
 
     config_module.get_settings.cache_clear()
+
+
+def test_settings_parse_logging_options_from_env(monkeypatch):
+    monkeypatch.setenv("LOG_LEVEL", "debug")
+    monkeypatch.setenv("LLM_LOG_RAW_OUTPUT", "true")
+    config_module.get_settings.cache_clear()
+
+    settings = config_module.get_settings()
+
+    assert settings.log_level == "DEBUG"
+    assert settings.llm_log_raw_output is True
+
+    config_module.get_settings.cache_clear()

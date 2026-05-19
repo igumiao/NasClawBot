@@ -2,10 +2,13 @@
 
 import json
 from json import JSONDecodeError
+import logging
 import re
 from typing import Callable
 
 from app.llm.client import call_openai_compatible_chat
+
+logger = logging.getLogger(__name__)
 
 
 class FindKeywordLLM:
@@ -75,7 +78,9 @@ Response: {"keyword": "名侦探柯南"}
         if not isinstance(keyword, str) or not keyword.strip():
             raise ValueError("LLM output must include a non-empty keyword.")
 
-        return {"keyword": keyword.strip()}
+        normalized_keyword = keyword.strip()
+        logger.info("LLM keyword extraction succeeded keyword=%s", normalized_keyword)
+        return {"keyword": normalized_keyword}
 
 
 def _parse_json_payload(raw_output: str) -> dict:

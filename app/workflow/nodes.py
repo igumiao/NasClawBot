@@ -1,6 +1,7 @@
 """Workflow nodes for search, confirmation, and execution in Phase 2A."""
 
 from collections.abc import Callable
+import logging
 from typing import Any
 
 from app.domain.models import ConfirmationCandidate, ConfirmationPayload, ResourceCandidate
@@ -8,12 +9,19 @@ from app.services.receipt_service import build_receipt
 from app.tools.download_tools import prepare_download_execution
 from app.tools.search_tools import search_mteam_candidates
 
+logger = logging.getLogger(__name__)
+
 
 def keyword_finder_node(state: dict, keyword_finder) -> dict:
     """Extract a single keyword from user text."""
 
     raw_output = keyword_finder.invoke(state["user_message"])
     keyword = _normalize_keyword_output(raw_output)
+    logger.info(
+        "Keyword extracted session_id=%s keyword=%s",
+        state.get("session_id", ""),
+        keyword,
+    )
     return {"keyword": keyword}
 
 
@@ -39,6 +47,12 @@ def search_node(state: dict, search_tool) -> dict:
         item if isinstance(item, ResourceCandidate) else ResourceCandidate.model_validate(item)
         for item in results
     ]
+    logger.info(
+        "Search completed session_id=%s keyword=%s result_count=%s",
+        state.get("session_id", ""),
+        state["keyword"],
+        len(normalized_results),
+    )
     return {"search_results": normalized_results}
 
 
@@ -71,6 +85,12 @@ def confirmation_payload_node(state: dict) -> dict:
     """Convert search results into a minimal UI-ready confirmation payload."""
 
     payload = _build_confirmation_payload(state.get("search_results", []))
+    logger.info(
+        "Confirmation payload built session_id=%s result_count=%s recommended_result_id=%s",
+        state.get("session_id", ""),
+        len(payload.results),
+        payload.recommended_result_id,
+    )
     return {
         "confirmation_payload": payload,
         "status": "awaiting_confirmation",
@@ -95,9 +115,22 @@ def execute_download_with_executor_node(
 
     execution = prepare_download_execution(selected_result_data)
     qb_category = payload.qb_category or "movie"
+    logger.info(
+        "Download execution started session_id=%s selected_result_id=%s qb_category=%s",
+        state.get("session_id", ""),
+        selected_result_id,
+        qb_category,
+    )
     execution_outcome = download_executor(selected_result_data, qb_category)
     qb_hash = execution_outcome.get("qb_hash")
     status = str(execution_outcome.get("status", "submitted_paused"))
+    logger.info(
+        "Download execution finished session_id=%s selected_result_id=%s status=%s qb_hash_present=%s",
+        state.get("session_id", ""),
+        selected_result_id,
+        status,
+        bool(qb_hash),
+    )
     receipt = build_receipt(
         resource_title=execution["resource_title"],
         external_id=execution["external_id"],
