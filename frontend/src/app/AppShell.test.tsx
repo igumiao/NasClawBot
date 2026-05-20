@@ -22,5 +22,6 @@ describe("AppShell", () => {
 
     await user.click(screen.getByRole("tab", { name: "Settings" }));
     expect(screen.getByText("运行状态")).toBeInTheDocument();
+    expect(screen.getByText("只读状态页，连接状态和运行信息会显示在这里。")).toBeInTheDocument();
   });
 });
