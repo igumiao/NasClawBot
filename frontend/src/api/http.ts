@@ -8,8 +8,10 @@ export async function readJson<T>(response: Response): Promise<T> {
   let body: unknown;
   try {
     body = await response.json();
-  } catch {
-    body = undefined;
+  } catch (error) {
+    if (response.ok) {
+      throw error;
+    }
   }
 
   if (!response.ok) {

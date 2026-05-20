@@ -11,6 +11,15 @@ describe("readJson", () => {
     await expect(readJson<{ ok: boolean }>(response)).resolves.toEqual({ ok: true });
   });
 
+  it("rejects OK responses with invalid JSON", async () => {
+    const response = new Response("not json", {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+
+    await expect(readJson<{ ok: boolean }>(response)).rejects.toBeInstanceOf(SyntaxError);
+  });
+
   it("throws FastAPI detail with HTTP fields for non-ok responses", async () => {
     const response = new Response(JSON.stringify({ detail: "torrent not found" }), {
       status: 404,
