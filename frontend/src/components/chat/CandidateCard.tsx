@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { ConfirmationPayload } from "../../types/api";
 
 const SUMMARY_FALLBACK = "推荐项已选中，提交后会以暂停状态加入 qB。";
@@ -21,13 +22,16 @@ export function CandidateCard({
   onCancel,
   onRewrite
 }: CandidateCardProps) {
+  const instanceId = useId();
+  const titleId = `${instanceId}-candidate-card-title`;
+  const radioGroupName = `${instanceId}-candidate-result`;
   const approvalDisabled = isSubmitting || selectedResultId === null;
 
   return (
-    <section className="chat-card" aria-labelledby="candidate-card-title">
+    <section className="chat-card" aria-labelledby={titleId}>
       <header className="chat-card-header">
         <div>
-          <h2 className="chat-card-title" id="candidate-card-title">
+          <h2 className="chat-card-title" id={titleId}>
             搜索候选
           </h2>
           <p className="chat-card-summary">{payload.summary || SUMMARY_FALLBACK}</p>
@@ -47,7 +51,7 @@ export function CandidateCard({
             >
               <input
                 type="radio"
-                name="candidate-result"
+                name={radioGroupName}
                 aria-label={candidate.title}
                 checked={checked}
                 onChange={() => onSelect(candidate.id)}
