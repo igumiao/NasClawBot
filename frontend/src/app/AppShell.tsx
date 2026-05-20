@@ -2,12 +2,16 @@ import { useState } from "react";
 import { ChatPanel } from "../components/chat/ChatPanel";
 import { DownloadsPanel } from "../components/downloads/DownloadsPanel";
 import { ConversationSidebar } from "../components/layout/ConversationSidebar";
-import { WorkspaceTabs } from "../components/layout/WorkspaceTabs";
+import { getWorkspacePanelId, getWorkspaceTabId, WorkspaceTabs } from "../components/layout/WorkspaceTabs";
 import { SettingsPanel } from "../components/settings/SettingsPanel";
 import type { WorkspaceTab } from "../state/uiState";
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("chat");
+  const activePanelProps = {
+    id: getWorkspacePanelId(activeTab),
+    labelledBy: getWorkspaceTabId(activeTab)
+  };
 
   return (
     <div className="app-shell">
@@ -17,12 +21,12 @@ export function AppShell() {
           <WorkspaceTabs activeTab={activeTab} onTabChange={setActiveTab} />
           <div className="backend-status">
             <span className="online-dot" aria-hidden="true" />
-            Backend online
+            <span className="backend-status-text">Backend online</span>
           </div>
         </header>
-        {activeTab === "chat" && <ChatPanel />}
-        {activeTab === "downloads" && <DownloadsPanel />}
-        {activeTab === "settings" && <SettingsPanel />}
+        {activeTab === "chat" && <ChatPanel {...activePanelProps} />}
+        {activeTab === "downloads" && <DownloadsPanel {...activePanelProps} />}
+        {activeTab === "settings" && <SettingsPanel {...activePanelProps} />}
       </main>
     </div>
   );

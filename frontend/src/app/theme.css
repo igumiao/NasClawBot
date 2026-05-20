@@ -141,21 +141,32 @@ textarea {
 }
 
 .workspace-tabs {
+  min-width: 0;
+  max-width: 100%;
   display: flex;
+  flex: 0 1 auto;
   gap: 4px;
+  overflow-x: auto;
   border: 1px solid #ddd4c8;
   background: var(--surface-soft);
   border-radius: 11px;
   padding: 4px;
+  scrollbar-width: none;
+}
+
+.workspace-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .workspace-tab {
+  flex: 0 0 auto;
   height: 34px;
   border: 0;
   border-radius: var(--radius);
   background: transparent;
   color: var(--text-soft);
   padding: 0 14px;
+  white-space: nowrap;
 }
 
 .workspace-tab[data-active="true"] {
@@ -243,5 +254,32 @@ textarea {
 
   .workspace-topbar {
     padding: 10px 16px;
+  }
+}
+
+@media (max-width: 560px) {
+  .workspace-shell {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .workspace-topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .workspace-tabs {
+    flex: 1 1 100%;
+    order: 2;
+  }
+
+  .backend-status {
+    margin-left: auto;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 380px) {
+  .backend-status-text {
+    display: none;
   }
 }
