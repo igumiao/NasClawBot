@@ -36,14 +36,24 @@ export function downloadsReducer(state: DownloadsState, action: DownloadsAction)
   switch (action.type) {
     case "refresh_started":
       return { ...state, isRefreshing: true, lastError: null };
-    case "list_loaded":
+    case "list_loaded": {
+      const hashes = new Set(action.items.map((item) => item.hash));
+      const selectedTorrentHash =
+        state.selectedTorrentHash && hashes.has(state.selectedTorrentHash)
+          ? state.selectedTorrentHash
+          : action.items[0]?.hash ?? null;
+      const torrentDetail =
+        state.torrentDetail && hashes.has(state.torrentDetail.hash) ? state.torrentDetail : null;
+
       return {
         ...state,
         torrentItems: action.items,
-        selectedTorrentHash: state.selectedTorrentHash ?? action.items[0]?.hash ?? null,
+        selectedTorrentHash,
+        torrentDetail,
         isRefreshing: false,
         lastError: null
       };
+    }
     case "detail_loaded":
       return { ...state, torrentDetail: action.detail, lastError: null };
     case "torrent_selected":
@@ -63,7 +73,13 @@ export function downloadsReducer(state: DownloadsState, action: DownloadsAction)
 
 export function visibleTorrents(state: DownloadsState): TorrentSummary[] {
   if (state.filter === "all") return state.torrentItems;
-  if (state.filter === "paused") return state.torrentItems.filter((item) => item.state.toLowerCase().includes("pause"));
-  if (state.filter === "completed") return state.torrentItems.filter((item) => item.progress >= 1);
-  return state.torrentItems.filter((item) => item.download_speed > 0 || item.state.toLowerCase().includes("download"));
+  if (state.filter === "paused") return state.torrentItems.filter((item) => pausedStates.has(item.state));
+  if (state.filter === "completed") {
+    return state.torrentItems.filter((item) => item.progress >= 1 || completedStates.has(item.state));
+  }
+  return state.torrentItems.filter((item) => downloadingStates.has(item.state));
 }
+
+const pausedStates = new Set(["stoppedDL", "stoppedUP", "pausedDL"]);
+const completedStates = new Set(["uploading", "queuedUP", "stalledUP", "forcedUP", "checkingUP", "pausedUP"]);
+const downloadingStates = new Set(["queuedDL", "stalledDL", "forcedDL", "metaDL", "downloading"]);
