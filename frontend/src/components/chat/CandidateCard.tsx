@@ -75,7 +75,7 @@ export function CandidateCard({
       </div>
 
       <div className="chat-card-actions">
-        <button type="button" className="secondary-button" onClick={onCancel}>
+        <button type="button" className="secondary-button" onClick={onCancel} disabled={isSubmitting}>
           取消
         </button>
         <button type="button" className="secondary-button" onClick={onRewrite}>
