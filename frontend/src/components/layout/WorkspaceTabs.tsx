@@ -1,0 +1,33 @@
+import type { WorkspaceTab } from "../../state/uiState";
+
+const tabs: Array<{ id: WorkspaceTab; label: string }> = [
+  { id: "chat", label: "Chat" },
+  { id: "downloads", label: "Downloads" },
+  { id: "settings", label: "Settings" }
+];
+
+export function WorkspaceTabs({
+  activeTab,
+  onTabChange
+}: {
+  activeTab: WorkspaceTab;
+  onTabChange: (tab: WorkspaceTab) => void;
+}) {
+  return (
+    <div className="workspace-tabs" role="tablist" aria-label="Workspace">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          className="workspace-tab"
+          data-active={activeTab === tab.id}
+          role="tab"
+          type="button"
+          aria-selected={activeTab === tab.id}
+          onClick={() => onTabChange(tab.id)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
