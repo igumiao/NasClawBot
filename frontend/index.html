@@ -1,51 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>fnOS Media Agent</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NasClawBot</title>
   </head>
   <body>
-    <main class="container">
-      <header class="hero">
-        <h1>fnOS Media Agent</h1>
-        <p>Chat-driven M-Team search with human confirmation.</p>
-      </header>
-
-      <form id="chat-form">
-        <label for="message">Message</label>
-        <textarea
-          id="message"
-          name="message"
-          rows="4"
-          placeholder="Example: I want to watch Dune tonight"
-        ></textarea>
-        <button id="send-btn" type="submit">Search</button>
-      </form>
-
-      <section id="status-panel" class="card">
-        <h2>Status</h2>
-        <p id="status-output">Ready</p>
-      </section>
-
-      <section id="confirmation-panel" class="card hidden">
-        <h2>Confirmation</h2>
-        <p id="confirmation-summary"></p>
-        <p id="confirmation-explanation" class="muted"></p>
-        <div id="results-list" class="results"></div>
-        <div class="actions">
-          <button id="approve-btn" type="button">Approve Download</button>
-          <button id="refine-btn" type="button" class="secondary">Refine Search</button>
-          <button id="cancel-btn" type="button" class="ghost">Cancel</button>
-        </div>
-      </section>
-
-      <section id="receipt-panel" class="card hidden">
-        <h2>Receipt</h2>
-        <pre id="receipt-output"></pre>
-      </section>
-    </main>
-    <script src="/static/app.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
