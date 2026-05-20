@@ -25,6 +25,14 @@ _FRONTEND_DIST_INDEX = _FRONTEND_DIR / "dist" / "index.html"
 _FRONTEND_INDEX = _FRONTEND_DIR / "index.html"
 
 
+def _select_frontend_index() -> Path | None:
+    if _FRONTEND_DIST_INDEX.exists():
+        return _FRONTEND_DIST_INDEX
+    if _FRONTEND_INDEX.exists():
+        return _FRONTEND_INDEX
+    return None
+
+
 class WorkflowRunner(Protocol):
     """Route-level protocol to support dependency injection in tests."""
 
@@ -132,6 +140,7 @@ def _build_default_runner() -> WorkflowRunner:
 
 def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
     runner = workflow_runner or _build_default_runner()
+    selected_index = _select_frontend_index()
     router = APIRouter()
     router.include_router(build_qb_router())
 
@@ -187,10 +196,8 @@ def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
     @router.get("/", response_class=HTMLResponse)
     def index() -> str:
         """Serve the chat page when present, fallback to a tiny placeholder."""
-        if _FRONTEND_DIST_INDEX.exists():
-            return _FRONTEND_DIST_INDEX.read_text(encoding="utf-8")
-        if _FRONTEND_INDEX.exists():
-            return _FRONTEND_INDEX.read_text(encoding="utf-8")
+        if selected_index is not None:
+            return selected_index.read_text(encoding="utf-8")
         return "<h1>fnOS Media Agent</h1>"
 
     return router
