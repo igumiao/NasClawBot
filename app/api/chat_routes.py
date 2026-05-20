@@ -139,10 +139,16 @@ def _build_default_runner() -> WorkflowRunner:
     return LangGraphWorkflowRunner(graph)
 
 def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
-    runner = workflow_runner or _build_default_runner()
+    runner = workflow_runner
     selected_index = _select_frontend_index()
     router = APIRouter()
     router.include_router(build_qb_router())
+
+    def get_runner() -> WorkflowRunner:
+        nonlocal runner
+        if runner is None:
+            runner = _build_default_runner()
+        return runner
 
     @router.get("/health")
     def health() -> dict[str, str]:
@@ -153,7 +159,7 @@ def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
     def chat(request: ChatRequest) -> ChatResponse:
         """Run search-to-confirmation workflow for a user message."""
 
-        result = runner.run_chat(request.session_id, request.message)
+        result = get_runner().run_chat(request.session_id, request.message)
         return ChatResponse(
             session_id=request.session_id,
             status=result.get("status", "error"),
@@ -173,7 +179,7 @@ def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
                 error="Phase 2A does not support reject_and_refine on /confirm.",
             )
 
-        result = runner.run_confirm(
+        result = get_runner().run_confirm(
             request.session_id,
             action=request.action,
             confirmation_payload=request.confirmation_payload,
@@ -201,6 +207,3 @@ def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
         return "<h1>fnOS Media Agent</h1>"
 
     return router
-
-
-router = build_router()

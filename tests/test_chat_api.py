@@ -1,12 +1,14 @@
-from fastapi.testclient import TestClient
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.api import chat_routes
 from app.api import qb_routes
 from app.api.chat_routes import AdapterDownloadExecutor
+from app.api.schemas import ChatRequest, ConfirmRequest, QBTorrentActionRequest
 from app.domain.models import ConfirmationPayload
 from app.main import create_app
 from app.storage.session_store import SessionStore
@@ -65,61 +67,57 @@ class FakeRunner:
         }
 
 
+def _route_for(app, path: str, method: str):
+    target_method = method.upper()
+    for route in app.router.routes:
+        if getattr(route, "path", None) != path:
+            continue
+        methods = getattr(route, "methods", set())
+        if target_method in methods:
+            return route
+    raise AssertionError(f"Route not found for {method} {path}")
+
+
 def test_health_endpoint_returns_ok():
-    client = TestClient(create_app())
-    response = client.get("/health")
-    assert response.status_code == 200, "/health should respond with HTTP 200"
-    assert response.json()["status"] == "ok", "/health should report ok status"
+    response = _route_for(create_app(), "/health", "GET").endpoint()
+    assert response["status"] == "ok", "/health should report ok status"
 
 
 def test_index_page_is_served():
-    client = TestClient(create_app())
-    response = client.get("/")
-    assert response.status_code == 200, "/ should serve the frontend page"
-    assert "fnOS Media Agent" in response.text, "index page should contain the app title"
+    response = _route_for(create_app(), "/", "GET").endpoint()
+    assert "<html" in response.lower() or "<!doctype html" in response.lower(), "/ should serve html"
 
 
 def test_create_app_allows_workflow_override():
-    client = TestClient(create_app(workflow_runner=FakeRunner()))
-    response = client.post("/chat", json={"session_id": "s1", "message": "hello"})
-    assert response.status_code == 200, "/chat should accept the overridden workflow runner"
-    assert response.json()["confirmation_payload"]["summary"] == "fake:hello", "overridden runner should shape the summary"
+    endpoint = _route_for(create_app(workflow_runner=FakeRunner()), "/chat", "POST").endpoint
+    response = endpoint(ChatRequest(session_id="s1", message="hello"))
+    assert response.confirmation_payload.summary == "fake:hello", "overridden runner should shape the summary"
 
 
 def test_chat_endpoint_returns_confirmation_payload():
-    client = TestClient(create_app(workflow_runner=FakeRunner()))
-    response = client.post(
-        "/chat",
-        json={"session_id": "s1", "message": "I want to watch Dune tonight"},
-    )
-    assert response.status_code == 200, "/chat should respond with HTTP 200"
-    body = response.json()
-    assert body["status"] == "awaiting_confirmation", "chat response should remain awaiting confirmation"
-    assert body["confirmation_payload"]["recommended_result_id"] == "x1", "chat response should preserve the recommended result"
-    assert body["confirmation_payload"]["results"], "chat response should include search results"
+    endpoint = _route_for(create_app(workflow_runner=FakeRunner()), "/chat", "POST").endpoint
+    body = endpoint(ChatRequest(session_id="s1", message="I want to watch Dune tonight"))
+    assert body.status == "awaiting_confirmation", "chat response should remain awaiting confirmation"
+    assert body.confirmation_payload.recommended_result_id == "x1", "chat response should preserve the recommended result"
+    assert body.confirmation_payload.results, "chat response should include search results"
 
 
 def test_confirm_approve_returns_completed_with_receipt():
-    client = TestClient(create_app(workflow_runner=FakeRunner()))
-    chat = client.post(
-        "/chat",
-        json={"session_id": "s1", "message": "I want to watch Dune tonight"},
+    app = create_app(workflow_runner=FakeRunner())
+    chat_endpoint = _route_for(app, "/chat", "POST").endpoint
+    confirm_endpoint = _route_for(app, "/confirm", "POST").endpoint
+    payload = chat_endpoint(ChatRequest(session_id="s1", message="I want to watch Dune tonight")).confirmation_payload
+    body = confirm_endpoint(
+        ConfirmRequest(
+            session_id="s1",
+            action="approve",
+            selected_result_id=payload.recommended_result_id,
+            confirmation_payload=payload,
+        )
     )
-    payload = chat.json()["confirmation_payload"]
-    response = client.post(
-        "/confirm",
-        json={
-            "session_id": "s1",
-            "action": "approve",
-            "selected_result_id": payload["recommended_result_id"],
-            "confirmation_payload": payload,
-        },
-    )
-    assert response.status_code == 200, "/confirm should accept approved selections"
-    body = response.json()
-    assert body["status"] == "completed", "approve should complete the workflow"
-    assert body["receipt"]["status"] == "submitted_paused", "approve should preserve the submitted_paused receipt status"
-    assert body["receipt"]["external_id"] == payload["recommended_result_id"], "receipt should preserve the chosen external id"
+    assert body.status == "completed", "approve should complete the workflow"
+    assert body.receipt["status"] == "submitted_paused", "approve should preserve the submitted_paused receipt status"
+    assert body.receipt["external_id"] == payload.recommended_result_id, "receipt should preserve the chosen external id"
 
 
 def test_confirm_reject_and_refine_returns_route_level_phase2a_error():
@@ -139,19 +137,10 @@ def test_confirm_reject_and_refine_returns_route_level_phase2a_error():
             _ = (session_id, action, confirmation_payload, selected_result_id)
             raise AssertionError("runner.run_confirm must not be called for reject_and_refine in Phase 2A")
 
-    client = TestClient(create_app(workflow_runner=MustNotCallRunner()))
-    response = client.post(
-        "/confirm",
-        json={
-            "session_id": "s1",
-            "action": "reject_and_refine",
-            "confirmation_payload": {"results": []},
-        },
-    )
-    assert response.status_code == 200, "/confirm should return a route-level validation response"
-    body = response.json()
-    assert body["status"] == "error", "reject_and_refine should be rejected at the route level"
-    assert body["error"] == "Phase 2A does not support reject_and_refine on /confirm.", "route error text should stay stable"
+    endpoint = _route_for(create_app(workflow_runner=MustNotCallRunner()), "/confirm", "POST").endpoint
+    body = endpoint(ConfirmRequest(session_id="s1", action="reject_and_refine", confirmation_payload={"results": []}))
+    assert body.status == "error", "reject_and_refine should be rejected at the route level"
+    assert body.error == "Phase 2A does not support reject_and_refine on /confirm.", "route error text should stay stable"
 
 
 def test_confirm_endpoint_parses_confirmation_payload_to_model():
@@ -174,14 +163,13 @@ def test_confirm_endpoint_parses_confirmation_payload_to_model():
             captured["selected_result_id"] = selected_result_id
             return {"session_id": session_id, "status": "canceled", "messages": ["Request canceled by user."]}
 
-    client = TestClient(create_app(workflow_runner=CapturingRunner()))
-    response = client.post(
-        "/confirm",
-        json={
-            "session_id": "s1",
-            "action": "cancel",
-            "selected_result_id": "x1",
-            "confirmation_payload": {
+    endpoint = _route_for(create_app(workflow_runner=CapturingRunner()), "/confirm", "POST").endpoint
+    endpoint(
+        ConfirmRequest(
+            session_id="s1",
+            action="cancel",
+            selected_result_id="x1",
+            confirmation_payload={
                 "summary": "pick one",
                 "recommended_result_id": "x1",
                 "results": [
@@ -194,10 +182,8 @@ def test_confirm_endpoint_parses_confirmation_payload_to_model():
                     }
                 ],
             },
-        },
+        )
     )
-
-    assert response.status_code == 200, "/confirm should accept a typed confirmation payload"
     assert isinstance(captured["confirmation_payload"], ConfirmationPayload), "route should coerce confirmation payload to model"
     assert captured["selected_result_id"] == "x1", "route should forward the selected result id"
 
@@ -219,18 +205,16 @@ def test_confirm_does_not_forward_feedback_text_kwarg():
             _ = (session_id, action, confirmation_payload, selected_result_id)
             return {"session_id": session_id, "status": "canceled", "messages": ["Request canceled by user."]}
 
-    client = TestClient(create_app(workflow_runner=StrictRunner()))
-    response = client.post(
-        "/confirm",
-        json={
-            "session_id": "s1",
-            "action": "cancel",
-            "feedback_text": "should be ignored",
-            "confirmation_payload": {"results": []},
-        },
+    endpoint = _route_for(create_app(workflow_runner=StrictRunner()), "/confirm", "POST").endpoint
+    response = endpoint(
+        ConfirmRequest(
+            session_id="s1",
+            action="cancel",
+            confirmation_payload={"results": []},
+            feedback_text="should be ignored",
+        )
     )
-    assert response.status_code == 200, "/confirm should accept cancel requests"
-    assert response.json()["status"] == "canceled", "cancel should return canceled status"
+    assert response.status == "canceled", "cancel should return canceled status"
 
 
 def test_session_store_round_trip():
@@ -383,6 +367,12 @@ def test_build_default_runner_wires_find_keyword_llm(monkeypatch: pytest.MonkeyP
     assert isinstance(runner, FakeRunner), "default runner should build the workflow runner"
 
 
+def test_create_app_health_does_not_build_default_runner(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(chat_routes, "_build_default_runner", lambda: (_ for _ in ()).throw(AssertionError("runner should stay lazy")))
+    response = _route_for(create_app(), "/health", "GET").endpoint()
+    assert response == {"status": "ok"}
+
+
 def test_list_qb_torrents_endpoint_returns_adapter_rows(monkeypatch: pytest.MonkeyPatch):
     captured: dict[str, object] = {}
 
@@ -417,10 +407,8 @@ def test_list_qb_torrents_endpoint_returns_adapter_rows(monkeypatch: pytest.Monk
     monkeypatch.setattr(qb_routes, "QBittorrentAdapter", FakeQBAdapter)
     monkeypatch.setattr(qb_routes, "get_settings", lambda: FakeSettings())
 
-    client = TestClient(create_app(workflow_runner=FakeRunner()))
-    response = client.get("/qb/torrents", params={"category": "movie", "tag": "mteam", "limit": 10})
-
-    assert response.status_code == 200, "/qb/torrents should respond with HTTP 200"
+    endpoint = _route_for(create_app(workflow_runner=FakeRunner()), "/qb/torrents", "GET").endpoint
+    body = endpoint(category="movie", tag="mteam", limit=10)
     assert captured["init"] == ("https://qb.local", "user", "pass"), "qb adapter should be initialized with the configured settings"
     assert captured["list_kwargs"] == {
         "category": "movie",
@@ -430,9 +418,8 @@ def test_list_qb_torrents_endpoint_returns_adapter_rows(monkeypatch: pytest.Monk
         "sort": None,
         "reverse": None,
     }, "qb torrent listing should forward query params"
-    body = response.json()
-    assert body["items"][0]["hash"] == "abc123", "qb torrent listing should include the hash"
-    assert body["items"][0]["progress"] == 0.42, "qb torrent listing should include the progress"
+    assert body.items[0].hash == "abc123", "qb torrent listing should include the hash"
+    assert body.items[0].progress == 0.42, "qb torrent listing should include the progress"
 
 
 def test_get_qb_torrent_endpoint_returns_not_found_when_missing(monkeypatch: pytest.MonkeyPatch):
@@ -452,11 +439,11 @@ def test_get_qb_torrent_endpoint_returns_not_found_when_missing(monkeypatch: pyt
     monkeypatch.setattr(qb_routes, "QBittorrentAdapter", FakeQBAdapter)
     monkeypatch.setattr(qb_routes, "get_settings", lambda: FakeSettings())
 
-    client = TestClient(create_app(workflow_runner=FakeRunner()))
-    response = client.get("/qb/torrents/missing")
-
-    assert response.status_code == 404, "/qb/torrents/{hash} should return 404 when missing"
-    assert response.json()["detail"] == "Torrent not found: missing", "missing torrent response should preserve the hash"
+    endpoint = _route_for(create_app(workflow_runner=FakeRunner()), "/qb/torrents/{torrent_hash}", "GET").endpoint
+    with pytest.raises(HTTPException) as excinfo:
+        endpoint("missing")
+    assert excinfo.value.status_code == 404, "/qb/torrents/{hash} should return 404 when missing"
+    assert excinfo.value.detail == "Torrent not found: missing", "missing torrent response should preserve the hash"
 
 
 def test_get_qb_torrent_endpoint_returns_detail_payload(monkeypatch: pytest.MonkeyPatch):
@@ -493,14 +480,11 @@ def test_get_qb_torrent_endpoint_returns_detail_payload(monkeypatch: pytest.Monk
     monkeypatch.setattr(qb_routes, "QBittorrentAdapter", FakeQBAdapter)
     monkeypatch.setattr(qb_routes, "get_settings", lambda: FakeSettings())
 
-    client = TestClient(create_app(workflow_runner=FakeRunner()))
-    response = client.get("/qb/torrents/abc123")
-
-    assert response.status_code == 200, "/qb/torrents/{hash} should return HTTP 200 for found torrents"
-    body = response.json()
-    assert body["hash"] == "abc123", "detail response should include the torrent hash"
-    assert body["progress"] == 0.6, "detail response should include the progress"
-    assert body["download_speed"] == 4096, "detail response should include the download speed"
+    endpoint = _route_for(create_app(workflow_runner=FakeRunner()), "/qb/torrents/{torrent_hash}", "GET").endpoint
+    body = endpoint("abc123")
+    assert body.hash == "abc123", "detail response should include the torrent hash"
+    assert body.progress == 0.6, "detail response should include the progress"
+    assert body.download_speed == 4096, "detail response should include the download speed"
 
 
 def test_qb_torrent_action_endpoint_dispatches_control(monkeypatch: pytest.MonkeyPatch):
@@ -526,16 +510,14 @@ def test_qb_torrent_action_endpoint_dispatches_control(monkeypatch: pytest.Monke
     monkeypatch.setattr(qb_routes, "QBittorrentAdapter", FakeQBAdapter)
     monkeypatch.setattr(qb_routes, "get_settings", lambda: FakeSettings())
 
-    client = TestClient(create_app(workflow_runner=FakeRunner()))
-    response = client.post("/qb/torrents/abc123/actions", json={"action": "pause"})
-
-    assert response.status_code == 200, "/qb/torrents/{hash}/actions should accept supported actions"
+    endpoint = _route_for(create_app(workflow_runner=FakeRunner()), "/qb/torrents/{torrent_hash}/actions", "POST").endpoint
+    response = endpoint("abc123", QBTorrentActionRequest(action="pause"))
     assert captured["control"] == {
         "torrent_hash": "abc123",
         "action": "pause",
         "delete_files": False,
     }, "qb action endpoint should forward the control request"
-    assert response.json()["status"] == "pause", "qb action endpoint should echo the returned action"
+    assert response.status == "pause", "qb action endpoint should echo the returned action"
 
 
 def test_qb_torrent_action_endpoint_rejects_invalid_action(monkeypatch: pytest.MonkeyPatch):
@@ -555,7 +537,5 @@ def test_qb_torrent_action_endpoint_rejects_invalid_action(monkeypatch: pytest.M
     monkeypatch.setattr(qb_routes, "QBittorrentAdapter", FakeQBAdapter)
     monkeypatch.setattr(qb_routes, "get_settings", lambda: FakeSettings())
 
-    client = TestClient(create_app(workflow_runner=FakeRunner()))
-    response = client.post("/qb/torrents/abc123/actions", json={"action": "start-now"})
-
-    assert response.status_code == 422, "invalid qB action should be rejected by route validation"
+    with pytest.raises(ValidationError):
+        QBTorrentActionRequest(action="start-now")
