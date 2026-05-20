@@ -56,4 +56,49 @@ describe("downloadsApi", () => {
     );
     expect(result.ok).toBe(true);
   });
+
+  it("encodes torrent hashes when running torrent actions", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, status: "paused", qb_hash: "abc/def?x=1" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }),
+    );
+
+    await downloadsApi.runTorrentAction("abc/def?x=1", "pause");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/qb/torrents/abc%2Fdef%3Fx%3D1/actions",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ action: "pause", delete_files: false })
+      }),
+    );
+  });
+
+  it("encodes torrent hashes when fetching torrent details", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          hash: "abc/def?x=1",
+          name: "Dune",
+          category: "movies",
+          tags: [],
+          state: "downloading",
+          progress: 0.5,
+          download_speed: 10,
+          upload_speed: 1,
+          eta: 120,
+          save_path: "/downloads",
+          size: 100,
+          total_size: 200
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await downloadsApi.getTorrent("abc/def?x=1");
+
+    expect(fetchMock).toHaveBeenCalledWith("/qb/torrents/abc%2Fdef%3Fx%3D1", expect.any(Object));
+  });
 });
