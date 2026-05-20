@@ -55,9 +55,16 @@ export function downloadsReducer(state: DownloadsState, action: DownloadsAction)
       };
     }
     case "detail_loaded":
+      if (action.detail.hash !== state.selectedTorrentHash) {
+        return state;
+      }
       return { ...state, torrentDetail: action.detail, lastError: null };
     case "torrent_selected":
-      return { ...state, selectedTorrentHash: action.hash };
+      return {
+        ...state,
+        selectedTorrentHash: action.hash,
+        torrentDetail: state.torrentDetail?.hash === action.hash ? state.torrentDetail : null
+      };
     case "filter_changed":
       return { ...state, filter: action.filter };
     case "action_started":

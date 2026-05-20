@@ -51,6 +51,8 @@ function stateLabel(state: string): string {
 export function DownloadsPanel({ id, labelledBy, refreshSignal = 0 }: DownloadsPanelProps) {
   const [state, dispatch] = useReducer(downloadsReducer, downloadsInitialState);
   const items = visibleTorrents(state);
+  const selectedHash = state.selectedTorrentHash;
+  const selectedDetail = state.torrentDetail?.hash === selectedHash ? state.torrentDetail : null;
 
   const loadDetail = useCallback(async (hash: string) => {
     const detail = await downloadsApi.getTorrent(hash);
@@ -113,7 +115,6 @@ export function DownloadsPanel({ id, labelledBy, refreshSignal = 0 }: DownloadsP
     }
   }
 
-  const selectedHash = state.selectedTorrentHash;
   const actionDisabled = state.isRefreshing || !selectedHash || state.actionPendingHash !== null;
 
   return (
@@ -154,15 +155,15 @@ export function DownloadsPanel({ id, labelledBy, refreshSignal = 0 }: DownloadsP
             </div>
 
             <div className="downloads-detail">
-              {state.torrentDetail ? (
+              {selectedDetail ? (
                 <>
                   <div className="downloads-detail-block">
                     <div className="downloads-detail-label">保存路径</div>
-                    <div className="downloads-detail-value">{state.torrentDetail.save_path}</div>
+                    <div className="downloads-detail-value">{selectedDetail.save_path}</div>
                   </div>
                   <div className="downloads-detail-block">
                     <div className="downloads-detail-label">分享率</div>
-                    <div className="downloads-detail-value">{formatRatio(state.torrentDetail.share_ratio)}</div>
+                    <div className="downloads-detail-value">{formatRatio(selectedDetail.share_ratio)}</div>
                   </div>
                   <div className="downloads-actions">
                     <button type="button" onClick={() => void handleAction("pause")} disabled={actionDisabled}>
