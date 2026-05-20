@@ -8,6 +8,7 @@ import type { WorkspaceTab } from "../state/uiState";
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("chat");
+  const [downloadRefreshSignal, setDownloadRefreshSignal] = useState(0);
   const activePanelProps = {
     id: getWorkspacePanelId(activeTab),
     labelledBy: getWorkspaceTabId(activeTab)
@@ -24,8 +25,15 @@ export function AppShell() {
             <span className="backend-status-text">Backend online</span>
           </div>
         </header>
-        {activeTab === "chat" && <ChatPanel {...activePanelProps} />}
-        {activeTab === "downloads" && <DownloadsPanel {...activePanelProps} />}
+        {activeTab === "chat" && (
+          <ChatPanel
+            {...activePanelProps}
+            onDownloadSubmitted={() => setDownloadRefreshSignal((value) => value + 1)}
+          />
+        )}
+        {activeTab === "downloads" && (
+          <DownloadsPanel {...activePanelProps} refreshSignal={downloadRefreshSignal} />
+        )}
         {activeTab === "settings" && <SettingsPanel {...activePanelProps} />}
       </main>
     </div>
