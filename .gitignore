@@ -36,3 +36,8 @@ frontend/dist/
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+
+# CODEX/SKILLS
+.agents
+.superpowers
+skills-lock.json
