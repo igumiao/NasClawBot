@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ConfirmationPayload } from "../../types/api";
 import { CandidateCard } from "./CandidateCard";
+import { ReceiptCard } from "./ReceiptCard";
 
 const payload: ConfirmationPayload = {
   summary: "已找到两个结果，请确认。",
@@ -75,5 +76,55 @@ describe("CandidateCard", () => {
     );
 
     expect(screen.getByRole("button", { name: "提交中" })).toBeDisabled();
+  });
+
+  it("keeps radio groups independent when two candidate cards render together", () => {
+    render(
+      <>
+        <CandidateCard
+          payload={payload}
+          selectedResultId="r1"
+          isSubmitting={false}
+          onSelect={vi.fn()}
+          onApprove={vi.fn()}
+          onCancel={vi.fn()}
+          onRewrite={vi.fn()}
+        />
+        <CandidateCard
+          payload={payload}
+          selectedResultId="r1"
+          isSubmitting={false}
+          onSelect={vi.fn()}
+          onApprove={vi.fn()}
+          onCancel={vi.fn()}
+          onRewrite={vi.fn()}
+        />
+      </>
+    );
+
+    const selectedCandidates = screen.getAllByRole("radio", { name: "Dune 4K" });
+    expect(selectedCandidates).toHaveLength(2);
+    expect(selectedCandidates[0]).toBeChecked();
+    expect(selectedCandidates[1]).toBeChecked();
+    expect(selectedCandidates[0]).not.toHaveAttribute("name", selectedCandidates[1].getAttribute("name"));
+  });
+
+  it("uses distinct labelledby targets for repeated receipt cards", () => {
+    const { container } = render(
+      <>
+        <ReceiptCard receipt={{ id: "first" }} />
+        <ReceiptCard receipt={{ id: "second" }} />
+      </>
+    );
+
+    const labelledSections = Array.from(container.querySelectorAll("section[aria-labelledby]"));
+    const labelledByIds = labelledSections.map((section) => section.getAttribute("aria-labelledby"));
+
+    expect(labelledByIds).toHaveLength(2);
+    expect(new Set(labelledByIds).size).toBe(2);
+    labelledByIds.forEach((id) => {
+      expect(id).toBeTruthy();
+      expect(container.querySelector(`#${CSS.escape(id ?? "")}`)).not.toBeNull();
+    });
   });
 });
