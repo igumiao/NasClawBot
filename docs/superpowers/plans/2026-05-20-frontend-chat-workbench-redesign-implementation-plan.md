@@ -10,6 +10,45 @@
 
 ---
 
+## Current Execution Status
+
+Updated after Task 5 on 2026-05-20.
+
+Tasks 1-5 are complete on branch `codex/frontend-chat-workbench`.
+
+Completed commits:
+
+- `fc2e621` - `feat: scaffold react frontend`
+- `6c71b6f` - `fix: pin frontend toolchain versions`
+- `e7ec73c` - `fix: align frontend node engine range`
+- `34d02bf` - `feat: add typed frontend api clients`
+- `5d9fe4f` - `fix: harden frontend api error handling`
+- `2145e68` - `fix: reject malformed successful api responses`
+- `f838889` - `feat: add frontend state reducers`
+- `4a86ac9` - `fix: keep frontend reducer state consistent`
+- `0808f6c` - `feat: add warm paper app shell`
+- `40c18d9` - `fix: mark settings shell as read-only`
+- `ab7cdeb` - `fix: harden app shell accessibility`
+- `cba41b1` - `feat: add chat business cards`
+- `064f890` - `fix: isolate repeated chat card labels`
+
+Implementation notes and deviations:
+
+- Task 1 pinned frontend dependency ranges from the generated lockfile instead of keeping `latest`, and added `engines.node` as `^20.19.0 || >=22.12.0` to match the installed Vite toolchain.
+- Task 1 added frontend-generated artifact ignores for `frontend/node_modules/`, `frontend/dist/`, TypeScript build info, and emitted Vite config artifacts.
+- Task 2 hardened `readJson` beyond the initial plan: non-OK responses now preserve useful HTTP/FastAPI error details, while malformed successful JSON still rejects.
+- Task 3 tightened reducer consistency beyond the initial plan: stale download selections/details are cleared on refresh, confirm responses clear or recompute `selectedResultId`, qB filters use explicit state sets, and frontend IDs use `crypto.randomUUID()` when available.
+- Task 4 completed ARIA tab/panel wiring and keyboard navigation, prevented placeholder chat form reloads, and added mobile topbar overflow protection.
+- Task 5 added chat business cards and a follow-up accessibility fix so repeated candidate/receipt cards do not duplicate radio group names or `aria-labelledby` ids.
+- Task 5 components are intentionally not wired into `ChatPanel` yet; that is Task 6 scope.
+
+Execution mode adjustment for remaining Tasks 6-10:
+
+- Continue efficiently with fewer subagents to conserve quota.
+- Use subagents mainly for implementation slices where helpful; when used, prefer `gpt-5.4` with medium reasoning.
+- Do not open repeated spec/code-review subagents for every small fix. Local inspection plus focused tests is acceptable unless the change is high risk.
+- Preserve the same quality bar: TDD where practical, focused verification, and small commits.
+
 ## File Map
 
 Create or replace frontend app files:
