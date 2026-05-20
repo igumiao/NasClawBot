@@ -20,8 +20,9 @@ from app.domain.models import ConfirmationPayload, ResourceCandidate
 from app.llm.find_keyword_llm import FindKeywordLLM
 from app.workflow.graph import LangGraphWorkflowRunner, build_workflow
 
-# Route modules live in `app/api/`; move to repo root before joining frontend.
-_FRONTEND_INDEX = Path(__file__).resolve().parents[2] / "frontend" / "index.html"
+_FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+_FRONTEND_DIST_INDEX = _FRONTEND_DIR / "dist" / "index.html"
+_FRONTEND_INDEX = _FRONTEND_DIR / "index.html"
 
 
 class WorkflowRunner(Protocol):
@@ -186,6 +187,8 @@ def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
     @router.get("/", response_class=HTMLResponse)
     def index() -> str:
         """Serve the chat page when present, fallback to a tiny placeholder."""
+        if _FRONTEND_DIST_INDEX.exists():
+            return _FRONTEND_DIST_INDEX.read_text(encoding="utf-8")
         if _FRONTEND_INDEX.exists():
             return _FRONTEND_INDEX.read_text(encoding="utf-8")
         return "<h1>fnOS Media Agent</h1>"
