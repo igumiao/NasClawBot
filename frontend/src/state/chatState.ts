@@ -25,7 +25,7 @@ type ChatAction =
   | { type: "request_started" };
 
 export function createSessionId(): string {
-  return `nasclaw-${Date.now()}`;
+  return `nasclaw-${uniqueToken()}`;
 }
 
 export function chatInitialState(sessionId = createSessionId()): ChatState {
@@ -40,7 +40,14 @@ export function chatInitialState(sessionId = createSessionId()): ChatState {
 }
 
 function id(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${uniqueToken()}`;
+}
+
+function uniqueToken(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function assistantText(response: ChatResponse | ConfirmResponse): string {
@@ -93,6 +100,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         messages,
         pendingConfirmation: action.response.confirmation_payload,
+        selectedResultId:
+          action.response.confirmation_payload?.recommended_result_id ??
+          action.response.confirmation_payload?.results[0]?.id ??
+          null,
         isSubmitting: false,
         lastError: action.response.error
       };
