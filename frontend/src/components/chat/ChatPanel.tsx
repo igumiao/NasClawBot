@@ -1,6 +1,7 @@
 import { type FormEvent, useReducer, useRef, useState } from "react";
 import { chatApi } from "../../api/chatApi";
 import { chatInitialState, chatReducer } from "../../state/chatState";
+import type { ConfirmationPayload } from "../../types/api";
 import { CandidateCard } from "./CandidateCard";
 import { ErrorCard } from "./ErrorCard";
 import { ReceiptCard } from "./ReceiptCard";
@@ -16,6 +17,10 @@ function errorDetail(error: unknown): string {
     return error.message;
   }
   return "请求失败，请稍后重试。";
+}
+
+function selectedResultForPayload(payload: ConfirmationPayload): string | null {
+  return payload.selected_result_id ?? payload.recommended_result_id ?? payload.results[0]?.id ?? null;
 }
 
 export function ChatPanel({ id, labelledBy, onDownloadSubmitted }: ChatPanelProps) {
@@ -124,15 +129,21 @@ export function ChatPanel({ id, labelledBy, onDownloadSubmitted }: ChatPanelProp
                     </div>
                   );
                 case "candidate":
+                  const isActiveConfirmation = state.pendingConfirmation === message.payload;
                   return (
                     <CandidateCard
                       key={message.id}
                       payload={message.payload}
-                      selectedResultId={state.selectedResultId}
-                      isSubmitting={state.isSubmitting}
-                      onSelect={(selectedResultId) =>
-                        dispatch({ type: "selected_result_changed", selectedResultId })
+                      selectedResultId={
+                        isActiveConfirmation ? state.selectedResultId : selectedResultForPayload(message.payload)
                       }
+                      isSubmitting={state.isSubmitting && isActiveConfirmation}
+                      isDisabled={!isActiveConfirmation}
+                      onSelect={(selectedResultId) => {
+                        if (isActiveConfirmation) {
+                          dispatch({ type: "selected_result_changed", selectedResultId });
+                        }
+                      }}
                       onApprove={handleApprove}
                       onCancel={handleCancel}
                       onRewrite={handleRewrite}
