@@ -20,11 +20,13 @@ def create_app(workflow_runner=None) -> FastAPI:
     app = FastAPI(title=settings.app_name)
     app.include_router(build_router(workflow_runner=workflow_runner))
 
-    # `app/main.py` lives under `app/`, while static assets are in repo-level
-    # `frontend/`, so we step one level up before appending `frontend`.
-    static_dir = Path(__file__).resolve().parents[1] / "frontend"
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    frontend_dir = Path(__file__).resolve().parents[1] / "frontend"
+    frontend_dist = frontend_dir / "dist"
+    frontend_assets = frontend_dist / "assets"
+    if frontend_assets.exists():
+        app.mount("/assets", StaticFiles(directory=frontend_assets), name="assets")
+    if frontend_dir.exists():
+        app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
 
     return app
 
