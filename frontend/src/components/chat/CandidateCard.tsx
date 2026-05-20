@@ -7,6 +7,7 @@ type CandidateCardProps = {
   payload: ConfirmationPayload;
   selectedResultId: string | null;
   isSubmitting: boolean;
+  isDisabled?: boolean;
   onSelect: (id: string) => void;
   onApprove: () => void;
   onCancel: () => void;
@@ -17,6 +18,7 @@ export function CandidateCard({
   payload,
   selectedResultId,
   isSubmitting,
+  isDisabled = false,
   onSelect,
   onApprove,
   onCancel,
@@ -25,7 +27,8 @@ export function CandidateCard({
   const instanceId = useId();
   const titleId = `${instanceId}-candidate-card-title`;
   const radioGroupName = `${instanceId}-candidate-result`;
-  const approvalDisabled = isSubmitting || selectedResultId === null;
+  const controlsDisabled = isDisabled || isSubmitting;
+  const approvalDisabled = controlsDisabled || selectedResultId === null;
 
   return (
     <section className="chat-card" aria-labelledby={titleId}>
@@ -54,6 +57,7 @@ export function CandidateCard({
                 name={radioGroupName}
                 aria-label={candidate.title}
                 checked={checked}
+                disabled={controlsDisabled}
                 onChange={() => onSelect(candidate.id)}
               />
               <div className="candidate-body">
@@ -75,10 +79,10 @@ export function CandidateCard({
       </div>
 
       <div className="chat-card-actions">
-        <button type="button" className="secondary-button" onClick={onCancel} disabled={isSubmitting}>
+        <button type="button" className="secondary-button" onClick={onCancel} disabled={controlsDisabled}>
           取消
         </button>
-        <button type="button" className="secondary-button" onClick={onRewrite}>
+        <button type="button" className="secondary-button" onClick={onRewrite} disabled={controlsDisabled}>
           重新描述
         </button>
         <button
