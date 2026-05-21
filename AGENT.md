@@ -27,7 +27,8 @@ Phase 2A should be treated as done. The project is working as a narrow search-co
 - `app/storage/`: SQLite schema and stores for sessions, preferences, and task index.
 - `app/tools/`: small workflow helpers.
 - `app/services/`: receipt construction.
-- `frontend/`: plain HTML/CSS/JS browser shell.
+- `frontend/`: React + Vite light-theme workbench for Chat, Downloads, and Settings.
+- `ref/`: reference analysis notes learned from other projects or real probes. Use them as supporting context, not as source code to copy blindly. For example, it currently contains M-Team API measurement and integration notes.
 - `scripts/`: connectivity and keyword probe utilities.
 - `tests/`: unit and integration coverage.
 
@@ -96,6 +97,7 @@ Stable enough to build on:
 - paused approval path,
 - simplified LangGraph search/confirm path,
 - qB task query and control boundaries,
+- React chat workbench with approval cards, download controls, and a small status page,
 - OpenAI-compatible LLM adapter via OpenAI SDK,
 - readable diagnostics logging.
 
@@ -107,7 +109,7 @@ Known weaknesses:
 - `reject_and_refine` is intentionally blocked at the route layer and is not true state merge,
 - explanation generation is thin,
 - memory and environment awareness are shallow,
-- qB management exists as backend API capability but not yet as a complete UI or agent workflow.
+- qB management UI is intentionally lightweight and does not replace the backend workflow design.
 
 ## Recommended Next Work
 
@@ -130,7 +132,11 @@ Useful checks:
 - `.venv/bin/python -m pytest`
 - `.venv/bin/python -m pytest tests/test_find_keyword_llm.py tests/test_workflow.py -q`
 - `.venv/bin/python -m pytest tests/test_mteam_adapter.py tests/test_qb_adapter.py tests/test_chat_api.py -q`
+- `cd frontend && npm test`
+- `cd frontend && npm run typecheck`
+- `cd frontend && npm run build`
 - `.venv/bin/python scripts/keyword_probe.py`
 - `.venv/bin/python scripts/connectivity_smoke.py`
 
 The integration connectivity test may be skipped when real M-Team/qB credentials or network access are not available.
+FastAPI serves the built Vite app from `frontend/dist/` when present; keep `/health`, `/chat`, and qB API routes intact when changing static serving.
