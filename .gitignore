@@ -41,3 +41,4 @@ frontend/vite.config.d.ts
 .agents
 .superpowers
 skills-lock.json
+ref
