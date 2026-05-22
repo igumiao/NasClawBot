@@ -54,6 +54,8 @@ The conditional edge at `START` checks whether `confirmation_payload` is already
 
 Both adapters are configured from `app/config.py` (`Settings` via Pydantic, loaded from env vars then `.env` file, cached via `@lru_cache`).
 
+**M-Team API reference:** `ref/mteam-api-reference.md` is the authoritative, probe-verified API reference for all M-Team endpoints (search, detail, genDlToken, files, mediaInfo, peers, Douban/IMDB media info, category lists). It documents Content-Type requirements per endpoint, parameter tables, sort/filter/mode enums, the standard download chain, and a category ID quick-reference. Treat it as ground truth for any M-Team integration work.
+
 **Shared types:** `app/domain/models.py` defines `ResourceCandidate`, `ConfirmationCandidate`, and `ConfirmationPayload`. API schemas in `app/api/schemas.py` include `ChatRequest`/`ChatResponse`, `ConfirmRequest`/`ConfirmResponse`, and qB types.
 
 **LLM layer:** `app/llm/client.py` provides `call_openai_compatible_chat()` — a single function using the OpenAI Python SDK. Supports reasoning_split (for MiniMax). `app/llm/find_keyword_llm.py` wraps it with a Chinese/English system prompt for keyword extraction. JSON parsing handles `\<think>` blocks and markdown code fences defensively.
