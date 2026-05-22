@@ -6,7 +6,8 @@
       "Bash(.venv/bin/python *)",
       "Bash(mkdir -p ~/.claude)",
       "Read(//c/Users/10762/.claude/**)",
-      "Bash(wsl *)"
+      "Bash(wsl *)",
+      "Bash(echo \"---EXIT:$?\")"
     ]
   },
   "prefersReducedMotion": true
