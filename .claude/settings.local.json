@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout *)",
+      "Bash(git config *)",
+      "Bash(.venv/bin/python *)",
+      "Bash(mkdir -p ~/.claude)",
+      "Read(//c/Users/10762/.claude/**)",
+      "Bash(wsl *)"
+    ]
+  },
+  "prefersReducedMotion": true
+}

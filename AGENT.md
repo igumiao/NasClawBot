@@ -28,7 +28,7 @@ Phase 2A should be treated as done. The project is working as a narrow search-co
 - `app/tools/`: small workflow helpers.
 - `app/services/`: receipt construction.
 - `frontend/`: React + Vite light-theme workbench for Chat, Downloads, and Settings.
-- `ref/`: reference analysis notes learned from other projects or real probes. Use them as supporting context, not as source code to copy blindly. For example, it currently contains M-Team API measurement and integration notes.
+- `ref/`: reference analysis notes. The key file is `ref/mteam-api-reference.md` — a probe-verified, curated M-Team API reference covering all endpoints, Content-Type requirements, parameter enums, the standard download chain, and a category ID quick-reference. Treat it as ground truth for M-Team integration work. Other files in this directory are supporting notes and may be stale.
 - `scripts/`: connectivity and keyword probe utilities.
 - `tests/`: unit and integration coverage.
 
