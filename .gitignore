@@ -44,3 +44,6 @@ skills-lock.json
 
 # Probe outputs
 probes/mteam/output_*
+
+# Unrelated files
+report
