@@ -7,7 +7,8 @@
       "Bash(mkdir -p ~/.claude)",
       "Read(//c/Users/10762/.claude/**)",
       "Bash(wsl *)",
-      "Bash(echo \"---EXIT:$?\")"
+      "Bash(echo \"---EXIT:$?\")",
+      "Bash(gh repo *)"
     ]
   },
   "prefersReducedMotion": true
