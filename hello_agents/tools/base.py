@@ -10,6 +10,7 @@ import asyncio
 
 from .response import ToolResponse
 from .errors import ToolErrorCode
+from .permissions import ToolPermission
 
 
 def tool_action(name: str = None, description: str = None):
@@ -63,6 +64,8 @@ class Tool(ABC):
     - 提供 run_with_timing() 自动添加时间统计
     - 支持结构化的状态、数据和错误信息
     """
+
+    permission: ToolPermission = ToolPermission.SIDE_EFFECT
 
     def __init__(self, name: str, description: str, expandable: bool = False):
         """初始化工具
