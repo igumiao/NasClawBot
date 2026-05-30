@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 
 from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
+from app.agent_runtime.runner import HelloAgentWorkflowRunner
 from app.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -131,6 +132,12 @@ def _build_default_runner() -> WorkflowRunner:
         username=settings.qb_username,
         password=settings.qb_password,
     )
+    if settings.workflow_runner == "helloagents":
+        return HelloAgentWorkflowRunner(
+            mteam_adapter=mteam_adapter,
+            qb_adapter=qb_adapter,
+        )
+
     graph = build_workflow(
         keyword_finder=FindKeywordLLM(),
         search_tool=AdapterSearchTool(mteam_adapter),

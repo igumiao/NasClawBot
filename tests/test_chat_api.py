@@ -1,14 +1,19 @@
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from app.adapters.mteam import MTeamAdapter
+from app.adapters.qbittorrent import QBittorrentAdapter
+from app.agent_runtime.runner import HelloAgentWorkflowRunner
 from app.api import chat_routes
 from app.api import qb_routes
 from app.api.chat_routes import AdapterDownloadExecutor
 from app.api.schemas import ChatRequest, ConfirmRequest, QBTorrentActionRequest
+from app.config import Settings
 from app.domain.models import ConfirmationPayload
 from app.main import create_app
 from app.storage.session_store import SessionStore
@@ -345,6 +350,7 @@ def test_build_default_runner_wires_find_keyword_llm(monkeypatch: pytest.MonkeyP
         qb_base_url = "https://qb.local"
         qb_username = "user"
         qb_password = "pass"
+        workflow_runner = "langgraph"
 
     def fake_build_workflow(*, keyword_finder=None, search_tool=None, download_executor=None):
         captured["keyword_finder"] = keyword_finder
@@ -539,3 +545,176 @@ def test_qb_torrent_action_endpoint_rejects_invalid_action(monkeypatch: pytest.M
 
     with pytest.raises(ValidationError):
         QBTorrentActionRequest(action="start-now")
+
+
+# ---------------------------------------------------------------------------
+# HelloAgents runner through the API boundary
+# ---------------------------------------------------------------------------
+
+
+class _FakeKeywordExtractor:
+    """Returns the user message as the keyword without LLM call."""
+
+    def invoke(self, message: str) -> dict[str, str]:
+        return {"keyword": message}
+
+
+def _build_helloagents_runner(
+    *,
+    mteam: MTeamAdapter,
+    qb: QBittorrentAdapter,
+    db_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> HelloAgentWorkflowRunner:
+    """Create a HelloAgentWorkflowRunner with fake adapters and keyword extractor."""
+    fake_settings = Settings(
+        mteam_base_url="https://mteam.local",
+        mteam_api_key="key",
+        qb_base_url="https://qb.local",
+        qb_username="user",
+        qb_password="pass",
+        database_path=db_path,
+    )
+    monkeypatch.setattr("app.agent_runtime.runner.get_settings", lambda: fake_settings)
+    monkeypatch.setattr("app.config.get_settings", lambda: fake_settings)
+    runner = HelloAgentWorkflowRunner(mteam_adapter=mteam, qb_adapter=qb)
+    runner._keyword_extractor = _FakeKeywordExtractor()  # type: ignore[assignment]
+    return runner
+
+
+class TestHelloAgentsAPIBoundary:
+    """Exercise HelloAgentWorkflowRunner through the FastAPI /chat and /confirm endpoints."""
+
+    def test_chat_returns_awaiting_confirmation(self, tmp_path, monkeypatch):
+        """Tracer bullet: HelloAgents runner wired through the API returns valid confirmation."""
+        fake_mteam = FakeMTeamAdapter()
+        fake_qb = FakeQBAdapter()
+        db_path = str(tmp_path / "test.db")
+        runner = _build_helloagents_runner(
+            mteam=fake_mteam, qb=fake_qb, db_path=db_path, monkeypatch=monkeypatch
+        )
+        app = create_app(workflow_runner=runner)
+
+        endpoint = _route_for(app, "/chat", "POST").endpoint
+        response = endpoint(ChatRequest(session_id="s1", message="Dune 2021"))
+
+        assert response.status == "awaiting_confirmation"
+        assert response.confirmation_payload is not None
+        assert response.confirmation_payload.recommended_result_id == "123"
+        assert len(response.confirmation_payload.results) > 0
+        assert response.error is None
+
+    def test_confirm_approve_completes_workflow(self, tmp_path, monkeypatch):
+        """Full round-trip: chat → approve → completed with receipt through the API."""
+        fake_mteam = FakeMTeamAdapter()
+        fake_qb = FakeQBAdapter()
+        db_path = str(tmp_path / "test.db")
+        runner = _build_helloagents_runner(
+            mteam=fake_mteam, qb=fake_qb, db_path=db_path, monkeypatch=monkeypatch
+        )
+        app = create_app(workflow_runner=runner)
+
+        chat_ep = _route_for(app, "/chat", "POST").endpoint
+        chat_resp = chat_ep(ChatRequest(session_id="s2", message="Dune"))
+        payload = chat_resp.confirmation_payload
+
+        confirm_ep = _route_for(app, "/confirm", "POST").endpoint
+        result = confirm_ep(
+            ConfirmRequest(
+                session_id="s2",
+                action="approve",
+                selected_result_id=payload.recommended_result_id,
+                confirmation_payload=payload,
+            )
+        )
+
+        assert result.status == "completed"
+        assert result.receipt is not None
+        assert result.receipt["status"] == "submitted_paused"
+        assert result.receipt["external_id"] == "123"
+
+    def test_confirm_cancel_returns_canceled(self, tmp_path, monkeypatch):
+        """Cancel action through the API boundary."""
+        fake_mteam = FakeMTeamAdapter()
+        fake_qb = FakeQBAdapter()
+        db_path = str(tmp_path / "test.db")
+        runner = _build_helloagents_runner(
+            mteam=fake_mteam, qb=fake_qb, db_path=db_path, monkeypatch=monkeypatch
+        )
+        app = create_app(workflow_runner=runner)
+
+        chat_ep = _route_for(app, "/chat", "POST").endpoint
+        chat_ep(ChatRequest(session_id="s3", message="Dune"))
+
+        confirm_ep = _route_for(app, "/confirm", "POST").endpoint
+        result = confirm_ep(
+            ConfirmRequest(session_id="s3", action="cancel", confirmation_payload=None)
+        )
+
+        assert result.status == "canceled"
+
+    def test_config_switch_builds_helloagents_runner(self, tmp_path, monkeypatch):
+        """When workflow_runner='helloagents', _build_default_runner returns HelloAgentWorkflowRunner."""
+        db_path = str(tmp_path / "test.db")
+
+        class FakeSettings:
+            mteam_base_url = "https://mteam.local"
+            mteam_api_key = "key"
+            qb_base_url = "https://qb.local"
+            qb_username = "user"
+            qb_password = "pass"
+            workflow_runner = "helloagents"
+            database_path = db_path
+
+        monkeypatch.setattr(chat_routes, "MTeamAdapter", FakeMTeamAdapter)
+        monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
+        monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
+        monkeypatch.setattr(
+            "app.agent_runtime.runner.get_settings", lambda: FakeSettings()
+        )
+
+        runner = chat_routes._build_default_runner()
+        assert isinstance(runner, HelloAgentWorkflowRunner)
+
+
+# ---------------------------------------------------------------------------
+# Fake adapters for HelloAgents API boundary tests
+# ---------------------------------------------------------------------------
+
+
+class FakeMTeamAdapter(MTeamAdapter):
+    """Returns canned search results without hitting the network."""
+
+    def __init__(self, base_url: str = "", api_key: str = "") -> None:
+        pass
+
+    def search_torrents_by_keyword(self, keyword: str, page: int = 1, page_size: int = 20) -> list[dict[str, Any]]:
+        return [
+            {"id": 123, "title": "Dune 2021 2160p", "seeders": 10, "size": "10 GiB", "size_bytes": 10737418240},
+            {"id": 456, "title": "Dune Part Two 2024", "seeders": 5, "size": "20 GiB", "size_bytes": 21474836480},
+        ]
+
+    def get_torrent_details(self, torrent_id: str) -> dict[str, Any] | None:
+        return {"title": f"Detail for {torrent_id}", "id": torrent_id}
+
+    def get_torrent_download_url(self, torrent_id: str) -> str | None:
+        return f"https://mteam.local/download/{torrent_id}"
+
+    def is_download_url_torrent(self, url: str) -> bool:
+        return bool(url)
+
+
+class FakeQBAdapter(QBittorrentAdapter):
+    """Records add calls without touching a real qB instance."""
+
+    def __init__(self, base_url: str = "", username: str = "", password: str = "") -> None:
+        pass
+
+    def add_torrent_url(self, *, url: str, category: str, rename: str, tags: list[str], paused: bool) -> dict[str, Any]:
+        return {"ok": True, "status": "submitted_paused", "qb_hash": "fake-hash"}
+
+    def generate_mteam_torrent_name(self, mteam_id: str, detail: dict[str, Any], qb_category: str) -> str:
+        return f"{mteam_id}.torrent"
+
+    def login(self) -> None:
+        pass
