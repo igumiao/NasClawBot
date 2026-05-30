@@ -1,5 +1,7 @@
 # V1 Implementation Plan
 
+> Legacy LangGraph-era implementation plan. The active migration plan is [HelloAgents Migration Plan](helloagents-migration-plan.md). Keep this document as historical context for ADR 001.
+
 ## Overview
 
 将当前单一直线 workflow 演进为意图路由 + 多子图的 Agent 系统。

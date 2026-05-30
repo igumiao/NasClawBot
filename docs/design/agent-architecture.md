@@ -1,5 +1,7 @@
 # Agent Architecture Design
 
+> Legacy LangGraph-era design. The active replacement design is [HelloAgents Runtime Architecture](helloagents-runtime-architecture.md). Keep this document as historical context for ADR 001.
+
 ## Overview
 
 NasClawBot Agent 是一个基于 LangGraph 的单 Agent + 多 Tool 系统。主图负责意图路由、记忆加载、中断恢复，子图负责具体领域的任务执行。每个子图有独立的工具白名单。

@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (2026-05-22)
+Superseded in part by [ADR 002: HelloAgents Runtime Migration](002-helloagents-runtime-migration.md) (2026-05-29).
+
+The domain decisions in this ADR still stand unless ADR 002 explicitly changes them. The superseded parts are the framework-specific LangGraph decisions around graph/subgraph implementation.
 
 ## Context
 
