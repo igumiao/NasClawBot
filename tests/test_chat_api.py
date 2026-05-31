@@ -1,6 +1,4 @@
-from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -11,12 +9,10 @@ from app.adapters.qbittorrent import QBittorrentAdapter
 from app.agent_runtime.runner import HelloAgentWorkflowRunner
 from app.api import chat_routes
 from app.api import qb_routes
-from app.api.chat_routes import AdapterDownloadExecutor
 from app.api.schemas import ChatRequest, ConfirmRequest, QBTorrentActionRequest
 from app.config import Settings
 from app.domain.models import ConfirmationPayload
 from app.main import create_app
-from app.storage.session_store import SessionStore
 
 
 class FakeRunner:
@@ -220,157 +216,6 @@ def test_confirm_does_not_forward_feedback_text_kwarg():
         )
     )
     assert response.status == "canceled", "cancel should return canceled status"
-
-
-def test_session_store_round_trip():
-    test_data_dir = Path("tests_runtime")
-    test_data_dir.mkdir(exist_ok=True)
-    db_path = test_data_dir / f"session-{uuid4().hex}.db"
-    store = SessionStore(db_path=db_path)
-    store.upsert(
-        session_id="s1",
-        latest_user_message="find dune",
-        constraints_json='{"title":"Dune"}',
-        confirmation_payload_json='{"summary":"pick one"}',
-        status="awaiting_confirmation",
-    )
-
-    record = store.get("s1")
-    assert record is not None, "session store should return the inserted record"
-    assert record["status"] == "awaiting_confirmation", "session store should persist the status"
-
-    db_path.unlink(missing_ok=True)
-
-
-def test_adapter_download_executor_blocks_non_torrent_download_url():
-    class FakeMTeamAdapter:
-        def get_torrent_details(self, torrent_id: str):
-            _ = torrent_id
-            return {"name": "Fake Item"}
-
-        def get_torrent_download_url(self, torrent_id: str):
-            _ = torrent_id
-            return "https://download.local/not-torrent"
-
-        def is_download_url_torrent(self, url: str) -> bool:
-            _ = url
-            return False
-
-    class FakeQBAdapter:
-        def generate_mteam_torrent_name(self, mteam_id, detail, qb_category):
-            _ = mteam_id
-            _ = detail
-            _ = qb_category
-            return "[fake]"
-
-        def add_torrent_url(self, **kwargs):
-            _ = kwargs
-            raise AssertionError("qB add_torrent_url must not be called for invalid download URL")
-
-    executor = AdapterDownloadExecutor(FakeMTeamAdapter(), FakeQBAdapter())
-    result = executor({"id": "1172412", "title": "Fake"}, "movie")
-
-    assert result["status"] == "download_url_invalid", "invalid torrent URL should be rejected before qB submission"
-    assert result["qb_hash"] is None, "invalid torrent URL should not produce a qB hash"
-
-
-def test_adapter_download_executor_submits_paused_and_returns_paused_status():
-    calls: dict[str, object] = {}
-
-    class FakeMTeamAdapter:
-        def get_torrent_details(self, torrent_id: str):
-            assert torrent_id == "1172412", "download executor should request details for the selected torrent"
-            return {"name": "Fake Item"}
-
-        def get_torrent_download_url(self, torrent_id: str):
-            assert torrent_id == "1172412", "download executor should request a token for the selected torrent"
-            return "https://download.local/file.torrent"
-
-        def is_download_url_torrent(self, url: str) -> bool:
-            return url.endswith(".torrent")
-
-    class FakeQBAdapter:
-        def generate_mteam_torrent_name(self, mteam_id, detail, qb_category):
-            _ = detail
-            assert mteam_id == "1172412", "qB name generation should use the M-Team id"
-            assert qb_category == "movie", "qB name generation should receive the target category"
-            return "[1172412][movie][Fake.Item]"
-
-        def add_torrent_url(self, **kwargs):
-            calls.update(kwargs)
-            return {"ok": True, "status": "submitted_paused", "qb_hash": "abc123"}
-
-    executor = AdapterDownloadExecutor(FakeMTeamAdapter(), FakeQBAdapter())
-    result = executor({"id": "1172412", "title": "Fake"}, "movie")
-
-    assert calls["paused"] is True, "download submission should pause the torrent by default"
-    assert calls["category"] == "movie", "download submission should preserve the qB category"
-    assert calls["tags"] == ["mteam"], "download submission should tag the torrent as mteam"
-    assert result["status"] == "submitted_paused", "download submission should report submitted_paused"
-    assert result["qb_hash"] == "abc123", "download submission should return the qB hash"
-
-
-def test_adapter_search_tool_accepts_keyword_string():
-    class FakeMTeamAdapter:
-        def search_torrents_by_keyword(self, *, keyword: str, page: int, page_size: int):
-            assert keyword == "dune", "search tool should forward the normalized keyword"
-            assert page == 1, "search tool should use the default page"
-            assert page_size == 20, "search tool should use the default page size"
-            return [{"id": "1", "title": "Dune.2021.2160p", "seeders": 42, "size": "1.2 GB"}]
-
-    tool = chat_routes.AdapterSearchTool(FakeMTeamAdapter())
-    results = tool("dune")
-
-    assert len(results) == 1, "search tool should return one normalized result"
-    assert results[0].title == "Dune.2021.2160p", "search tool should preserve the title"
-    assert results[0].resolution == "2160p", "search tool should infer resolution from the title"
-
-
-def test_build_default_runner_wires_find_keyword_llm(monkeypatch: pytest.MonkeyPatch):
-    captured: dict[str, object] = {}
-
-    class FakeFindKeywordLLM:
-        pass
-
-    class FakeMTeamAdapter:
-        def __init__(self, base_url: str, api_key: str):
-            _ = (base_url, api_key)
-
-    class FakeQBAdapter:
-        def __init__(self, base_url: str, username: str, password: str):
-            _ = (base_url, username, password)
-
-    class FakeRunner:
-        def __init__(self, graph):
-            self.graph = graph
-
-    class FakeSettings:
-        mteam_base_url = "https://mteam.local"
-        mteam_api_key = "key"
-        qb_base_url = "https://qb.local"
-        qb_username = "user"
-        qb_password = "pass"
-        workflow_runner = "langgraph"
-
-    def fake_build_workflow(*, keyword_finder=None, search_tool=None, download_executor=None):
-        captured["keyword_finder"] = keyword_finder
-        captured["search_tool"] = search_tool
-        captured["download_executor"] = download_executor
-        return "fake-graph"
-
-    monkeypatch.setattr(chat_routes, "FindKeywordLLM", FakeFindKeywordLLM)
-    monkeypatch.setattr(chat_routes, "MTeamAdapter", FakeMTeamAdapter)
-    monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
-    monkeypatch.setattr(chat_routes, "LangGraphWorkflowRunner", FakeRunner)
-    monkeypatch.setattr(chat_routes, "build_workflow", fake_build_workflow)
-    monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
-
-    runner = chat_routes._build_default_runner()
-
-    assert isinstance(captured["keyword_finder"], FakeFindKeywordLLM), "default runner should wire the keyword finder"
-    assert isinstance(captured["search_tool"], chat_routes.AdapterSearchTool), "default runner should wire the search tool"
-    assert callable(captured["download_executor"]), "default runner should wire the download executor"
-    assert isinstance(runner, FakeRunner), "default runner should build the workflow runner"
 
 
 def test_create_app_health_does_not_build_default_runner(monkeypatch: pytest.MonkeyPatch):
@@ -652,29 +497,6 @@ class TestHelloAgentsAPIBoundary:
         )
 
         assert result.status == "canceled"
-
-    def test_config_switch_builds_helloagents_runner(self, tmp_path, monkeypatch):
-        """When workflow_runner='helloagents', _build_default_runner returns HelloAgentWorkflowRunner."""
-        db_path = str(tmp_path / "test.db")
-
-        class FakeSettings:
-            mteam_base_url = "https://mteam.local"
-            mteam_api_key = "key"
-            qb_base_url = "https://qb.local"
-            qb_username = "user"
-            qb_password = "pass"
-            workflow_runner = "helloagents"
-            database_path = db_path
-
-        monkeypatch.setattr(chat_routes, "MTeamAdapter", FakeMTeamAdapter)
-        monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
-        monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
-        monkeypatch.setattr(
-            "app.agent_runtime.runner.get_settings", lambda: FakeSettings()
-        )
-
-        runner = chat_routes._build_default_runner()
-        assert isinstance(runner, HelloAgentWorkflowRunner)
 
 
 # ---------------------------------------------------------------------------

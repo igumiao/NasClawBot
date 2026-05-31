@@ -7,7 +7,6 @@ across adapters, API routes, and scripts.
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
 
 from dotenv import dotenv_values
 from pydantic import BaseModel, Field
@@ -62,9 +61,6 @@ class Settings(BaseModel):
     """Typed configuration surface used by the application."""
 
     app_name: str = "fnOS Media Agent"
-    workflow_runner: Literal["langgraph", "helloagents"] = Field(
-        default_factory=lambda: _get_env("WORKFLOW_RUNNER", "helloagents")  # type: ignore[arg-type]
-    )
     mteam_base_url: str = Field(default_factory=lambda: _get_env("MTEAM_BASE_URL"))
     mteam_api_key: str = Field(default_factory=lambda: _get_env("MTEAM_API_KEY"))
     qb_base_url: str = Field(default_factory=lambda: _get_env("QB_BASE_URL"))
