@@ -237,7 +237,6 @@ class HelloAgentWorkflowRunner:
         action: str,
         confirmation_payload: dict[str, Any] | ConfirmationPayload | None,
         selected_result_id: str | None = None,
-        feedback_text: str | None = None,
     ) -> dict[str, Any]:
         normalized_action = action.strip().lower()
 
@@ -251,15 +250,6 @@ class HelloAgentWorkflowRunner:
                 "status": "canceled",
                 "messages": ["Request canceled by user."],
             }
-
-        if normalized_action == "reject_and_refine":
-            if not (feedback_text or "").strip():
-                return {
-                    "session_id": session_id,
-                    "status": "error",
-                    "error": "feedback_text is required for reject_and_refine.",
-                }
-            return self.run_chat(session_id=session_id, message=feedback_text or "")
 
         if normalized_action != "approve":
             return {
