@@ -17,9 +17,7 @@ from app.api.schemas import (
 )
 from app.api.qb_routes import build_qb_router
 from app.config import get_settings
-from app.domain.models import ConfirmationPayload, ResourceCandidate
-from app.llm.find_keyword_llm import FindKeywordLLM
-from app.workflow.graph import LangGraphWorkflowRunner, build_workflow
+from app.domain.models import ConfirmationPayload
 
 _FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 _FRONTEND_DIST_INDEX = _FRONTEND_DIR / "dist" / "index.html"
@@ -51,76 +49,6 @@ class WorkflowRunner(Protocol):
         ...
 
 
-class AdapterSearchTool:
-    """Workflow search callable backed by the M-Team adapter."""
-
-    def __init__(self, adapter: MTeamAdapter):
-        self._adapter = adapter
-
-    def __call__(self, keyword: str) -> list[ResourceCandidate]:
-        rows = self._adapter.search_torrents_by_keyword(
-            keyword=keyword,
-            page=1,
-            page_size=20,
-        )
-        candidates: list[ResourceCandidate] = []
-        for row in rows:
-            title = str(row.get("title") or row.get("name") or f"M-Team {row.get('id', '')}")
-            lowered_title = title.lower()
-            media_type = "movie"
-            if "s01" in lowered_title or "season" in lowered_title:
-                media_type = "tv"
-            candidates.append(
-                ResourceCandidate(
-                    id=str(row.get("id")),
-                    title=title,
-                    media_type=media_type,
-                    resolution="2160p" if "2160" in lowered_title or "4k" in lowered_title else "1080p",
-                    seeders=int(row.get("seeders", 0) or 0),
-                    size=str(row.get("size", "unknown")),
-                    size_bytes=int(row["size_bytes"]) if row.get("size_bytes") is not None else None,
-                    source="mteam",
-                )
-            )
-        return candidates
-
-
-class AdapterDownloadExecutor:
-    """Download executor that follows M-Team id -> token URL -> qB add(urls)."""
-
-    def __init__(self, mteam_adapter: MTeamAdapter, qb_adapter: QBittorrentAdapter):
-        self._mteam_adapter = mteam_adapter
-        self._qb_adapter = qb_adapter
-
-    def __call__(self, selected_result: dict[str, Any], qb_category: str) -> dict[str, Any]:
-        external_id = str(selected_result["id"])
-        detail = self._mteam_adapter.get_torrent_details(external_id)
-        if not detail:
-            return {"status": "detail_failed", "qb_hash": None}
-        download_url = self._mteam_adapter.get_torrent_download_url(external_id)
-        if not download_url:
-            return {"status": "download_url_failed", "qb_hash": None}
-        if not self._mteam_adapter.is_download_url_torrent(download_url):
-            return {"status": "download_url_invalid", "qb_hash": None}
-        rename = self._qb_adapter.generate_mteam_torrent_name(external_id, detail, qb_category)
-        add_result = self._qb_adapter.add_torrent_url(
-            url=download_url,
-            category=qb_category,
-            rename=rename,
-            tags=["mteam"],
-            paused=True,
-        )
-        if add_result.get("ok"):
-            return {
-                "status": str(add_result.get("status", "submitted_paused")),
-                "qb_hash": add_result.get("qb_hash"),
-            }
-        return {
-            "status": str(add_result.get("status", "submit_failed")),
-            "qb_hash": add_result.get("qb_hash"),
-        }
-
-
 def _build_default_runner() -> WorkflowRunner:
     settings = get_settings()
     mteam_adapter = MTeamAdapter(
@@ -132,18 +60,10 @@ def _build_default_runner() -> WorkflowRunner:
         username=settings.qb_username,
         password=settings.qb_password,
     )
-    if settings.workflow_runner == "helloagents":
-        return HelloAgentWorkflowRunner(
-            mteam_adapter=mteam_adapter,
-            qb_adapter=qb_adapter,
-        )
-
-    graph = build_workflow(
-        keyword_finder=FindKeywordLLM(),
-        search_tool=AdapterSearchTool(mteam_adapter),
-        download_executor=AdapterDownloadExecutor(mteam_adapter, qb_adapter),
+    return HelloAgentWorkflowRunner(
+        mteam_adapter=mteam_adapter,
+        qb_adapter=qb_adapter,
     )
-    return LangGraphWorkflowRunner(graph)
 
 def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
     runner = workflow_runner

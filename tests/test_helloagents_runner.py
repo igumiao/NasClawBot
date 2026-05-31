@@ -359,29 +359,16 @@ class TestApprovalGuard:
 
 
 # ---------------------------------------------------------------------------
-# Config switch smoke test
+# Runner import smoke test
 # ---------------------------------------------------------------------------
 
 
-class TestConfigSwitch:
-    def test_can_instantiate_either_runner(self):
+class TestRunnerImport:
+    def test_can_import_default_runner(self):
         from app.api.chat_routes import _build_default_runner
 
         _ = _build_default_runner  # import coverage — actual instantiation needs adapters
 
-    def test_settings_default_is_helloagents(self):
-        from app.config import Settings
-        s = Settings(
-            mteam_base_url="", mteam_api_key="",
-            qb_base_url="", qb_username="", qb_password="",
-            llm_api_key="",
-        )
-        assert s.workflow_runner == "helloagents"
-
-
-# ---------------------------------------------------------------------------
-# Runner protocol compliance
-# ---------------------------------------------------------------------------
 
 
 class TestRunnerProtocol:
