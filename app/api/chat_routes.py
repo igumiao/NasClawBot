@@ -99,13 +99,6 @@ def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
     def confirm(request: ConfirmRequest) -> ConfirmResponse:
         """Handle user action at confirmation stage."""
 
-        if request.action.strip().lower() == "reject_and_refine":
-            return ConfirmResponse(
-                session_id=request.session_id,
-                status="error",
-                error="Phase 2A does not support reject_and_refine on /confirm.",
-            )
-
         result = get_runner().run_confirm(
             request.session_id,
             action=request.action,

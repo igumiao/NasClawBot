@@ -32,39 +32,6 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
     """Create tables/indexes required by the current MVP."""
     conn.executescript(
         """
-        CREATE TABLE IF NOT EXISTS sessions (
-            session_id TEXT PRIMARY KEY,
-            latest_user_message TEXT NOT NULL,
-            constraints_json TEXT NOT NULL,
-            confirmation_payload_json TEXT NOT NULL,
-            status TEXT NOT NULL,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS preferences (
-            user_id TEXT PRIMARY KEY,
-            preferred_resolution TEXT,
-            subtitle_preference TEXT,
-            encoding_preference TEXT,
-            default_download_profile TEXT,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS task_index (
-            external_source TEXT NOT NULL,
-            external_id TEXT NOT NULL,
-            resource_title TEXT NOT NULL,
-            qb_hash TEXT,
-            qb_name TEXT,
-            qb_category TEXT,
-            status TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (external_source, external_id)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_task_index_qb_hash ON task_index (qb_hash);
-
         CREATE TABLE IF NOT EXISTS runtime_sessions (
             session_id TEXT PRIMARY KEY,
             status TEXT NOT NULL DEFAULT 'in_progress',

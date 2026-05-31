@@ -121,29 +121,6 @@ def test_confirm_approve_returns_completed_with_receipt():
     assert body.receipt["external_id"] == payload.recommended_result_id, "receipt should preserve the chosen external id"
 
 
-def test_confirm_reject_and_refine_returns_route_level_phase2a_error():
-    class MustNotCallRunner:
-        def run_chat(self, session_id: str, message: str) -> dict:
-            _ = (session_id, message)
-            return {"session_id": session_id, "status": "awaiting_confirmation"}
-
-        def run_confirm(
-            self,
-            session_id: str,
-            *,
-            action: str,
-            confirmation_payload: dict | None,
-            selected_result_id: str | None = None,
-        ) -> dict:
-            _ = (session_id, action, confirmation_payload, selected_result_id)
-            raise AssertionError("runner.run_confirm must not be called for reject_and_refine in Phase 2A")
-
-    endpoint = _route_for(create_app(workflow_runner=MustNotCallRunner()), "/confirm", "POST").endpoint
-    body = endpoint(ConfirmRequest(session_id="s1", action="reject_and_refine", confirmation_payload={"results": []}))
-    assert body.status == "error", "reject_and_refine should be rejected at the route level"
-    assert body.error == "Phase 2A does not support reject_and_refine on /confirm.", "route error text should stay stable"
-
-
 def test_confirm_endpoint_parses_confirmation_payload_to_model():
     captured: dict[str, object] = {}
 
@@ -187,35 +164,6 @@ def test_confirm_endpoint_parses_confirmation_payload_to_model():
     )
     assert isinstance(captured["confirmation_payload"], ConfirmationPayload), "route should coerce confirmation payload to model"
     assert captured["selected_result_id"] == "x1", "route should forward the selected result id"
-
-
-def test_confirm_does_not_forward_feedback_text_kwarg():
-    class StrictRunner:
-        def run_chat(self, session_id: str, message: str) -> dict:
-            _ = (session_id, message)
-            return {"session_id": "s1", "status": "awaiting_confirmation", "confirmation_payload": {"results": []}}
-
-        def run_confirm(
-            self,
-            session_id: str,
-            *,
-            action: str,
-            confirmation_payload: dict | None,
-            selected_result_id: str | None = None,
-        ) -> dict:
-            _ = (session_id, action, confirmation_payload, selected_result_id)
-            return {"session_id": session_id, "status": "canceled", "messages": ["Request canceled by user."]}
-
-    endpoint = _route_for(create_app(workflow_runner=StrictRunner()), "/confirm", "POST").endpoint
-    response = endpoint(
-        ConfirmRequest(
-            session_id="s1",
-            action="cancel",
-            confirmation_payload={"results": []},
-            feedback_text="should be ignored",
-        )
-    )
-    assert response.status == "canceled", "cancel should return canceled status"
 
 
 def test_create_app_health_does_not_build_default_runner(monkeypatch: pytest.MonkeyPatch):

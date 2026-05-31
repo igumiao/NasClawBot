@@ -323,13 +323,6 @@ class TestHelloAgentWorkflowRunnerConfirm:
         result = runner.run_confirm("s3", action="cancel", confirmation_payload=None)
         assert result["status"] == "canceled"
 
-    def test_reject_and_refine_triggers_new_chat(self, runner):
-        runner.run_chat("s4", "test movie")
-        result = runner.run_confirm(
-            "s4", action="reject_and_refine", confirmation_payload=None, feedback_text="星球大战 1977"
-        )
-        assert result["status"] in ("awaiting_confirmation", "error")
-
     def test_missing_confirmation_returns_error(self, runner):
         result = runner.run_confirm("s5", action="approve", confirmation_payload=None)
         assert result["status"] == "error"
