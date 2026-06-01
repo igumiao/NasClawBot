@@ -8,7 +8,12 @@
       "Read(//c/Users/10762/.claude/**)",
       "Bash(wsl *)",
       "Bash(echo \"---EXIT:$?\")",
-      "Bash(gh repo *)"
+      "Bash(gh repo *)",
+      "WebSearch",
+      "Bash(git *)",
+      "Bash(.venv/bin/pip show *)",
+      "Bash(pip list *)",
+      "Bash(.venv/bin/pip list *)"
     ]
   },
   "prefersReducedMotion": true

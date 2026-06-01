@@ -25,7 +25,8 @@ env/
 .env.*
 .vscode/
 .idea/
-.claude
+
+
 # OS files
 .DS_Store
 Thumbs.db
@@ -47,4 +48,6 @@ probes/mteam/output_*
 
 # Unrelated files
 report
+
+.claude/settings.local.json
 
