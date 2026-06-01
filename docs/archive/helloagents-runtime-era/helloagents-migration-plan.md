@@ -23,7 +23,7 @@ Decisions:
 - Build a small runtime/runner layer first.
 - Keep LangGraph until HelloAgents runner reaches parity.
 
-## Phase 1: Runner Parity Tracer Bullet
+## Phase 1: Runner Parity Tracer Bullet (DONE)
 
 Goal: make HelloAgents run the current search-confirm-download workflow without changing route contracts.
 
@@ -155,72 +155,100 @@ Tasks are ordered by dependency. Tasks on the same level can be done in parallel
 
 #### Level 1 — Foundation (no dependencies)
 
-- [ ] **1.1** Add `ToolPermission` enum to `hello_agents/tools/permissions.py`. Add `permission` field to `Tool` base class, default `SIDE_EFFECT`.
+- [x] **1.1** Add `ToolPermission` enum to `hello_agents/tools/permissions.py`. Add `permission` field to `Tool` base class, default `SIDE_EFFECT`.
 
-- [ ] **1.2** Add `runtime_sessions` DDL to `app/storage/db.py` `initialize_schema()`. Add a thin `RuntimeSessionStore` in `app/storage/runtime_session_store.py` with `save(session_id, envelope)` / `load(session_id)` / `delete(session_id)`.
+- [x] **1.2** Add `runtime_sessions` DDL to `app/storage/db.py` `initialize_schema()`. Add a thin `RuntimeSessionStore` in `app/storage/runtime_session_store.py` with `save(session_id, envelope)` / `load(session_id)` / `delete(session_id)`.
 
-- [ ] **1.3** Add `app/agent_runtime/state.py` with `SearchDownloadState`, `WorkflowEnvelope`, `ApprovalState`, and `WorkflowStatus`.
+- [x] **1.3** Add `app/agent_runtime/state.py` with `SearchDownloadState`, `WorkflowEnvelope`, `ApprovalState`, and `WorkflowStatus`.
 
-- [ ] **1.4** Add function-calling keyword extractor in `app/llm/find_keyword_llm.py` (or a new `app/agent_runtime/keyword.py`). Keeps the same `invoke(message) -> dict` interface. Uses `HelloAgentsLLM.invoke_with_tools(tool_choice="required")` internally. Existing `FindKeywordLLM` remains available as fallback during transition.
+- [x] **1.4** Add function-calling keyword extractor in `app/agent_runtime/keyword.py`. Keeps the same `invoke(message) -> dict` interface. Uses `HelloAgentsLLM.invoke_with_tools(tool_choice="auto")` because DeepSeek V4 thinking mode rejects `"required"`. Existing `FindKeywordLLM` remains available for the LangGraph fallback path.
 
 #### Level 2 — Tools (depends on 1.1)
 
-- [ ] **2.1** Add `app/agent_runtime/tools.py` with `MTeamSearchTool(Tool)` and `QBAddTorrentTool(Tool)`. These wrap existing adapter calls inside `Tool.run() -> ToolResponse`.
+- [x] **2.1** Add `app/agent_runtime/tools.py` with `MTeamSearchTool(Tool)` and `QBAddTorrentTool(Tool)`. These wrap existing adapter calls inside `Tool.run() -> ToolResponse`.
 
 #### Level 3 — Runtime (depends on 1.2, 1.3)
 
-- [ ] **3.1** Add `hello_agents/runtime/workflow.py` with a generic `SequentialWorkflow` that accepts a list of steps and a `WorkflowEnvelope`, executes steps in order, stops at `ToolStatus.PENDING_APPROVAL`, and returns the envelope. No NasClawBot-specific logic.
+- [x] **3.1** Add `hello_agents/runtime/workflow.py` with a generic `SequentialWorkflow` that accepts a list of steps and a `WorkflowEnvelope`, executes steps in order, stops at terminal statuses (`awaiting_approval`, `error`, `completed`, `canceled`), and returns the envelope. No NasClawBot-specific logic.
 
-- [ ] **3.2** Add `app/agent_runtime/runner.py` with `HelloAgentWorkflowRunner` implementing the same `WorkflowRunner` protocol as `LangGraphWorkflowRunner`. Methods:
+- [x] **3.2** Add `app/agent_runtime/runner.py` with `HelloAgentWorkflowRunner` implementing the same `WorkflowRunner` protocol as `LangGraphWorkflowRunner`. Methods:
 
   - `run_chat(session_id, message)` — creates envelope, runs keyword → search → build_confirmation steps, persists pending approval, returns dict with `status` and `confirmation_payload`.
-  - `run_confirm(session_id, action, confirmation_payload, selected_result_id)` — loads envelope, resolves approval, runs execute_download step, persists result, returns dict with `status` and `receipt`.
+  - `run_confirm(session_id, action, confirmation_payload, selected_result_id)` — loads envelope, validates four-layer approval guard, runs execute_download step, persists result, returns dict with `status` and `receipt`.
+
+  Internal status (`awaiting_approval`) is mapped to API status (`awaiting_confirmation`) via `_STATUS_TO_API` at the runner boundary.
 
 #### Level 4 — Wiring (depends on 3.2)
 
-- [ ] **4.1** Add `workflow_runner` field to `app/config.py` Settings, default `"langgraph"`.
+- [x] **4.1** Add `workflow_runner` field to `app/config.py` Settings, default `"helloagents"`.
 
-- [ ] **4.2** Update `app/api/chat_routes.py` `_build_default_runner()` (or the router factory) to read `settings.workflow_runner` and instantiate the correct runner. `WorkflowRunner` protocol already matches both.
+- [x] **4.2** Update `app/api/chat_routes.py` `_build_default_runner()` to read `settings.workflow_runner` and instantiate the correct runner. `WorkflowRunner` protocol already matches both.
 
 #### Level 5 — Tests (depends on 3.2, can start after 3.1)
 
-- [ ] **5.1** Add `tests/test_helloagents_runner.py` with parity tests, approval guard test, and persistence round-trip test.
+- [x] **5.1** Add `tests/test_helloagents_runner.py` (26 tests): tool permissions, search tool, SequentialWorkflow, build_confirmation step, execute_download step, runner chat/confirm, approval guards, config switch, runner protocol.
 
-- [ ] **5.2** Existing full test suite passes with default `langgraph` runner — no regressions. Config-switch smoke test verifies the app can instantiate and route to either runner without import errors.
+- [x] **5.2** Add API-boundary tests in `tests/test_chat_api.py` (4 tests): HelloAgents runner exercised through actual FastAPI `/chat` and `/confirm` endpoints. Existing full test suite passes — 113 passed, 0 failures, 2 skipped.
 
 ---
 
-### Acceptance
+### Acceptance (all met)
 
-- `/chat` returns `status="awaiting_confirmation"` and a `ConfirmationPayload`.
-- `/confirm approve` returns `status="completed"` and receipt.
-- Existing API response models do not change.
-- LangGraph remains available as fallback.
-- `tests/test_helloagents_runner.py` passes.
-- Existing full test suite passes with default `langgraph` runner — no regressions.
-- Config-switch tests verify app can instantiate and route to either runner.
+- [x] `/chat` returns `status="awaiting_confirmation"` and a `ConfirmationPayload`.
+- [x] `/confirm approve` returns `status="completed"` and receipt.
+- [x] Existing API response models do not change.
+- [x] LangGraph remains available as fallback.
+- [x] `tests/test_helloagents_runner.py` passes (26 tests).
+- [x] API-boundary tests pass (4 tests in `test_chat_api.py`).
+- [x] Existing full test suite passes — no regressions (113 passed, 0 failures).
+- [x] Config-switch tests verify app can instantiate and route to either runner.
 
 ## Phase 2: Harden and Generalize HITL and Permission
 
 Goal: harden the Phase 1 approval primitives into production-grade, reusable framework mechanisms.
 
+### Phase 1 → Phase 2 Handoff Notes
+
+These are implementation realities discovered during Phase 1 that affect Phase 2 design. Do not re-litigate these decisions — build on them.
+
+**Approval guard lives in the runner, not the framework.** Phase 1 implements a four-layer manual guard in `run_confirm()`: session exists, status is `awaiting_approval`, not already resolved, `approval_type` matches. Phase 2 should move these checks into the runtime policy layer so they apply automatically to any tool with `SIDE_EFFECT` or `DESTRUCTIVE` permission, without each workflow step repeating them.
+
+**`confirmation_payload_json` is a derived column, not a source of truth.** `RuntimeSessionStore.save()` derives the top-level `confirmation_payload` from `domain["confirmation_payload"]` during save. The source of truth lives in `domain`. Phase 2 should keep this pattern — any new projections should derive from `domain`, not exist as independent top-level fields.
+
+**Domain state stores dicts, not Pydantic objects.** `json.dumps()` fails on Pydantic model instances. All state written to `domain` must be plain dicts (via `.model_dump()`). Phase 2 tool output contracts and `MediaRequest` models must account for this — serialize before storing.
+
+**`SequentialWorkflow` is intentionally simple.** It executes steps in order and halts at terminal statuses. It has no branching, no parallelism, no retry, no middleware hooks. Phase 2 should NOT expand `SequentialWorkflow` into a full workflow engine. Instead, add permission-checking middleware at the Runtime layer (before steps execute) or at the Tool execution layer.
+
+**Approval state is a TypedDict, not a model.** `ApprovalState` is a plain dict shape. Phase 2 should replace it with proper `ApprovalRequest`/`ApprovalDecision` Pydantic models with an explicit resolution lifecycle (pending → approved | rejected). The `pending_approval_json` column can remain; just the in-memory representation should become typed.
+
+**`reject_and_refine` is still blocked at the route layer.** The `/confirm` route returns `"Phase 2A does not support reject_and_refine"` before reaching the runner. Phase 2 should either implement true state merge (load existing envelope, refine keyword, re-search) or explicitly defer to Phase 3.
+
+**Zero results returns `awaiting_approval`, not error.** When M-Team returns no candidates, the runner builds an empty `ConfirmationPayload` with status `awaiting_approval` — matching the old LangGraph behavior. Phase 2's UI should handle empty payloads gracefully (show "no results found, try refining" message).
+
+**Internal→API status mapping is a runner responsibility.** `_STATUS_TO_API` maps `awaiting_approval` → `awaiting_confirmation`, etc. Phase 2 should keep this boundary — the Runtime speaks internal statuses; the Runner translates to API contract statuses. Never leak internal status strings to API responses.
+
+**DeepSeek V4 thinking mode rejects `tool_choice="required"`.** Keyword extraction uses `tool_choice="auto"`. For any Phase 2 tool-calling Agent work, always test with `tool_choice="auto"` first; only use `"required"` if the model consistently fails to call tools, and be prepared to handle the 400 error.
+
+### Tasks
+
 Phase 1 already delivers `ToolPermission`, `Tool.permission`, `ToolStatus.PENDING_APPROVAL`, and basic approval guard behavior. Phase 2 generalizes these into deeper runtime integration.
 
-Tasks:
-
-- [ ] Generalize `ApprovalState` → `ApprovalRequest` / `ApprovalDecision` models with explicit resolution lifecycle.
+- [ ] Generalize `ApprovalState` → `ApprovalRequest` / `ApprovalDecision` Pydantic models with explicit resolution lifecycle (pending → approved | rejected, with timestamps).
 - [ ] Add approval events (`APPROVAL_REQUIRED`, `APPROVAL_RESOLVED`) to `hello_agents/core/lifecycle.py` `EventType`.
-- [ ] Integrate permission checks into `ToolRegistry` or runtime policy layer so side-effect tools are automatically blocked pre-execution without manual guard code in each workflow step.
+- [ ] Move approval guard logic from `runner.run_confirm()` into a Runtime policy layer — side-effect tools are automatically blocked pre-execution without manual guard code per workflow step.
 - [ ] Add stricter confirmation path for `DESTRUCTIVE` tools (double-confirm or reject in P0).
 - [ ] Convert any remaining ad-hoc confirmation checks to use the generalized approval flow.
+- [ ] Implement `reject_and_refine` with true state merge (load envelope → refine keyword from feedback → re-search → build new confirmation).
+- [ ] Handle empty `ConfirmationPayload` in frontend (show "no results" UI instead of blank cards).
 - [ ] Add tests proving side-effect tools cannot execute before approval is resolved, and destructive tools are blocked.
 
-Acceptance:
+### Acceptance
 
-- Read-only tools execute automatically via registry/runtime policy, not per-workflow code.
+- Read-only tools execute automatically via runtime policy, not per-workflow code.
 - Side-effect tools produce pending approval unless an approval decision exists.
 - Destructive tools are blocked or require stricter confirmation.
 - Approval lifecycle events are emitted and traceable.
+- `reject_and_refine` triggers a new search within the same session.
 
 ## Phase 3: Structured Extraction and Tool Data Contracts
 
