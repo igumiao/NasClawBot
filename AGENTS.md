@@ -16,14 +16,21 @@ There is no active workflow runtime, no `/confirm` route, no `confirmation_paylo
 ## Current Architecture
 
 - `app/api/chat_routes.py`: FastAPI routes for `/chat`, `/download`, `/health`, `/`, and qB router inclusion.
-- `/chat`: performs a readonly `MTeamSearchTool` call and returns `results`.
+- `/chat`: performs a direct `MTeamSearchTool` call and returns `results`. No Agent loop yet.
 - `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused.
-- `app/tools.py`: tool wrappers over existing adapters. Tool permission metadata is preserved for future Agent loop policy.
+- `app/tools.py`: tool wrappers over existing adapters (MTeamSearchTool, QBAddTorrentTool).
 - `app/adapters/mteam.py`: M-Team API boundary for search, detail, and download token generation.
 - `app/adapters/qbittorrent.py`: qBittorrent API boundary for paused add, listing, detail, and control.
-- `app/domain/models.py`: currently only shared search result models.
+- `app/domain/models.py`: shared search result models.
 - `frontend/`: React + Vite workspace with Chat, Downloads, and Settings tabs.
 - `ref/mteam-api-reference.md`: authoritative local M-Team API reference.
+
+### Tool Safety
+
+- **Filter** (`hello_agents/tools/filter.py`): narrows tool list before sending to LLM. Controls context window and sub-agent capability scope.
+- **Gate** (`hello_agents/tools/gate.py`): three-gate check (deny → confirm → allow) on each `ToolCall` before `tool.run()`. Parameter-aware — `bash("ls")` and `bash("sudo rm -rf /")` can have different outcomes.
+- Factory functions: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
+- `ToolPermission` and `ToolFilter` have been removed.
 
 ## Removed Architecture
 
@@ -72,10 +79,15 @@ npm run dev
 
 ## Direction
 
-The next step is not to reintroduce a workflow engine. Build from the smallest useful Agent shape:
+Build the Agent loop that assembles Filter + Gate:
 
 ```text
-messages + tools -> minimal Agent loop -> tool call/result -> final answer
+POST /chat
+  → Filter.apply(tool_names)     # tools visible to LLM
+  → LLM → tool_call
+  → Gate.check(tool_call)        # deny / confirm / allow
+  → tool.run() or blocked
+  → result → LLM → loop → final answer
 ```
 
-Start with readonly tools only, most likely `mteam_search`. Add context, persistence, approval, and write-tool policy only when a concrete interaction needs them.
+Start with `mteam_search` as the only Agent-callable tool. Keep `/download` explicit until the confirm gate works end-to-end.

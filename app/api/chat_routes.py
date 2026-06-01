@@ -70,7 +70,6 @@ def build_router() -> APIRouter:
         tool_call = {
             "tool": search_tool.name,
             "status": response.status.value,
-            "permission": search_tool.permission.value,
             "stats": response.stats or {},
         }
 

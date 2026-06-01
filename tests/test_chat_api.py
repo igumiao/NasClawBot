@@ -90,7 +90,6 @@ def test_chat_endpoint_returns_search_results(monkeypatch: pytest.MonkeyPatch):
     assert body.results[0].id == "123"
     assert body.results[0].title == "Dune 2160p"
     assert body.tool_calls[0]["tool"] == "mteam_search"
-    assert body.tool_calls[0]["permission"] == "readonly"
 
 
 def test_download_endpoint_adds_paused_qb_task(monkeypatch: pytest.MonkeyPatch):

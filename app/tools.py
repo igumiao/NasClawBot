@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from hello_agents.tools.base import Tool, ToolParameter
-from hello_agents.tools.permissions import ToolPermission
 from hello_agents.tools.response import ToolResponse
 
 from app.adapters.mteam import MTeamAdapter
@@ -20,8 +19,6 @@ from app.services.receipt_service import build_receipt
 
 class MTeamSearchTool(Tool):
     """Search M-Team by keyword and return structured candidates."""
-
-    permission = ToolPermission.READONLY
 
     def __init__(self, adapter: MTeamAdapter) -> None:
         super().__init__(
@@ -79,8 +76,6 @@ class MTeamSearchTool(Tool):
 
 class QBAddTorrentTool(Tool):
     """Execute the full download chain: M-Team detail → genDlToken → qB add (paused)."""
-
-    permission = ToolPermission.SIDE_EFFECT
 
     def __init__(self, mteam_adapter: MTeamAdapter, qb_adapter: QBittorrentAdapter) -> None:
         super().__init__(
