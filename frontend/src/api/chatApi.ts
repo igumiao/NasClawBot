@@ -1,4 +1,4 @@
-import type { ChatResponse, ConfirmationPayload, ConfirmResponse } from "../types/api";
+import type { ChatResponse, DownloadResponse } from "../types/api";
 import { postJson } from "./http";
 
 export const chatApi = {
@@ -6,25 +6,18 @@ export const chatApi = {
     return postJson<ChatResponse>("/chat", { session_id: sessionId, message }, signal);
   },
 
-  confirmDownload(
-    sessionId: string,
-    confirmationPayload: ConfirmationPayload,
-    selectedResultId: string | null,
+  addDownload(
+    torrentId: string,
+    qbCategory = "mteam",
     signal?: AbortSignal,
-  ): Promise<ConfirmResponse> {
-    return postJson<ConfirmResponse>(
-      "/confirm",
+  ): Promise<DownloadResponse> {
+    return postJson<DownloadResponse>(
+      "/download",
       {
-        session_id: sessionId,
-        action: "approve",
-        selected_result_id: selectedResultId,
-        confirmation_payload: confirmationPayload
+        torrent_id: torrentId,
+        qb_category: qbCategory
       },
       signal,
     );
-  },
-
-  cancel(sessionId: string, signal?: AbortSignal): Promise<ConfirmResponse> {
-    return postJson<ConfirmResponse>("/confirm", { session_id: sessionId, action: "cancel" }, signal);
   }
 };

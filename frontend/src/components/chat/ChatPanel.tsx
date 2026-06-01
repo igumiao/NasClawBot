@@ -1,10 +1,9 @@
 import { type FormEvent, useReducer, useRef, useState } from "react";
 import { chatApi } from "../../api/chatApi";
 import { chatInitialState, chatReducer } from "../../state/chatState";
-import type { ConfirmationPayload } from "../../types/api";
-import { CandidateCard } from "./CandidateCard";
 import { ErrorCard } from "./ErrorCard";
 import { ReceiptCard } from "./ReceiptCard";
+import { SearchResultCard } from "./SearchResultCard";
 
 type ChatPanelProps = {
   id: string;
@@ -17,10 +16,6 @@ function errorDetail(error: unknown): string {
     return error.message;
   }
   return "请求失败，请稍后重试。";
-}
-
-function selectedResultForPayload(payload: ConfirmationPayload): string | null {
-  return payload.selected_result_id ?? payload.recommended_result_id ?? payload.results[0]?.id ?? null;
 }
 
 export function ChatPanel({ id, labelledBy, onDownloadSubmitted }: ChatPanelProps) {
@@ -51,53 +46,22 @@ export function ChatPanel({ id, labelledBy, onDownloadSubmitted }: ChatPanelProp
     }
   }
 
-  async function handleApprove() {
-    if (state.isSubmitting || !state.pendingConfirmation) {
-      return;
-    }
+  async function handleDownload(torrentId: string) {
+    if (state.isSubmitting) return;
 
-    dispatch({ type: "request_started" });
+    dispatch({ type: "download_started" });
 
     try {
-      const response = await chatApi.confirmDownload(
-        state.sessionId,
-        state.pendingConfirmation,
-        state.selectedResultId,
-      );
-      dispatch({ type: "confirm_response_received", response });
-      if (response.receipt) {
-        onDownloadSubmitted?.(response.receipt);
-      }
+      const response = await chatApi.addDownload(torrentId);
+      dispatch({ type: "download_response_received", response });
+      if (response.receipt) onDownloadSubmitted?.(response.receipt);
     } catch (error) {
       dispatch({
         type: "request_failed",
-        title: "确认失败",
+        title: "下载提交失败",
         detail: errorDetail(error)
       });
     }
-  }
-
-  async function handleCancel() {
-    if (state.isSubmitting || !state.pendingConfirmation) {
-      return;
-    }
-
-    dispatch({ type: "request_started" });
-
-    try {
-      const response = await chatApi.cancel(state.sessionId);
-      dispatch({ type: "confirm_response_received", response });
-    } catch (error) {
-      dispatch({
-        type: "request_failed",
-        title: "取消失败",
-        detail: errorDetail(error)
-      });
-    }
-  }
-
-  function handleRewrite() {
-    composerRef.current?.focus();
   }
 
   return (
@@ -128,25 +92,13 @@ export function ChatPanel({ id, labelledBy, onDownloadSubmitted }: ChatPanelProp
                       </div>
                     </div>
                   );
-                case "candidate":
-                  const isActiveConfirmation = state.pendingConfirmation === message.payload;
+                case "search_results":
                   return (
-                    <CandidateCard
+                    <SearchResultCard
                       key={message.id}
-                      payload={message.payload}
-                      selectedResultId={
-                        isActiveConfirmation ? state.selectedResultId : selectedResultForPayload(message.payload)
-                      }
-                      isSubmitting={state.isSubmitting && isActiveConfirmation}
-                      isDisabled={!isActiveConfirmation}
-                      onSelect={(selectedResultId) => {
-                        if (isActiveConfirmation) {
-                          dispatch({ type: "selected_result_changed", selectedResultId });
-                        }
-                      }}
-                      onApprove={handleApprove}
-                      onCancel={handleCancel}
-                      onRewrite={handleRewrite}
+                      results={message.results}
+                      isSubmitting={state.isSubmitting}
+                      onDownload={handleDownload}
                     />
                   );
                 case "receipt":

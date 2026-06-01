@@ -1,31 +1,28 @@
-export type ConfirmationCandidate = {
+export type ResourceCandidate = {
   id: string;
   title: string;
+  media_type: string;
+  year: number | null;
   seeders: number;
   resolution: string | null;
-  size: string | null;
-};
-
-export type ConfirmationPayload = {
-  summary: string;
-  recommended_result_id: string | null;
-  results: ConfirmationCandidate[];
-  selected_result_id: string | null;
-  qb_category: string | null;
-  execution_result: Record<string, unknown> | null;
-  receipt: Record<string, unknown> | null;
+  size: string;
+  size_bytes: number | null;
+  source: string;
 };
 
 export type ChatResponse = {
   session_id: string;
   status: string;
-  confirmation_payload: ConfirmationPayload | null;
-  receipt: Record<string, unknown> | null;
+  message: string;
+  results: ResourceCandidate[];
+  tool_calls: Array<Record<string, unknown>>;
   error: string | null;
 };
 
-export type ConfirmResponse = ChatResponse & {
-  messages: string[];
+export type DownloadResponse = {
+  status: string;
+  receipt: Record<string, unknown> | null;
+  error: string | null;
 };
 
 export type TorrentSummary = {

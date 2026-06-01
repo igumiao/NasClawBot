@@ -97,7 +97,7 @@ describe("AppShell", () => {
     expect(await screen.findByText("ok")).toBeInTheDocument();
   });
 
-  it("prevents default composer submission while chat integration is pending", () => {
+  it("prevents default composer submission for empty chat input", () => {
     render(<App />);
 
     const sendButton = screen.getByRole("button", { name: "发送" });

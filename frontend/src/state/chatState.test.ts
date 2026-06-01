@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { chatInitialState, chatReducer, createSessionId } from "./chatState";
 
-const confirmationPayload = {
-  summary: "Review candidates",
-  recommended_result_id: "r1",
-  results: [{ id: "r1", title: "Dune", seeders: 10, resolution: "2160p", size: "60 GB" }],
-  selected_result_id: null,
-  qb_category: "movies",
-  execution_result: null,
-  receipt: null
+const searchResult = {
+  id: "r1",
+  title: "Dune",
+  media_type: "movie",
+  year: null,
+  seeders: 10,
+  resolution: "2160p",
+  size: "60 GB",
+  size_bytes: null,
+  source: "mteam"
 };
 
 describe("chatState", () => {
@@ -32,7 +34,7 @@ describe("chatState", () => {
     expect(state.messages[0].id).toBe("user-uuid-123");
   });
 
-  it("adds user messages and stores confirmation payloads", () => {
+  it("adds user messages and stores search result messages", () => {
     const withUser = chatReducer(chatInitialState("session-1"), {
       type: "user_submitted",
       text: "Dune tonight"
@@ -41,68 +43,27 @@ describe("chatState", () => {
       type: "chat_response_received",
       response: {
         session_id: "session-1",
-        status: "awaiting_confirmation",
-        confirmation_payload: confirmationPayload,
-        receipt: null,
+        status: "completed",
+        message: "找到 1 个搜索结果。",
+        results: [searchResult],
+        tool_calls: [],
         error: null
       }
     });
 
-    expect(withResponse.messages.map((message) => message.kind)).toEqual(["user", "assistant", "candidate"]);
-    expect(withResponse.selectedResultId).toBe("r1");
-    expect(withResponse.pendingConfirmation?.summary).toBe("Review candidates");
+    expect(withResponse.messages.map((message) => message.kind)).toEqual(["user", "assistant", "search_results"]);
   });
 
-  it("clears selected result when confirm response has no confirmation payload", () => {
-    const state = chatReducer(
-      {
-        ...chatInitialState("session-1"),
-        pendingConfirmation: confirmationPayload,
-        selectedResultId: "r1"
-      },
-      {
-        type: "confirm_response_received",
-        response: {
-          session_id: "session-1",
-          status: "accepted",
-          confirmation_payload: null,
-          receipt: { ok: true },
-          error: null,
-          messages: []
-        }
+  it("adds receipt messages after explicit download responses", () => {
+    const state = chatReducer(chatInitialState("session-1"), {
+      type: "download_response_received",
+      response: {
+        status: "completed",
+        receipt: { ok: true },
+        error: null
       }
-    );
+    });
 
-    expect(state.pendingConfirmation).toBeNull();
-    expect(state.selectedResultId).toBeNull();
-  });
-
-  it("recomputes selected result from confirm response payload", () => {
-    const state = chatReducer(
-      {
-        ...chatInitialState("session-1"),
-        selectedResultId: "stale"
-      },
-      {
-        type: "confirm_response_received",
-        response: {
-          session_id: "session-1",
-          status: "awaiting_confirmation",
-          confirmation_payload: {
-            ...confirmationPayload,
-            recommended_result_id: null,
-            results: [
-              { id: "fallback", title: "Dune 1984", seeders: 4, resolution: "1080p", size: "12 GB" },
-              { id: "second", title: "Dune 2021", seeders: 10, resolution: "2160p", size: "60 GB" }
-            ]
-          },
-          receipt: null,
-          error: null,
-          messages: []
-        }
-      }
-    );
-
-    expect(state.selectedResultId).toBe("fallback");
+    expect(state.messages.map((message) => message.kind)).toEqual(["assistant", "receipt"]);
   });
 });
