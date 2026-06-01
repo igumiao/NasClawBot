@@ -1,23 +1,16 @@
-"""HTTP routes for chat and confirmation against the workflow runner."""
+"""HTTP routes for chat search and explicit download actions."""
 
 from pathlib import Path
-from typing import Any, Protocol
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
 from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
-from app.agent_runtime.runner import HelloAgentWorkflowRunner
-from app.api.schemas import (
-    ChatRequest,
-    ChatResponse,
-    ConfirmRequest,
-    ConfirmResponse,
-)
 from app.api.qb_routes import build_qb_router
+from app.api.schemas import ChatRequest, ChatResponse, DownloadRequest, DownloadResponse
 from app.config import get_settings
-from app.domain.models import ConfirmationPayload
+from app.tools import MTeamSearchTool, QBAddTorrentTool
 
 _FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 _FRONTEND_DIST_INDEX = _FRONTEND_DIR / "dist" / "index.html"
@@ -32,50 +25,27 @@ def _select_frontend_index() -> Path | None:
     return None
 
 
-class WorkflowRunner(Protocol):
-    """Route-level protocol to support dependency injection in tests."""
-
-    def run_chat(self, session_id: str, message: str) -> dict[str, Any]:
-        ...
-
-    def run_confirm(
-        self,
-        session_id: str,
-        *,
-        action: str,
-        confirmation_payload: ConfirmationPayload | None,
-        selected_result_id: str | None = None,
-    ) -> dict[str, Any]:
-        ...
-
-
-def _build_default_runner() -> WorkflowRunner:
+def _build_mteam_adapter() -> MTeamAdapter:
     settings = get_settings()
-    mteam_adapter = MTeamAdapter(
+    return MTeamAdapter(
         base_url=settings.mteam_base_url,
         api_key=settings.mteam_api_key,
     )
-    qb_adapter = QBittorrentAdapter(
+
+
+def _build_qb_adapter() -> QBittorrentAdapter:
+    settings = get_settings()
+    return QBittorrentAdapter(
         base_url=settings.qb_base_url,
         username=settings.qb_username,
         password=settings.qb_password,
     )
-    return HelloAgentWorkflowRunner(
-        mteam_adapter=mteam_adapter,
-        qb_adapter=qb_adapter,
-    )
 
-def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
-    runner = workflow_runner
+
+def build_router() -> APIRouter:
     selected_index = _select_frontend_index()
     router = APIRouter()
     router.include_router(build_qb_router())
-
-    def get_runner() -> WorkflowRunner:
-        nonlocal runner
-        if runner is None:
-            runner = _build_default_runner()
-        return runner
 
     @router.get("/health")
     def health() -> dict[str, str]:
@@ -84,39 +54,60 @@ def build_router(workflow_runner: WorkflowRunner | None = None) -> APIRouter:
 
     @router.post("/chat", response_model=ChatResponse)
     def chat(request: ChatRequest) -> ChatResponse:
-        """Run search-to-confirmation workflow for a user message."""
+        """Run a minimal readonly search through the M-Team tool."""
 
-        result = get_runner().run_chat(request.session_id, request.message)
+        query = request.message.strip()
+        if not query:
+            return ChatResponse(
+                session_id=request.session_id,
+                status="error",
+                message="请输入搜索关键词。",
+                error="message is required",
+            )
+
+        search_tool = MTeamSearchTool(_build_mteam_adapter())
+        response = search_tool.run_with_timing({"keyword": query})
+        tool_call = {
+            "tool": search_tool.name,
+            "status": response.status.value,
+            "permission": search_tool.permission.value,
+            "stats": response.stats or {},
+        }
+
+        if response.status.value == "error":
+            return ChatResponse(
+                session_id=request.session_id,
+                status="error",
+                message=response.text,
+                tool_calls=[tool_call],
+                error=response.text,
+            )
+
+        results = response.data.get("candidates", [])
         return ChatResponse(
             session_id=request.session_id,
-            status=result.get("status", "error"),
-            confirmation_payload=result.get("confirmation_payload"),
-            receipt=result.get("receipt"),
-            error=result.get("error"),
+            status="completed",
+            message=f"找到 {len(results)} 个搜索结果。",
+            results=results,
+            tool_calls=[tool_call],
         )
 
-    @router.post("/confirm", response_model=ConfirmResponse)
-    def confirm(request: ConfirmRequest) -> ConfirmResponse:
-        """Handle user action at confirmation stage."""
+    @router.post("/download", response_model=DownloadResponse)
+    def download(request: DownloadRequest) -> DownloadResponse:
+        """Explicitly add one M-Team torrent to qBittorrent in paused mode."""
 
-        result = get_runner().run_confirm(
-            request.session_id,
-            action=request.action,
-            confirmation_payload=request.confirmation_payload,
-            selected_result_id=request.selected_result_id,
+        download_tool = QBAddTorrentTool(_build_mteam_adapter(), _build_qb_adapter())
+        response = download_tool.run(
+            {
+                "torrent_id": request.torrent_id,
+                "qb_category": request.qb_category,
+            }
         )
-        confirmation_payload = result.get("confirmation_payload")
-        receipt = result.get("receipt")
-        if receipt is None and isinstance(confirmation_payload, ConfirmationPayload):
-            receipt = confirmation_payload.receipt
-        messages = result.get("messages") or []
-        return ConfirmResponse(
-            session_id=request.session_id,
-            status=result.get("status", "error"),
-            confirmation_payload=confirmation_payload,
-            receipt=receipt,
-            error=result.get("error"),
-            messages=[str(msg) for msg in messages],
+        if response.status.value == "error":
+            return DownloadResponse(status="error", error=response.text)
+        return DownloadResponse(
+            status="completed",
+            receipt=response.data.get("receipt"),
         )
 
     @router.get("/", response_class=HTMLResponse)

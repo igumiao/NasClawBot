@@ -1,6 +1,6 @@
 """qBittorrent adapter built on top of the qbittorrent-api client.
 
-The adapter keeps the current workflow-facing surface small while exposing a
+The adapter keeps the download surface small while exposing a
 few higher-value task management operations for future agent features:
 - login via the maintained client library,
 - category listing,

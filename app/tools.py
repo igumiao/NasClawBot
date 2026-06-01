@@ -1,7 +1,7 @@
-"""NasClawBot tool wrappers for the HelloAgents runtime.
+"""NasClawBot tool wrappers.
 
 Each tool wraps an existing adapter operation behind the Tool protocol.
-Permission is declared at the class level per ADR 002 conservative-default policy.
+Permission remains tool metadata for future Agent loop policy decisions.
 """
 
 from __future__ import annotations

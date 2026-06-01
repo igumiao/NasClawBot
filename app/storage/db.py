@@ -30,22 +30,7 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
 
 def initialize_schema(conn: sqlite3.Connection) -> None:
     """Create tables/indexes required by the current MVP."""
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS runtime_sessions (
-            session_id TEXT PRIMARY KEY,
-            status TEXT NOT NULL DEFAULT 'in_progress',
-            current_workflow TEXT NOT NULL DEFAULT 'search_download',
-            domain_state_json TEXT,
-            pending_approval_json TEXT,
-            confirmation_payload_json TEXT,
-            tool_trace_json TEXT NOT NULL DEFAULT '[]',
-            error TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        """
-    )
+    conn.executescript("")
 
 
 def ensure_schema(db_path: str | Path) -> None:
