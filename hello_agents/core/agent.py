@@ -11,7 +11,7 @@ from .lifecycle import AgentEvent, EventType, LifecycleHook, ExecutionContext
 if TYPE_CHECKING:
     from ..tools.registry import ToolRegistry
     from ..observability.trace_logger import TraceLogger
-    from ..tools.tool_filter import ToolFilter
+    from ..tools.filter import Filter
 
 
 class Agent(ABC):
@@ -892,7 +892,7 @@ class Agent(ABC):
     def run_as_subagent(
         self,
         task: str,
-        tool_filter: Optional['ToolFilter'] = None,
+        tool_filter: Optional['Filter'] = None,
         return_summary: bool = True,
         max_steps_override: Optional[int] = None
     ) -> Dict[str, Any]:
@@ -906,7 +906,7 @@ class Agent(ABC):
 
         Args:
             task: 子任务描述
-            tool_filter: 工具过滤器（可选），用于限制可用工具
+            tool_filter: 工具 Filter（可选），限制子 Agent 可见的工具
             return_summary: 是否返回摘要（True）或完整结果（False）
             max_steps_override: 覆盖最大步数（可选）
 
@@ -999,11 +999,11 @@ class Agent(ABC):
                 "metadata": metadata
             }
 
-    def _apply_tool_filter(self, tool_filter: 'ToolFilter') -> List[str]:
-        """应用工具过滤器
+    def _apply_tool_filter(self, tool_filter: 'Filter') -> List[str]:
+        """应用工具 Filter
 
         Args:
-            tool_filter: 工具过滤器实例
+            tool_filter: Filter 实例
 
         Returns:
             原始工具列表（用于恢复）
@@ -1015,7 +1015,7 @@ class Agent(ABC):
         original_tools = self.tool_registry.list_tools()
 
         # 获取过滤后的工具列表
-        filtered_tools = tool_filter.filter(original_tools)
+        filtered_tools = tool_filter.apply(original_tools)
 
         # 临时移除不允许的工具
         for tool_name in original_tools:

@@ -21,8 +21,11 @@ The project is being reset toward a minimal context-aware Agent loop. Do not ass
 - There is no `HelloAgentWorkflowRunner`.
 - There is no `SequentialWorkflow`.
 - There is no active runtime session store.
+- There is no active Agent loop yet — `/chat` calls `MTeamSearchTool` directly.
 - Tool wrappers live in `app/tools.py`.
 - M-Team and qB integration lives behind adapters in `app/adapters/`.
+- `hello_agents/tools/` provides `Filter` (pre-LLM tool selection) and `Gate` (pre-execution deny/confirm).
+- `ToolPermission` and `ToolFilter` have been removed in favor of `Filter` + `Gate`.
 - Historical LangGraph and HelloAgents runtime docs are archived under `docs/archive/`.
 
 ## Dev Commands
@@ -59,6 +62,29 @@ There is no formal Python formatter configured yet.
 
 `ref/mteam-api-reference.md` is the local source of truth for M-Team endpoints.
 
+### Tool Safety: Filter + Gate
+
+Two independent layers, no `ToolPermission` enum:
+
+- **Filter** (`hello_agents/tools/filter.py`): runs **before** tools are sent to the LLM. Narrows the tool list to control context window usage and sub-agent capability scope. `Filter(allow=["mteam_search"])` or `Filter(allow=lambda name: ...)`.
+- **Gate** (`hello_agents/tools/gate.py`): runs **after** LLM returns a tool call, **before** `tool.run()`. Three gates: deny_rules → confirm_rules → default allow. Works on `ToolCall` (tool_name + params), so decisions can be parameter-aware (`bash("ls")` passes, `bash("sudo rm -rf /")` denied).
+
+Factory functions for common deny rules: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
+
+### Upcoming: Agent Loop
+
+Filter and Gate are assembled in the Agent loop (not yet built):
+
+```text
+POST /chat
+  → Filter.apply(tool_names)       # select tools for LLM
+  → LLM decides which tool to call
+  → Gate.check(ToolCall)           # deny / confirm / allow
+  → tool.run() or blocked
+  → result back to LLM
+  → loop until final answer
+```
+
 ## Safety Rules
 
 - Never trigger real downloads in tests/demos unless explicitly requested.
@@ -70,10 +96,8 @@ There is no formal Python formatter configured yet.
 
 ## Next Direction
 
-Prefer a minimal Agent loop over a workflow engine:
+Build the Agent loop that wires Filter + Gate into the `/chat` route.
 
-```text
-messages + readonly tools -> Agent loop -> tool result -> final answer
-```
-
-Start with `mteam_search` as the only Agent-callable tool. Keep `/download` as an explicit user action until there is a concrete need for approval/policy machinery.
+- The loop: LLM decides → Gate checks → tool executes → result back to LLM → repeat → final answer.
+- Start with `mteam_search` as the only Agent-callable tool.
+- Keep `/download` as an explicit user action until the confirm gate is proven in the loop.
