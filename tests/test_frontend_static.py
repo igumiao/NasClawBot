@@ -1,43 +1,21 @@
-from app.api import chat_routes
 from app import main as app_main
+from app.api import chat_routes
 from app.main import create_app
 
 
-class FakeRunner:
-    def run_chat(self, session_id: str, message: str) -> dict:
-        return {
-            "session_id": session_id,
-            "status": "awaiting_confirmation",
-            "confirmation_payload": {"summary": f"fake:{message}", "results": []},
-        }
-
-    def run_confirm(
-        self,
-        session_id: str,
-        *,
-        action: str,
-        confirmation_payload,
-        selected_result_id: str | None = None,
-    ) -> dict:
-        _ = (action, confirmation_payload, selected_result_id)
-        return {
-            "session_id": session_id,
-            "status": "completed",
-            "messages": ["ok"],
-        }
 def _route_for(app, path: str):
     return next(route for route in app.router.routes if getattr(route, "path", None) == path)
 
 
 def test_index_route_serves_html():
-    app = create_app(workflow_runner=FakeRunner())
+    app = create_app()
     response = _route_for(app, "/").endpoint()
 
     assert "<html" in response.lower() or "<!doctype html" in response.lower()
 
 
 def test_static_mount_does_not_break_health():
-    app = create_app(workflow_runner=FakeRunner())
+    app = create_app()
     response = _route_for(app, "/health").endpoint()
 
     assert response == {"status": "ok"}
@@ -53,7 +31,7 @@ def test_index_route_prefers_built_dist_html(tmp_path, monkeypatch):
     monkeypatch.setattr(chat_routes, "_FRONTEND_INDEX", source_index)
     monkeypatch.setattr(chat_routes, "_FRONTEND_DIST_INDEX", dist_index)
 
-    app = create_app(workflow_runner=FakeRunner())
+    app = create_app()
     response = _route_for(app, "/").endpoint()
 
     assert "built" in response
@@ -67,7 +45,7 @@ def test_index_route_does_not_switch_to_dist_after_app_creation(tmp_path, monkey
     monkeypatch.setattr(chat_routes, "_FRONTEND_INDEX", source_index)
     monkeypatch.setattr(chat_routes, "_FRONTEND_DIST_INDEX", dist_index)
 
-    app = create_app(workflow_runner=FakeRunner())
+    app = create_app()
     dist_dir.mkdir()
     dist_index.write_text("<!doctype html><html><body>built later</body></html>", encoding="utf-8")
 
@@ -85,7 +63,7 @@ def test_assets_mount_serves_file_when_present_at_app_creation(tmp_path, monkeyp
     asset_file.write_text("console.log('asset ok');", encoding="utf-8")
     monkeypatch.setattr(app_main, "_frontend_dir", lambda: frontend_dir)
 
-    app = create_app(workflow_runner=FakeRunner())
+    app = create_app()
     assets_mount = _route_for(app, "/assets")
     resolved_path, stat_result = assets_mount.app.lookup_path("app.js")
 

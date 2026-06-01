@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.domain.models import ConfirmationPayload
+from app.domain.models import ResourceCandidate
 
 
 class ChatRequest(BaseModel):
@@ -14,34 +14,30 @@ class ChatRequest(BaseModel):
     message: str
 
 
-class ConfirmRequest(BaseModel):
-    """Confirmation-stage action payload for current workflow actions."""
-
-    session_id: str
-    action: str
-    selected_result_id: str | None = None
-    confirmation_payload: ConfirmationPayload | None = None
-
-
 class ChatResponse(BaseModel):
-    """Minimal chat response shape consumed by the browser shell."""
+    """Search-oriented chat response consumed by the browser shell."""
 
     session_id: str
     status: str
-    confirmation_payload: ConfirmationPayload | None = None
-    receipt: dict[str, Any] | None = None
+    message: str = ""
+    results: list[ResourceCandidate] = Field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
 
 
-class ConfirmResponse(BaseModel):
-    """Response shape for confirmation actions."""
+class DownloadRequest(BaseModel):
+    """Explicit user action to add a torrent to qBittorrent."""
 
-    session_id: str
+    torrent_id: str
+    qb_category: str = "mteam"
+
+
+class DownloadResponse(BaseModel):
+    """Response for explicit download submission."""
+
     status: str
-    confirmation_payload: ConfirmationPayload | None = None
     receipt: dict[str, Any] | None = None
     error: str | None = None
-    messages: list[str] = Field(default_factory=list)
 
 
 class QBTorrentSummary(BaseModel):

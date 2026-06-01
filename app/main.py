@@ -17,12 +17,12 @@ def _frontend_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "frontend"
 
 
-def create_app(workflow_runner=None) -> FastAPI:
+def create_app() -> FastAPI:
     """Create and configure the application object."""
     settings = get_settings()
     configure_logging(settings.log_level)
     app = FastAPI(title=settings.app_name)
-    app.include_router(build_router(workflow_runner=workflow_runner))
+    app.include_router(build_router())
 
     frontend_dir = _frontend_dir()
     frontend_dist = frontend_dir / "dist"

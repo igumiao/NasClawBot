@@ -3,7 +3,7 @@
 Task 9 keeps this adapter intentionally small but functional:
 - it preserves stable M-Team torrent ids as the external key,
 - separates search from detail/download-url calls,
-- and exposes normalization helpers so workflow code stays clean.
+- and exposes normalization helpers so tool code stays clean.
 """
 
 from dataclasses import dataclass
