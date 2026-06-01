@@ -11,17 +11,22 @@ describe("chatApi", () => {
       new Response(
         JSON.stringify({
           session_id: "session-1",
-          status: "awaiting_confirmation",
-          confirmation_payload: {
-            summary: "Review candidates",
-            recommended_result_id: "r1",
-            results: [{ id: "r1", title: "Dune", seeders: 10, resolution: "2160p", size: "60 GB" }],
-            selected_result_id: null,
-            qb_category: "movies",
-            execution_result: null,
-            receipt: null
-          },
-          receipt: null,
+          status: "completed",
+          message: "找到 1 个搜索结果。",
+          results: [
+            {
+              id: "r1",
+              title: "Dune",
+              media_type: "movie",
+              year: null,
+              seeders: 10,
+              resolution: "2160p",
+              size: "60 GB",
+              size_bytes: null,
+              source: "mteam"
+            }
+          ],
+          tool_calls: [],
           error: null
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -38,39 +43,28 @@ describe("chatApi", () => {
         body: JSON.stringify({ session_id: "session-1", message: "Dune tonight" })
       }),
     );
-    expect(result.confirmation_payload?.results[0]?.title).toBe("Dune");
+    expect(result.results[0]?.title).toBe("Dune");
   });
 
-  it("posts approval with selected result and payload", async () => {
+  it("posts an explicit download request", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
-          session_id: "session-1",
-          status: "submitted_paused",
-          confirmation_payload: null,
+          status: "completed",
           receipt: { status: "submitted_paused", qb_hash: "abc" },
-          error: null,
-          messages: []
+          error: null
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
 
-    await chatApi.confirmDownload("session-1", {
-      summary: "Review",
-      recommended_result_id: "r1",
-      results: [{ id: "r1", title: "Dune", seeders: 10, resolution: "2160p", size: "60 GB" }],
-      selected_result_id: null,
-      qb_category: "movies",
-      execution_result: null,
-      receipt: null
-    }, "r1");
+    await chatApi.addDownload("r1");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/confirm",
+      "/download",
       expect.objectContaining({
         method: "POST",
-        body: expect.stringContaining('"action":"approve"')
+        body: JSON.stringify({ torrent_id: "r1", qb_category: "mteam" })
       }),
     );
   });
