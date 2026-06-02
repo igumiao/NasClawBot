@@ -11,12 +11,21 @@ chat request -> readonly M-Team search -> search results
 explicit download action -> M-Team detail/token -> qB add paused
 ```
 
-There is no active workflow runtime, no `/confirm` route, no `confirmation_payload`, and no server-side Agent session state. The next architectural step is to build a minimal context-aware Agent loop from this simpler base.
+There is no active workflow runtime, no `/confirm` route, and no `confirmation_payload`.
+
+An experimental readonly Agent loop now exists alongside the stable baseline:
+
+```text
+/chat/agent -> ToolCallingAgent + mteam_search -> JSON session persistence
+```
+
+This path is for learning and iteration. `/chat` remains the stable no-LLM baseline.
 
 ## Current Architecture
 
 - `app/api/chat_routes.py`: FastAPI routes for `/chat`, `/download`, `/health`, `/`, and qB router inclusion.
-- `/chat`: performs a direct `MTeamSearchTool` call and returns `results`. No Agent loop yet.
+- `/chat`: performs a direct `MTeamSearchTool` call and returns `results`. It does not call an LLM and does not persist Agent history.
+- `/chat/agent`: experimental readonly `ToolCallingAgent` route. It registers only `mteam_search`, supports multi-turn history, and persists HelloAgents sessions as JSON under `memory/agent-sessions/{session_id}.json`.
 - `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused.
 - `app/tools.py`: tool wrappers over existing adapters (MTeamSearchTool, QBAddTorrentTool).
 - `app/adapters/mteam.py`: M-Team API boundary for search, detail, and download token generation.
@@ -46,6 +55,11 @@ The following are intentionally not part of the active implementation:
 - Candidate approval card flow.
 
 Historical design and research docs live under `docs/archive/`.
+
+Active design notes:
+
+- `docs/design/helloagents-framework-reference.md`: current HelloAgents framework reference and boundaries.
+- `docs/design/agent-loop-improvement-notes.md`: non-final notes for future Agent Loop improvements.
 
 ## Dev Commands
 
@@ -79,15 +93,13 @@ npm run dev
 
 ## Direction
 
-Build the Agent loop that assembles Filter + Gate:
+Continue evolving the readonly Agent loop without replacing the stable baseline too early:
 
 ```text
-POST /chat
-  → Filter.apply(tool_names)     # tools visible to LLM
-  → LLM → tool_call
-  → Gate.check(tool_call)        # deny / confirm / allow
-  → tool.run() or blocked
-  → result → LLM → loop → final answer
+POST /chat          # stable direct search baseline
+POST /chat/agent    # experimental readonly Agent loop
 ```
 
-Start with `mteam_search` as the only Agent-callable tool. Keep `/download` explicit until the confirm gate works end-to-end.
+Current Agent loop work should focus on `mteam_search` as the only Agent-callable tool. Keep `/download` explicit until approval/gating for side-effect tools is designed and tested.
+
+Future improvement ideas are intentionally not finalized. Preserve them in `docs/design/agent-loop-improvement-notes.md` rather than overfitting the first loop implementation.

@@ -19,6 +19,8 @@ env/
 *.db-journal
 *.sqlite
 *.sqlite3
+memory/
+tool-output/
 
 # Environment and editor files
 .env
@@ -50,4 +52,3 @@ probes/mteam/output_*
 report
 
 .claude/settings.local.json
-
