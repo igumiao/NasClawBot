@@ -1,0 +1,378 @@
+# HelloAgents Framework Reference
+
+This document is the active reference for developing NasClawBot on top of
+HelloAgents. It describes what the framework already provides, where the
+boundaries are, and which parts should be extended instead of replaced.
+
+## Why This Exists
+
+NasClawBot is not trying to bypass HelloAgents with a separate agent framework.
+The goal is to use NasClawBot requirements to drive second-phase development of
+HelloAgents itself.
+
+When a new runtime concept is needed, prefer this order:
+
+1. Reuse an existing HelloAgents component.
+2. Extend the HelloAgents component if the concept is framework-level.
+3. Add an app-level adapter only when the concept is specific to NasClawBot.
+
+## Current Active App Baseline
+
+The active NasClawBot app is intentionally simple:
+
+```text
+/chat
+  -> readonly M-Team search
+  -> search results
+
+/download
+  -> explicit user action
+  -> M-Team detail/token
+  -> qB add paused
+```
+
+There is currently no active workflow runtime, no `/confirm` route, no
+server-side Agent session state, and no production Agent loop.
+
+The next framework step should be:
+
+```text
+messages + tools -> minimal Agent loop -> tool call/result -> final answer
+```
+
+Start with readonly tools only.
+
+## Module Map
+
+```text
+hello_agents/
+  core/
+    agent.py             Base Agent: history, compression, tracing, tools, sessions
+    llm.py               Unified LLM facade
+    llm_adapters.py      OpenAI / Anthropic / Gemini-compatible adapters
+    message.py           Internal message object
+    session_store.py     JSON file session persistence
+    lifecycle.py         Lifecycle event hooks
+    streaming.py         Streaming event model
+
+  agents/
+    tool_calling_agent.py
+                         Production-oriented tool-calling preset
+    teaching_react_agent.py
+                         Teaching-oriented function-calling ReAct loop
+    simple_agent.py      Basic one-shot agent
+    reflection_agent.py  Reflection-style agent
+    plan_solve_agent.py  Plan/solve style agent
+
+  tools/
+    base.py              Tool base class and parameters
+    registry.py          Tool registration and lookup
+    response.py          ToolResponse and ToolStatus
+    filter.py            Tool allow/deny filtering
+    gate.py              Tool execution gate concepts
+    circuit_breaker.py   Failure protection
+
+  context/
+    history.py           Append-only HistoryManager with compression
+    token_counter.py     Token estimation and cache
+    truncator.py         Tool output truncation
+    builder.py           GSSC context builder, currently incomplete
+
+  observability/
+    trace_logger.py      JSONL / HTML trace output
+
+  skills/
+    loader.py            Skill file loading
+```
+
+## Existing Framework Capabilities
+
+### Agent Base
+
+`hello_agents/core/agent.py` is more capable than a minimal abstract base class.
+It already owns several runtime-adjacent concerns:
+
+- `HistoryManager`
+- token counting and compression checks
+- tool schema construction
+- tool execution helpers
+- trace logging
+- optional session persistence
+- optional skills, subagents, todo, and devlog registration
+
+The key point: if a new Agent loop needs history, compression, tracing, tool
+schema building, or session persistence, the first move should be to reuse or
+extend `Agent`, not create a parallel object model.
+
+### SessionStore
+
+`hello_agents/core/session_store.py` already provides session persistence:
+
+- JSON file storage
+- atomic write through temporary file + replace
+- session listing
+- config consistency checks
+- tool schema hash consistency checks
+- read cache restoration
+
+`Agent.save_session()` and `Agent.load_session()` already integrate it with
+`HistoryManager`.
+
+Therefore, do not introduce a separate `AgentSession` just to represent normal
+conversation persistence. The framework already has a session concept.
+
+Use one of these names instead, depending on the need:
+
+- `SessionStore`: existing persistence implementation.
+- `HistoryManager`: in-memory message history.
+- `ExecutionContext`: per-run execution metadata.
+- `AgentRuntime`: long-running service/task coordinator, if added.
+- `ConversationCheckpointStore`: optional durable cross-request conversation
+  store if JSON files are not acceptable for a server workload.
+
+### ReActAgent
+
+`hello_agents/agents/teaching_react_agent.py` implements a function-calling
+ReAct loop:
+
+```text
+build messages
+build tool schemas
+while step < max_steps:
+  call LLM with tools
+  if text-only response:
+    save user/assistant messages
+    return
+  append assistant tool_calls
+  execute tool_calls
+  append tool results
+```
+
+It also defines `Thought` and `Finish` as built-in tools.
+
+This is a valid inner Agent loop. It is not yet a full product runtime because
+cross-request task control, approval pause/resume, durable server session
+management, and permission policy are not first-class concepts.
+
+### ToolCallingAgent
+
+`hello_agents/agents/tool_calling_agent.py` is the production-oriented preset
+for a normal tool-calling assistant. It does not add teaching ReAct conventions
+such as `Thought` and `Finish`.
+
+It delegates loop mechanics to `hello_agents/loop/tool_calling_loop.py`.
+
+Related design notes:
+
+- [Agent Loop Improvement Notes](agent-loop-improvement-notes.md)
+
+## Important Distinctions
+
+### SessionStore vs AgentRuntime
+
+`SessionStore` answers:
+
+```text
+How do I save and restore an Agent's history/config/cache?
+```
+
+`AgentRuntime` would answer:
+
+```text
+How do I accept tasks, cancel them, resume approvals, coordinate concurrent
+sessions, persist task status, and expose stable service-level APIs?
+```
+
+These are different layers. A future `AgentRuntime` should use `SessionStore`
+or a compatible store; it should not duplicate session persistence.
+
+### History vs Business State
+
+HelloAgents history stores conversation messages.
+
+NasClawBot business state is different:
+
+- selected torrent
+- candidate search results
+- pending approval
+- qB receipt
+- user preference
+- active media task
+
+Do not hide business state inside chat history. Business state should live in
+typed app/domain models or a framework-level typed runtime state if that is
+added to HelloAgents.
+
+### Tool Loop vs Workflow
+
+`ReActAgent` is good for:
+
+- readonly search and lookup
+- dynamic tool composition
+- exploratory reasoning
+- structured extraction through function calling
+
+Fixed workflows are better for:
+
+- download confirmation
+- write operations
+- file organization
+- destructive actions
+- routes with strict frontend/API contracts
+
+For NasClawBot, readonly Agent loops can come first. Side-effecting actions
+should go through explicit approval.
+
+## Gaps To Extend In HelloAgents
+
+### 1. Permission Policy
+
+Current tool filtering is too binary. HelloAgents should gain framework-level
+permission metadata:
+
+```text
+READONLY      auto executable
+SIDE_EFFECT   approval required
+DESTRUCTIVE   stricter approval or unavailable to open loops
+```
+
+NasClawBot mapping:
+
+```text
+mteam_search        READONLY
+mteam_detail        READONLY
+mteam_download_url  SIDE_EFFECT or gated readonly, depending on site semantics
+qb_add_torrent      SIDE_EFFECT, paused by default
+file delete/move    DESTRUCTIVE, do not expose to open Agent loop
+```
+
+### 2. Approval Pause/Resume
+
+HelloAgents should support a general human-in-the-loop state:
+
+```text
+tool call requested
+  -> policy says approval required
+  -> emit approval_required
+  -> persist pending approval
+  -> pause run
+  -> external decision arrives
+  -> resume or reject
+```
+
+This belongs in the framework because many tools can need it, not just
+NasClawBot downloads.
+
+### 3. Durable Server Conversation Store
+
+The current `SessionStore` is useful for local/demo/development. For a FastAPI
+server, JSON files may be enough initially but are not ideal as the production
+coordination layer.
+
+A better extension is a protocol:
+
+```python
+class ConversationCheckpointStore:
+    def load(self, session_id: str): ...
+    def save(self, session_id: str, data): ...
+    def list(self): ...
+    def delete(self, session_id: str): ...
+```
+
+Then provide implementations:
+
+- JSON-backed implementation wrapping current `SessionStore`
+- SQLite implementation for NasClawBot production usage
+
+This preserves the framework abstraction and avoids inventing an app-only
+`AgentSession`.
+
+### 4. Context Builder
+
+`ContextBuilder` exists, but it is currently not ready to be the main context
+engineering layer. It should be either completed or narrowed.
+
+Expected responsibilities:
+
+- gather system prompt, current task, recent history, memory, and tool evidence
+- select according to relevance and budget
+- structure into model input
+- compress before context pressure becomes failure
+
+### 5. Interruptible API Calls
+
+A coding-agent-style loop needs cancellation around model calls and tool calls.
+This is a runtime concern, not just a ReAct concern.
+
+The framework should expose cancellation semantics at the task/runtime layer.
+
+## Recommended Development Direction
+
+### Phase 1: Document And Align
+
+Keep this file as the active reference. When a new concept is proposed, classify
+it as one of:
+
+- existing HelloAgents capability
+- HelloAgents framework extension
+- NasClawBot app adapter
+- archived design no longer active
+
+### Phase 2: Minimal Readonly Agent Loop
+
+Implement a small loop using existing pieces:
+
+- `Agent` base where possible
+- `HistoryManager`
+- `ToolRegistry`
+- `ToolResponse`
+- `HelloAgentsLLM.invoke_with_tools`
+- existing `SessionStore` or a wrapper around it
+
+First tool:
+
+```text
+mteam_search READONLY
+```
+
+Do not add qB write tools to the open loop yet.
+
+### Phase 3: Framework-Level Policy And Approval
+
+Extend HelloAgents with:
+
+- permission enum
+- approval event
+- pending approval response/status
+- pause/resume contract
+- tests against side-effect tool execution
+
+### Phase 4: Durable Runtime Store
+
+If the API needs cross-request recovery, add a store protocol and SQLite
+implementation. Keep compatibility with `SessionStore` instead of replacing it.
+
+## Naming Guidance
+
+Avoid introducing `AgentSession` unless it has a meaning distinct from the
+existing `SessionStore` and `HistoryManager`.
+
+Preferred names:
+
+- `ConversationCheckpoint`: serialized conversation/history snapshot
+- `ConversationCheckpointStore`: storage protocol
+- `RuntimeTask`: externally submitted task
+- `RuntimeState`: pause/resume/cancel/status state
+- `ApprovalRequest`: user decision request
+- `ApprovalDecision`: user decision result
+
+## Design Rule
+
+When in doubt:
+
+```text
+Conversation persistence belongs to HelloAgents.
+Business state belongs to NasClawBot domain models.
+Task orchestration belongs to a runtime layer that reuses HelloAgents.
+Tool permissions belong to HelloAgents because tools are framework concepts.
+```

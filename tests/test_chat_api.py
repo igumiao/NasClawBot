@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from app.api import chat_routes, qb_routes
 from app.api.schemas import ChatRequest, DownloadRequest, QBTorrentActionRequest
 from app.main import create_app
+from hello_agents.core.llm_response import LLMToolResponse, ToolCall
 
 
 def _route_for(app, path: str, method: str):
@@ -26,6 +27,9 @@ class FakeSettings:
     qb_base_url = "https://qb.local"
     qb_username = "user"
     qb_password = "pass"
+    llm_model = "fake-model"
+    llm_api_key = "fake-key"
+    llm_base_url = "https://llm.local"
 
 
 class FakeMTeamAdapter:
@@ -90,6 +94,64 @@ def test_chat_endpoint_returns_search_results(monkeypatch: pytest.MonkeyPatch):
     assert body.results[0].id == "123"
     assert body.results[0].title == "Dune 2160p"
     assert body.tool_calls[0]["tool"] == "mteam_search"
+
+
+def test_chat_agent_endpoint_uses_readonly_agent_and_persists_session(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
+
+    class FakeLLM:
+        model = "fake-model"
+        calls: list[list[dict[str, object]]] = []
+        responses = [
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-search",
+                        name="mteam_search",
+                        arguments='{"keyword":"Dune"}',
+                    )
+                ],
+                model="fake-model",
+            ),
+            LLMToolResponse(
+                content="找到 Dune 2160p 和 Dune 1080p。",
+                tool_calls=[],
+                model="fake-model",
+            ),
+            LLMToolResponse(
+                content="上一轮结果包括 Dune 2160p 和 Dune 1080p。",
+                tool_calls=[],
+                model="fake-model",
+            ),
+        ]
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def invoke_with_tools(self, messages, tools, tool_choice="auto", **kwargs):
+            FakeLLM.calls.append(messages)
+            return FakeLLM.responses.pop(0)
+
+    monkeypatch.setattr(chat_routes, "HelloAgentsLLM", FakeLLM)
+
+    endpoint = _route_for(create_app(), "/chat/agent", "POST").endpoint
+
+    first = endpoint(ChatRequest(session_id="agent-session-1", message="Dune"))
+
+    assert first.status == "completed"
+    assert first.message == "找到 Dune 2160p 和 Dune 1080p。"
+    assert first.results[0].title == "Dune 2160p"
+    assert first.tool_calls[0]["tool"] == "mteam_search"
+    assert (tmp_path / "agent-session-1.json").exists()
+
+    second = endpoint(ChatRequest(session_id="agent-session-1", message="上一轮有哪些结果？"))
+
+    assert second.status == "completed"
+    assert second.message == "上一轮结果包括 Dune 2160p 和 Dune 1080p。"
+    assert len(FakeLLM.calls) == 3
+    assert any(message["role"] == "tool" for message in FakeLLM.calls[-1])
 
 
 def test_download_endpoint_adds_paused_qb_task(monkeypatch: pytest.MonkeyPatch):

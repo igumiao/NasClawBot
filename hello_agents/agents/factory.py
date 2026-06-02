@@ -24,6 +24,7 @@ def create_agent(
     
     Args:
         agent_type: Agent 类型，支持：
+            - "tool_calling": ToolCallingAgent（通用工具调用循环）
             - "react": ReActAgent（推理-行动循环）
             - "reflection": ReflectionAgent（反思型）
             - "plan": PlanAndSolveAgent（规划-执行）
@@ -42,8 +43,18 @@ def create_agent(
     """
     agent_type = agent_type.lower()
     
+    if agent_type == "tool_calling":
+        from .tool_calling_agent import ToolCallingAgent
+        return ToolCallingAgent(
+            name=name,
+            llm=llm,
+            tool_registry=tool_registry,
+            config=config,
+            system_prompt=system_prompt
+        )
+
     if agent_type == "react":
-        from .react_agent import ReActAgent
+        from .teaching_react_agent import ReActAgent
         return ReActAgent(
             name=name,
             llm=llm,
@@ -84,7 +95,7 @@ def create_agent(
     else:
         raise ValueError(
             f"不支持的 agent_type: {agent_type}。"
-            f"支持的类型: react, reflection, plan, simple"
+            f"支持的类型: tool_calling, react, reflection, plan, simple"
         )
 
 
@@ -142,6 +153,15 @@ def _get_system_prompt_for_type(agent_type: str) -> str:
         系统提示词
     """
     prompts = {
+        "tool_calling": """你是一个高效的工具调用助手。
+
+目标：根据任务选择必要工具，并基于工具结果给出简洁结论。
+
+规则：
+- 只调用和任务直接相关的工具
+- 工具结果足够时直接总结
+- 不编造工具没有返回的信息
+""",
         "react": """你是一个高效的任务执行专家。
 
 目标：快速完成指定的子任务。

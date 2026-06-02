@@ -8,11 +8,12 @@ NasClawBot is a single-user NAS/PT media assistant. The active implementation is
 
 ```text
 /chat     -> readonly M-Team search -> search results
+/chat/agent -> experimental readonly ToolCallingAgent + JSON session history
 /download -> explicit user action -> qB add paused
 /qb/*     -> qB task management
 ```
 
-The project is being reset toward a minimal context-aware Agent loop. Do not assume the older workflow/runtime design is still active.
+The project is building a minimal context-aware Agent loop from this baseline. Do not assume the older workflow/runtime design is still active.
 
 ## Important Current Facts
 
@@ -20,8 +21,9 @@ The project is being reset toward a minimal context-aware Agent loop. Do not ass
 - There is no `confirmation_payload`.
 - There is no `HelloAgentWorkflowRunner`.
 - There is no `SequentialWorkflow`.
-- There is no active runtime session store.
-- There is no active Agent loop yet — `/chat` calls `MTeamSearchTool` directly.
+- There is no active workflow runtime.
+- `/chat` still calls `MTeamSearchTool` directly and does not use LLM/session history.
+- `/chat/agent` is the experimental Agent route. It uses `ToolCallingAgent`, registers only `mteam_search`, supports multi-turn history, and persists HelloAgents sessions as JSON under `memory/agent-sessions/{session_id}.json`.
 - Tool wrappers live in `app/tools.py`.
 - M-Team and qB integration lives behind adapters in `app/adapters/`.
 - `hello_agents/tools/` provides `Filter` (pre-LLM tool selection) and `Gate` (pre-execution deny/confirm).
@@ -55,6 +57,7 @@ There is no formal Python formatter configured yet.
 `app/api/chat_routes.py` owns the current interaction surface:
 
 - `POST /chat`: trims the user message, calls `MTeamSearchTool`, returns `ChatResponse.results`.
+- `POST /chat/agent`: loads/saves a HelloAgents JSON session by `session_id`, runs readonly `ToolCallingAgent`, and returns a normal `ChatResponse`.
 - `POST /download`: accepts a torrent id, calls `QBAddTorrentTool`, submits to qB paused, and returns a receipt.
 - qB management routes are included from `app/api/qb_routes.py`.
 
@@ -71,19 +74,20 @@ Two independent layers, no `ToolPermission` enum:
 
 Factory functions for common deny rules: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
 
-### Upcoming: Agent Loop
+### Current Experimental Agent Loop
 
-Filter and Gate are assembled in the Agent loop (not yet built):
+The first loop is intentionally narrow:
 
 ```text
-POST /chat
-  → Filter.apply(tool_names)       # select tools for LLM
-  → LLM decides which tool to call
-  → Gate.check(ToolCall)           # deny / confirm / allow
-  → tool.run() or blocked
-  → result back to LLM
-  → loop until final answer
+POST /chat/agent
+  -> load JSON session
+  -> ToolCallingAgent
+  -> mteam_search only
+  -> tool result back to LLM
+  -> save JSON session
 ```
+
+`/chat` remains the stable no-LLM route. Do not replace it until the Agent path is proven.
 
 ## Safety Rules
 
@@ -96,8 +100,8 @@ POST /chat
 
 ## Next Direction
 
-Build the Agent loop that wires Filter + Gate into the `/chat` route.
+Continue evolving the readonly Agent loop while keeping `/chat` stable.
 
-- The loop: LLM decides → Gate checks → tool executes → result back to LLM → repeat → final answer.
 - Start with `mteam_search` as the only Agent-callable tool.
-- Keep `/download` as an explicit user action until the confirm gate is proven in the loop.
+- Keep `/download` as an explicit user action until approval/gating for side-effect tools is designed and tested.
+- Keep future loop ideas in `docs/design/agent-loop-improvement-notes.md`; do not prematurely hard-code them into the framework.

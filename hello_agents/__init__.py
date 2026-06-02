@@ -22,7 +22,8 @@ from .core.exceptions import HelloAgentsException
 
 # Agent实现
 from .agents.simple_agent import SimpleAgent
-from .agents.react_agent import ReActAgent
+from .agents.tool_calling_agent import ToolCallingAgent
+from .agents.teaching_react_agent import ReActAgent
 from .agents.reflection_agent import ReflectionAgent
 from .agents.plan_solve_agent import PlanSolveAgent
 
@@ -44,6 +45,7 @@ __all__ = [
 
     # Agent范式
     "SimpleAgent",
+    "ToolCallingAgent",
     "ReActAgent",
     "ReflectionAgent",
     "PlanSolveAgent",
