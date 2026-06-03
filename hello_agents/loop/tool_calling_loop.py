@@ -16,6 +16,13 @@ if TYPE_CHECKING:
 
 
 DEFAULT_MAX_STEPS_MESSAGE = "抱歉，我无法在限定步数内完成这个任务。"
+MAX_STEPS_FINALIZATION_PROMPT = """工具调用步数已经达到上限。
+
+不要再调用任何工具。请基于当前对话和已经得到的工具结果，给用户一个简洁的最终回答：
+- 总结目前已经确认的信息
+- 说明哪些部分仍然没有完成或不确定
+- 不要声称执行了尚未执行的操作
+"""
 
 
 @dataclass
@@ -141,10 +148,15 @@ class ToolCallingLoop:
                     )
                 )
 
-        self.agent.add_message(Message(self.max_steps_message, "assistant"))
+        final_answer = self._finalize_after_max_steps(
+            messages=messages,
+            tool_schemas=tool_schemas,
+            **kwargs,
+        )
+        self.agent.add_message(Message(final_answer, "assistant"))
         self._save_session_if_enabled()
         return ToolCallingLoopResult(
-            final_answer=self.max_steps_message,
+            final_answer=final_answer,
             steps=self.max_steps,
             tool_executions=tool_executions,
             status="max_steps",
@@ -223,6 +235,36 @@ class ToolCallingLoop:
             output=output,
         )
         return truncate_result.get("preview", output)
+
+    def _finalize_after_max_steps(
+        self,
+        messages: List[Dict[str, Any]],
+        tool_schemas: List[Dict[str, Any]],
+        **kwargs: Any,
+    ) -> str:
+        final_messages = messages + [
+            {
+                "role": "system",
+                "content": MAX_STEPS_FINALIZATION_PROMPT,
+            }
+        ]
+
+        try:
+            response = self.agent.llm.invoke_with_tools(
+                messages=final_messages,
+                tools=tool_schemas,
+                tool_choice="none",
+                **kwargs,
+            )
+        except Exception as exc:
+            if self.agent.config.debug:
+                print(f"达到最大步数后的最终总结失败: {exc}")
+            return self.max_steps_message
+
+        self._log_model_output(self.max_steps + 1, response)
+        if response.tool_calls:
+            return self.max_steps_message
+        return response.content or self.max_steps_message
 
     def _log_model_output(self, step: int, response: Any) -> None:
         if not self.agent.trace_logger:
