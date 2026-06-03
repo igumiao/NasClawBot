@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from app.agent import runner as agent_runner
 from app.api import chat_routes, qb_routes
 from app.api.schemas import ChatRequest, DownloadRequest, QBTorrentActionRequest
 from app.main import create_app
@@ -71,6 +72,8 @@ def _patch_chat_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
     monkeypatch.setattr(chat_routes, "MTeamAdapter", FakeMTeamAdapter)
     monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
+    monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
 
 
 def test_health_endpoint_returns_ok():
@@ -134,7 +137,7 @@ def test_chat_agent_endpoint_uses_readonly_agent_and_persists_session(tmp_path, 
             FakeLLM.calls.append(messages)
             return FakeLLM.responses.pop(0)
 
-    monkeypatch.setattr(chat_routes, "HelloAgentsLLM", FakeLLM)
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
 
     endpoint = _route_for(create_app(), "/chat/agent", "POST").endpoint
 

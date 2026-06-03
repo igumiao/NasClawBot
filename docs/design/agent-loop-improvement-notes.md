@@ -12,10 +12,11 @@ The current experimental loop is:
 
 ```text
 /chat/agent
-  -> build readonly ToolCallingAgent
-  -> load JSON session from memory/agent-sessions/{session_id}.json
+  -> NasClawAgentRunner
+  -> load JSON checkpoint from memory/agent-sessions/{session_id}.json
+  -> build ToolCallingAgent with mteam_search only
   -> run mteam_search-only tool loop
-  -> save JSON session
+  -> save JSON checkpoint
 ```
 
 This is good enough for proving:
@@ -23,16 +24,16 @@ This is good enough for proving:
 - a normal tool-calling loop separate from teaching ReAct
 - readonly tool execution
 - multi-turn conversation history
-- JSON session persistence through HelloAgents `SessionStore`
+- JSON checkpoint persistence through `ConversationCheckpointStore`
 
 It is not yet a full Agent runtime.
 
 ## Notes Worth Preserving
 
-### Session Handling Should Move Into The Loop
+### Session Handling Has Moved Into A Runner
 
-Right now the route coordinates session loading and saving. A cleaner Agent
-Loop should own the conversation lifecycle:
+The first improvement moved session loading and saving out of the FastAPI route.
+`NasClawAgentRunner` now owns the current conversation lifecycle:
 
 ```text
 run_conversation(session_id, user_message)
@@ -44,12 +45,13 @@ run_conversation(session_id, user_message)
 
 This keeps FastAPI routes thin and makes the loop reusable outside HTTP.
 
-The current JSON `SessionStore` is useful for development. Later, it can evolve
-into or sit behind a `ConversationCheckpointStore` abstraction with a SQLite
-implementation.
+The current JSON implementation is useful for development. Later, the same
+`ConversationCheckpointStore` abstraction can grow a SQLite implementation.
 
-Open point: keep `SessionStore` as the local implementation, but avoid forcing
-all future runtime state into plain chat history.
+Open point: avoid forcing all future runtime state into plain chat history.
+Pending approvals, trace summaries, and structured tool observations can be
+added to checkpoint metadata or a richer checkpoint model when those features
+become active work.
 
 ### Preflight Compression
 
@@ -229,4 +231,3 @@ This is only a suggestion, not a committed roadmap:
 6. Add error recovery patterns.
 7. Revisit lifecycle hooks and event streaming.
 8. Study interrupt/cancel once long-running calls or streaming UX need it.
-

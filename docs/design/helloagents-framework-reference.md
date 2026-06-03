@@ -127,8 +127,9 @@ Use one of these names instead, depending on the need:
 - `HistoryManager`: in-memory message history.
 - `ExecutionContext`: per-run execution metadata.
 - `AgentRuntime`: long-running service/task coordinator, if added.
-- `ConversationCheckpointStore`: optional durable cross-request conversation
-  store if JSON files are not acceptable for a server workload.
+- `ConversationCheckpointStore`: durable cross-request conversation store
+  boundary. NasClawBot currently uses a JSON-backed implementation and can add
+  SQLite later without changing the route contract.
 
 ### ReActAgent
 
@@ -265,24 +266,35 @@ NasClawBot downloads.
 
 ### 3. Durable Server Conversation Store
 
-The current `SessionStore` is useful for local/demo/development. For a FastAPI
-server, JSON files may be enough initially but are not ideal as the production
-coordination layer.
-
-A better extension is a protocol:
+The current `SessionStore` is useful for local/demo/development. For the
+FastAPI Agent route, cross-request recovery now goes through a thinner
+checkpoint boundary:
 
 ```python
 class ConversationCheckpointStore:
     def load(self, session_id: str): ...
-    def save(self, session_id: str, data): ...
+    def save(self, checkpoint): ...
     def list(self): ...
     def delete(self, session_id: str): ...
 ```
 
-Then provide implementations:
+Current implementation:
 
-- JSON-backed implementation wrapping current `SessionStore`
-- SQLite implementation for NasClawBot production usage
+- JSON-backed `JSONConversationCheckpointStore`
+- `NasClawAgentRunner` loads/saves checkpoints around one Agent turn
+
+Future implementation:
+
+- SQLite implementation for session listing, stronger durability, and better
+  server coordination
+
+```python
+run_conversation(session_id, user_message)
+  -> load checkpoint
+  -> restore history
+  -> run LLM/tool loop
+  -> save checkpoint
+```
 
 This preserves the framework abstraction and avoids inventing an app-only
 `AgentSession`.
@@ -320,14 +332,14 @@ it as one of:
 
 ### Phase 2: Minimal Readonly Agent Loop
 
-Implement a small loop using existing pieces:
+Implemented a small loop using existing pieces:
 
 - `Agent` base where possible
 - `HistoryManager`
 - `ToolRegistry`
 - `ToolResponse`
 - `HelloAgentsLLM.invoke_with_tools`
-- existing `SessionStore` or a wrapper around it
+- `ConversationCheckpointStore` for cross-request persistence
 
 First tool:
 
@@ -349,8 +361,10 @@ Extend HelloAgents with:
 
 ### Phase 4: Durable Runtime Store
 
-If the API needs cross-request recovery, add a store protocol and SQLite
-implementation. Keep compatibility with `SessionStore` instead of replacing it.
+Cross-request recovery now has a store protocol and JSON implementation. Add a
+SQLite implementation later when session listing, approval pause/resume, or
+server coordination needs it. Keep compatibility with `SessionStore` instead of
+replacing it.
 
 ## Naming Guidance
 

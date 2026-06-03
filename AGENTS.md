@@ -16,7 +16,7 @@ There is no active workflow runtime, no `/confirm` route, and no `confirmation_p
 An experimental readonly Agent loop now exists alongside the stable baseline:
 
 ```text
-/chat/agent -> ToolCallingAgent + mteam_search -> JSON session persistence
+/chat/agent -> NasClawAgentRunner -> ToolCallingAgent + mteam_search -> JSON checkpoint persistence
 ```
 
 This path is for learning and iteration. `/chat` remains the stable no-LLM baseline.
@@ -25,7 +25,9 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 
 - `app/api/chat_routes.py`: FastAPI routes for `/chat`, `/download`, `/health`, `/`, and qB router inclusion.
 - `/chat`: performs a direct `MTeamSearchTool` call and returns `results`. It does not call an LLM and does not persist Agent history.
-- `/chat/agent`: experimental readonly `ToolCallingAgent` route. It registers only `mteam_search`, supports multi-turn history, and persists HelloAgents sessions as JSON under `memory/agent-sessions/{session_id}.json`.
+- `/chat/agent`: experimental Agent route. It delegates conversation lifecycle to `NasClawAgentRunner`, currently registers only `mteam_search`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
+- `app/agent/runner.py`: application-level Agent runner that loads/saves conversation checkpoints, builds the current `ToolCallingAgent`, restores history, and extracts route-facing search results/tool calls.
+- `hello_agents/checkpoints/`: framework-level `ConversationCheckpointStore` protocol plus the current JSON implementation.
 - `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused.
 - `app/tools.py`: tool wrappers over existing adapters (MTeamSearchTool, QBAddTorrentTool).
 - `app/adapters/mteam.py`: M-Team API boundary for search, detail, and download token generation.

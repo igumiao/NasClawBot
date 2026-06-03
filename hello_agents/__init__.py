@@ -19,6 +19,7 @@ from .core.llm import HelloAgentsLLM
 from .core.config import Config
 from .core.message import Message
 from .core.exceptions import HelloAgentsException
+from .checkpoints import ConversationCheckpoint, ConversationCheckpointStore, JSONConversationCheckpointStore
 
 # Agent实现
 from .agents.simple_agent import SimpleAgent
@@ -42,6 +43,9 @@ __all__ = [
     "Config",
     "Message",
     "HelloAgentsException",
+    "ConversationCheckpoint",
+    "ConversationCheckpointStore",
+    "JSONConversationCheckpointStore",
 
     # Agent范式
     "SimpleAgent",
