@@ -2,14 +2,22 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 
 from app.agent import NasClawAgentRunner
 from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
 from app.api.qb_routes import build_qb_router
-from app.api.schemas import ChatRequest, ChatResponse, DownloadRequest, DownloadResponse
+from app.api.schemas import (
+    AgentSessionDetailResponse,
+    AgentSessionListResponse,
+    AgentSessionSummary,
+    ChatRequest,
+    ChatResponse,
+    DownloadRequest,
+    DownloadResponse,
+)
 from app.config import get_settings
 from app.tools import MTeamSearchTool, QBAddTorrentTool
 from hello_agents.checkpoints import JSONConversationCheckpointStore
@@ -43,6 +51,10 @@ def _build_qb_adapter() -> QBittorrentAdapter:
         username=settings.qb_username,
         password=settings.qb_password,
     )
+
+
+def _agent_checkpoint_store() -> JSONConversationCheckpointStore:
+    return JSONConversationCheckpointStore(_AGENT_SESSION_DIR)
 
 
 def build_router() -> APIRouter:
@@ -108,7 +120,7 @@ def build_router() -> APIRouter:
             )
 
         runner = NasClawAgentRunner(
-            checkpoint_store=JSONConversationCheckpointStore(_AGENT_SESSION_DIR),
+            checkpoint_store=_agent_checkpoint_store(),
         )
 
         try:
@@ -127,6 +139,38 @@ def build_router() -> APIRouter:
             message=result.answer,
             results=result.results,
             tool_calls=result.tool_calls,
+        )
+
+    @router.get("/chat/agent/sessions", response_model=AgentSessionListResponse)
+    def list_agent_sessions() -> AgentSessionListResponse:
+        """List persisted Agent conversation checkpoints."""
+
+        summaries = [
+            AgentSessionSummary(
+                session_id=summary.session_id,
+                created_at=summary.created_at,
+                saved_at=summary.saved_at,
+                message_count=summary.message_count,
+                metadata=summary.metadata,
+            )
+            for summary in _agent_checkpoint_store().list()
+        ]
+        return AgentSessionListResponse(sessions=summaries)
+
+    @router.get("/chat/agent/sessions/{session_id}", response_model=AgentSessionDetailResponse)
+    def get_agent_session(session_id: str) -> AgentSessionDetailResponse:
+        """Load one persisted Agent conversation checkpoint."""
+
+        checkpoint = _agent_checkpoint_store().load(session_id)
+        if checkpoint is None:
+            raise HTTPException(status_code=404, detail="Agent session not found")
+
+        return AgentSessionDetailResponse(
+            session_id=checkpoint.session_id,
+            created_at=checkpoint.created_at,
+            saved_at=checkpoint.saved_at,
+            messages=checkpoint.history,
+            metadata=checkpoint.metadata,
         )
 
     @router.post("/download", response_model=DownloadResponse)

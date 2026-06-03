@@ -26,6 +26,8 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `app/api/chat_routes.py`: FastAPI routes for `/chat`, `/download`, `/health`, `/`, and qB router inclusion.
 - `/chat`: performs a direct `MTeamSearchTool` call and returns `results`. It does not call an LLM and does not persist Agent history.
 - `/chat/agent`: experimental Agent route. It delegates conversation lifecycle to `NasClawAgentRunner`, currently registers only `mteam_search`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
+- `GET /chat/agent/sessions`: lists persisted Agent conversation checkpoint summaries. It does not call an LLM or tools.
+- `GET /chat/agent/sessions/{session_id}`: returns one persisted Agent conversation checkpoint with renderable message history. It does not call an LLM or tools.
 - `app/agent/runner.py`: application-level Agent runner that loads/saves conversation checkpoints, builds the current `ToolCallingAgent`, restores history, and extracts route-facing search results/tool calls.
 - `hello_agents/checkpoints/`: framework-level `ConversationCheckpointStore` protocol plus the current JSON implementation.
 - `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused.
@@ -100,6 +102,8 @@ Continue evolving the readonly Agent loop without replacing the stable baseline 
 ```text
 POST /chat          # stable direct search baseline
 POST /chat/agent    # experimental readonly Agent loop
+GET  /chat/agent/sessions
+GET  /chat/agent/sessions/{session_id}
 ```
 
 Current Agent loop work should focus on `mteam_search` as the only Agent-callable tool. Keep `/download` explicit until approval/gating for side-effect tools is designed and tested.

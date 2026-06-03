@@ -8,6 +8,7 @@ from app.agent import runner as agent_runner
 from app.api import chat_routes, qb_routes
 from app.api.schemas import ChatRequest, DownloadRequest, QBTorrentActionRequest
 from app.main import create_app
+from hello_agents.checkpoints import ConversationCheckpoint, JSONConversationCheckpointStore
 from hello_agents.core.llm_response import LLMToolResponse, ToolCall
 
 
@@ -155,6 +156,81 @@ def test_chat_agent_endpoint_uses_readonly_agent_and_persists_session(tmp_path, 
     assert second.message == "上一轮结果包括 Dune 2160p 和 Dune 1080p。"
     assert len(FakeLLM.calls) == 3
     assert any(message["role"] == "tool" for message in FakeLLM.calls[-1])
+
+
+def test_list_agent_sessions_returns_checkpoint_summaries(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="older",
+            created_at="2026-06-03T09:00:00",
+            saved_at="2026-06-03T09:01:00",
+            history=[
+                {"role": "user", "content": "old", "timestamp": "2026-06-03T09:00:00", "metadata": {}},
+            ],
+            metadata={"turn_count": 1},
+        )
+    )
+    store.save(
+        ConversationCheckpoint(
+            session_id="newer",
+            created_at="2026-06-03T10:00:00",
+            saved_at="2026-06-03T10:01:00",
+            history=[
+                {"role": "user", "content": "new", "timestamp": "2026-06-03T10:00:00", "metadata": {}},
+                {"role": "assistant", "content": "answer", "timestamp": "2026-06-03T10:01:00", "metadata": {}},
+            ],
+            metadata={"turn_count": 1},
+        )
+    )
+
+    endpoint = _route_for(create_app(), "/chat/agent/sessions", "GET").endpoint
+    body = endpoint()
+
+    assert [session.session_id for session in body.sessions] == ["newer", "older"]
+    assert body.sessions[0].message_count == 2
+    assert body.sessions[0].metadata["turn_count"] == 1
+
+
+def test_get_agent_session_returns_checkpoint_messages(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="session-1",
+            created_at="2026-06-03T10:00:00",
+            saved_at="2026-06-03T10:01:00",
+            history=[
+                {"role": "user", "content": "Dune", "timestamp": "2026-06-03T10:00:00", "metadata": {}},
+                {
+                    "role": "assistant",
+                    "content": "找到 Dune。",
+                    "timestamp": "2026-06-03T10:01:00",
+                    "metadata": {},
+                },
+            ],
+            metadata={"agent_name": "nasclawbot-agent"},
+        )
+    )
+
+    endpoint = _route_for(create_app(), "/chat/agent/sessions/{session_id}", "GET").endpoint
+    body = endpoint("session-1")
+
+    assert body.session_id == "session-1"
+    assert body.messages[0]["role"] == "user"
+    assert body.messages[0]["content"] == "Dune"
+    assert body.metadata["agent_name"] == "nasclawbot-agent"
+
+
+def test_get_agent_session_returns_404_when_missing(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
+    endpoint = _route_for(create_app(), "/chat/agent/sessions/{session_id}", "GET").endpoint
+
+    with pytest.raises(HTTPException) as excinfo:
+        endpoint("missing")
+
+    assert excinfo.value.status_code == 404
 
 
 def test_download_endpoint_adds_paused_qb_task(monkeypatch: pytest.MonkeyPatch):

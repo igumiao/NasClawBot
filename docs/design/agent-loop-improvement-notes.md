@@ -19,12 +19,23 @@ The current experimental loop is:
   -> save JSON checkpoint
 ```
 
+Checkpoint read routes also exist:
+
+```text
+GET /chat/agent/sessions
+  -> list checkpoint summaries
+
+GET /chat/agent/sessions/{session_id}
+  -> load one checkpoint with message history
+```
+
 This is good enough for proving:
 
 - a normal tool-calling loop separate from teaching ReAct
 - readonly tool execution
 - multi-turn conversation history
 - JSON checkpoint persistence through `ConversationCheckpointStore`
+- browser-side session discovery and history restoration
 
 It is not yet a full Agent runtime.
 
