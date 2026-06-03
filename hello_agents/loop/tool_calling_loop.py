@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from ..context import ContextWindowManager
 from ..core.message import Message
+from ..tools import ToolResponse
 
 if TYPE_CHECKING:
     from ..core.agent import Agent
@@ -27,13 +28,17 @@ MAX_STEPS_FINALIZATION_PROMPT = """工具调用步数已经达到上限。
 
 
 @dataclass
-class ToolExecutionRecord:
-    """A compact trace record for one tool call."""
+class ToolObservation:
+    """Structured observation produced by one model-requested tool call."""
 
     tool_name: str
     tool_call_id: str
     arguments: Dict[str, Any]
-    result: str
+    response: ToolResponse
+    observation_text: str
+    truncated: bool = False
+    # Loop/truncation stats, not tool execution stats. Tool stats live on response.stats.
+    stats: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -42,8 +47,13 @@ class ToolCallingLoopResult:
 
     final_answer: str
     steps: int
-    tool_executions: List[ToolExecutionRecord] = field(default_factory=list)
+    tool_observations: List[ToolObservation] = field(default_factory=list)
     status: str = "success"
+
+    @property
+    def tool_executions(self) -> List[ToolObservation]:
+        """Backward-compatible alias for older callers."""
+        return self.tool_observations
 
 
 class ToolCallingLoop:
@@ -73,7 +83,7 @@ class ToolCallingLoop:
         self.agent.add_message(Message(input_text, "user"))
         messages = self._build_api_messages()
         tool_schemas = self.agent._build_tool_schemas()
-        tool_executions: List[ToolExecutionRecord] = []
+        tool_observations: List[ToolObservation] = []
 
         if not tool_schemas:
             messages = self._prepare_messages_for_model_call(messages, [])
@@ -105,7 +115,7 @@ class ToolCallingLoop:
                 return ToolCallingLoopResult(
                     final_answer=final_answer,
                     steps=step,
-                    tool_executions=tool_executions,
+                    tool_observations=tool_observations,
                     status="success",
                 )
 
@@ -122,28 +132,36 @@ class ToolCallingLoop:
             for tool_call in tool_calls:
                 arguments = self._parse_arguments(tool_call.arguments)
                 if arguments is None:
-                    result = f"错误：参数格式不正确 - {tool_call.arguments}"
-                else:
-                    result = self._execute_tool_call(tool_call.name, arguments)
-                    self._log_tool_result(step, tool_call.name, tool_call.id, arguments, result)
-                    tool_executions.append(
-                        ToolExecutionRecord(
-                            tool_name=tool_call.name,
-                            tool_call_id=tool_call.id,
-                            arguments=arguments,
-                            result=result,
-                        )
+                    response = ToolResponse.error(
+                        code="INVALID_ARGUMENTS",
+                        message=f"参数格式不正确 - {tool_call.arguments}",
+                        context={"tool_name": tool_call.name},
                     )
+                else:
+                    response = self._execute_tool_call(tool_call.name, arguments)
+
+                observation_text, truncation = self._build_observation_text(tool_call.name, response)
+                observation = ToolObservation(
+                    tool_name=tool_call.name,
+                    tool_call_id=tool_call.id,
+                    arguments=arguments or {},
+                    response=response,
+                    observation_text=observation_text,
+                    truncated=bool(truncation.get("truncated", False)),
+                    stats=truncation.get("stats", {}),
+                )
+                self._log_tool_result(step, observation)
+                tool_observations.append(observation)
 
                 tool_message = {
                     "role": "tool",
                     "tool_call_id": tool_call.id,
-                    "content": result,
+                    "content": observation.observation_text,
                 }
                 messages.append(tool_message)
                 self.agent.add_message(
                     Message(
-                        result,
+                        observation.observation_text,
                         "tool",
                         metadata={
                             "tool_call_id": tool_call.id,
@@ -162,7 +180,7 @@ class ToolCallingLoop:
         return ToolCallingLoopResult(
             final_answer=final_answer,
             steps=self.max_steps,
-            tool_executions=tool_executions,
+            tool_observations=tool_observations,
             status="max_steps",
         )
 
@@ -241,17 +259,27 @@ class ToolCallingLoop:
             return {"input": parsed}
         return parsed
 
-    def _execute_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+    def _execute_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> ToolResponse:
         if not self.agent.tool_registry:
-            return "错误：未配置工具注册表"
+            return ToolResponse.error(
+                code="TOOL_REGISTRY_MISSING",
+                message="未配置工具注册表",
+                context={"tool_name": tool_name},
+            )
 
-        response = self.agent.tool_registry.execute_tool(tool_name, arguments)
+        return self.agent.tool_registry.execute_tool(tool_name, arguments)
+
+    def _build_observation_text(
+        self,
+        tool_name: str,
+        response: ToolResponse,
+    ) -> tuple[str, Dict[str, Any]]:
         output = response.to_json()
         truncate_result = self.agent.truncator.truncate(
             tool_name=tool_name,
             output=output,
         )
-        return truncate_result.get("preview", output)
+        return truncate_result.get("preview", output), truncate_result
 
     def _finalize_after_max_steps(
         self,
@@ -305,10 +333,7 @@ class ToolCallingLoop:
     def _log_tool_result(
         self,
         step: int,
-        tool_name: str,
-        tool_call_id: str,
-        arguments: Dict[str, Any],
-        result: str,
+        observation: ToolObservation,
     ) -> None:
         if not self.agent.trace_logger:
             return
@@ -316,18 +341,25 @@ class ToolCallingLoop:
         self.agent.trace_logger.log_event(
             "tool_call",
             {
-                "tool_name": tool_name,
-                "tool_call_id": tool_call_id,
-                "args": arguments,
+                "tool_name": observation.tool_name,
+                "tool_call_id": observation.tool_call_id,
+                "args": observation.arguments,
             },
             step=step,
         )
         self.agent.trace_logger.log_event(
             "tool_result",
             {
-                "tool_name": tool_name,
-                "tool_call_id": tool_call_id,
-                "result": result,
+                "tool_name": observation.tool_name,
+                "tool_call_id": observation.tool_call_id,
+                "status": observation.response.status.value,
+                "text": observation.response.text,
+                "data": observation.response.data,
+                "error": observation.response.error_info,
+                "tool_stats": observation.response.stats,
+                "observation_text": observation.observation_text,
+                "truncated": observation.truncated,
+                "observation_stats": observation.stats,
             },
             step=step,
         )

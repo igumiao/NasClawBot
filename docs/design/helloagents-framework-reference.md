@@ -340,6 +340,7 @@ Implemented a small loop using existing pieces:
 - `HistoryManager`
 - `ToolRegistry`
 - `ToolResponse`
+- `ToolObservation` as the loop envelope around structured `ToolResponse`
 - `HelloAgentsLLM.invoke_with_tools`
 - `ConversationCheckpointStore` for cross-request persistence
 

@@ -108,28 +108,29 @@ Checkpoint counters mean:
 
 ### Structured Tool Observations
 
-The current loop now feeds `ToolResponse.to_json()` back to the model, which is
-better than returning only `response.text`.
+`ToolCallingLoop` now keeps tool results structured through `ToolObservation`.
 
-The internal loop result is still too string-oriented. Later, tool observations
-can become structured records:
+Separation of responsibilities:
 
 ```text
-tool name
-tool call id
-arguments
-status
-text
-data
-error
-stats
-preview/raw output reference
+ToolResponse
+  -> status/text/data/error/stats/context
+  -> describes what the tool returned
+
+ToolObservation
+  -> tool_name/tool_call_id/arguments
+  -> response: ToolResponse
+  -> observation_text: string sent to the LLM
+  -> truncated + stats: loop/truncation stats, not tool execution stats
 ```
 
-This would help UI traces, retries, approval, memory extraction, and tests.
+This avoids damaging structured `ToolResponse.data` when the LLM-facing
+observation text is truncated. Routes and tests should read
+`observation.response.data`, not parse `observation_text`.
 
-Open point: do not lock fields too early. Keep the idea, refine when trace or
-approval work begins.
+Future Gate/approval work should wrap pre-execution decisions into the
+observation envelope without adding provider-specific fields such as
+`tool_call_id` to `ToolResponse` itself.
 
 ### Permission And Approval Gate
 
@@ -258,7 +259,7 @@ This is only a suggestion, not a committed roadmap:
 
 1. Move session load/save into the loop or a small runtime wrapper.
 2. Add preflight compression before model calls. Done for `ToolCallingLoop` through `ContextWindowManager`.
-3. Refine tool observations into structured records.
+3. Refine tool observations into structured records. Done through `ToolObservation`.
 4. Add permission and approval gate for side-effect tools.
 5. Improve max-steps finalization. Done for `ToolCallingLoop`; it now performs a forced no-tools summary pass.
 6. Add error recovery patterns.

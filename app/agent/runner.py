@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-import json
 from typing import Any, Callable
 
 from app.adapters.mteam import MTeamAdapter
@@ -179,11 +178,15 @@ class NasClawAgentRunner:
             return []
         return [
             {
-                "tool": record.tool_name,
-                "tool_call_id": record.tool_call_id,
-                "arguments": record.arguments,
+                "tool": observation.tool_name,
+                "tool_call_id": observation.tool_call_id,
+                "arguments": observation.arguments,
+                "status": observation.response.status.value,
+                "stats": observation.response.stats or {},
+                "truncated": observation.truncated,
+                "observation_stats": observation.stats,
             }
-            for record in agent.last_result.tool_executions
+            for observation in agent.last_result.tool_observations
         ]
 
     @staticmethod
@@ -192,13 +195,9 @@ class NasClawAgentRunner:
             return []
 
         results: list[ResourceCandidate] = []
-        for record in agent.last_result.tool_executions:
-            if record.tool_name != "mteam_search":
+        for observation in agent.last_result.tool_observations:
+            if observation.tool_name != "mteam_search":
                 continue
-            try:
-                payload = json.loads(record.result)
-            except json.JSONDecodeError:
-                continue
-            for row in payload.get("data", {}).get("candidates", []):
+            for row in observation.response.data.get("candidates", []):
                 results.append(ResourceCandidate.model_validate(row))
         return results

@@ -148,6 +148,8 @@ def test_chat_agent_endpoint_uses_readonly_agent_and_persists_session(tmp_path, 
     assert first.message == "找到 Dune 2160p 和 Dune 1080p。"
     assert first.results[0].title == "Dune 2160p"
     assert first.tool_calls[0]["tool"] == "mteam_search"
+    assert first.tool_calls[0]["status"] == "success"
+    assert first.tool_calls[0]["truncated"] is False
     assert (tmp_path / "agent-session-1.json").exists()
 
     second = endpoint(ChatRequest(session_id="agent-session-1", message="上一轮有哪些结果？"))
