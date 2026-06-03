@@ -25,6 +25,8 @@ class Config(BaseModel):
     compression_threshold: float = 0.8  # 压缩阈值（0.8 = 80%时触发压缩）
     min_retain_rounds: int = 10  # 压缩时保留的最小完整轮次数
     enable_smart_compression: bool = False  # 是否启用智能摘要（需要额外LLM调用）
+    preflight_compression_enabled: bool = False  # 是否在每次 LLM 调用前检查并压缩上下文
+    write_time_compression_enabled: bool = True  # 是否在写入历史后触发旧的压缩检查
 
     # 智能摘要配置
     summary_llm_provider: str = "deepseek"  # 摘要专用 LLM 提供商

@@ -53,6 +53,7 @@ class JSONConversationCheckpointStore:
                     created_at=str(data.get("created_at", "")),
                     saved_at=str(data.get("saved_at", "")),
                     message_count=len(data.get("history", [])),
+                    archive_count=len(data.get("archives", [])),
                     metadata=dict(data.get("metadata", {})),
                 )
             )

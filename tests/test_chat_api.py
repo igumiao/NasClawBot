@@ -181,6 +181,14 @@ def test_list_agent_sessions_returns_checkpoint_summaries(tmp_path, monkeypatch:
                 {"role": "user", "content": "new", "timestamp": "2026-06-03T10:00:00", "metadata": {}},
                 {"role": "assistant", "content": "answer", "timestamp": "2026-06-03T10:01:00", "metadata": {}},
             ],
+            archives=[
+                {
+                    "id": "archive-1",
+                    "created_at": "2026-06-03T10:00:30",
+                    "reason": "preflight_compression",
+                    "messages": [],
+                }
+            ],
             metadata={"turn_count": 1},
         )
     )
@@ -190,6 +198,7 @@ def test_list_agent_sessions_returns_checkpoint_summaries(tmp_path, monkeypatch:
 
     assert [session.session_id for session in body.sessions] == ["newer", "older"]
     assert body.sessions[0].message_count == 2
+    assert body.sessions[0].archive_count == 1
     assert body.sessions[0].metadata["turn_count"] == 1
 
 
@@ -210,6 +219,16 @@ def test_get_agent_session_returns_checkpoint_messages(tmp_path, monkeypatch: py
                     "metadata": {},
                 },
             ],
+            archives=[
+                {
+                    "id": "archive-1",
+                    "created_at": "2026-06-03T10:00:30",
+                    "reason": "preflight_compression",
+                    "messages": [
+                        {"role": "user", "content": "old", "timestamp": "2026-06-03T09:00:00", "metadata": {}},
+                    ],
+                }
+            ],
             metadata={"agent_name": "nasclawbot-agent"},
         )
     )
@@ -220,6 +239,7 @@ def test_get_agent_session_returns_checkpoint_messages(tmp_path, monkeypatch: py
     assert body.session_id == "session-1"
     assert body.messages[0]["role"] == "user"
     assert body.messages[0]["content"] == "Dune"
+    assert body.archives[0]["id"] == "archive-1"
     assert body.metadata["agent_name"] == "nasclawbot-agent"
 
 

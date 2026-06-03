@@ -321,7 +321,7 @@ class Agent(ABC):
         self._history_token_count += new_tokens
 
         # 检查是否需要压缩
-        if self._should_compress():
+        if self.config.write_time_compression_enabled and self._should_compress():
             self._compress_history()
 
         # 自动保存（如果启用）

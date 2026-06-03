@@ -32,6 +32,7 @@ class AgentSessionSummary(BaseModel):
     created_at: str
     saved_at: str
     message_count: int
+    archive_count: int = 0
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -48,6 +49,7 @@ class AgentSessionDetailResponse(BaseModel):
     created_at: str
     saved_at: str
     messages: list[dict[str, Any]] = Field(default_factory=list)
+    archives: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

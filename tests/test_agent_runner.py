@@ -4,8 +4,8 @@ import pytest
 
 from app.agent import runner as agent_runner
 from app.agent.runner import NasClawAgentRunner
-from hello_agents.checkpoints import JSONConversationCheckpointStore
-from hello_agents.core.llm_response import LLMToolResponse, ToolCall
+from hello_agents.checkpoints import ConversationCheckpoint, JSONConversationCheckpointStore
+from hello_agents.core.llm_response import LLMResponse, LLMToolResponse, ToolCall
 
 
 class FakeSettings:
@@ -30,7 +30,9 @@ class FakeMTeamAdapter:
 class FakeLLM:
     model = "fake-model"
     calls: list[list[dict[str, object]]] = []
+    invoke_calls: list[list[dict[str, object]]] = []
     responses: list[LLMToolResponse] = []
+    text_response = "compressed summary"
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -39,12 +41,17 @@ class FakeLLM:
         FakeLLM.calls.append(messages)
         return FakeLLM.responses.pop(0)
 
+    def invoke(self, messages, **kwargs):
+        FakeLLM.invoke_calls.append(messages)
+        return LLMResponse(content=FakeLLM.text_response, model=self.model)
+
 
 def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
     monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
     monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
     FakeLLM.calls = []
+    FakeLLM.invoke_calls = []
     FakeLLM.responses = [
         LLMToolResponse(
             content=None,
@@ -93,3 +100,64 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
     assert len(FakeLLM.calls) == 3
     assert any(message["role"] == "tool" for message in FakeLLM.calls[-1])
     assert second.checkpoint.metadata["turn_count"] == 2
+
+
+def test_nasclaw_agent_runner_persists_preflight_compression_archives(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
+    monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
+    FakeLLM.calls = []
+    FakeLLM.invoke_calls = []
+    FakeLLM.text_response = "旧搜索对话摘要。"
+    FakeLLM.responses = [
+        LLMToolResponse(
+            content="基于摘要继续回答。",
+            tool_calls=[],
+            model="fake-model",
+        ),
+    ]
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="session-compress",
+            created_at="2026-06-03T10:00:00",
+            saved_at="2026-06-03T10:01:00",
+            history=[
+                {
+                    "role": "user",
+                    "content": f"old user {index} " * 20,
+                    "timestamp": "2026-06-03T10:00:00",
+                    "metadata": {},
+                }
+                if item == "user"
+                else {
+                    "role": "assistant",
+                    "content": f"old assistant {index} " * 20,
+                    "timestamp": "2026-06-03T10:00:00",
+                    "metadata": {},
+                }
+                for index in range(3)
+                for item in ("user", "assistant")
+            ],
+            metadata={},
+        )
+    )
+    runner = NasClawAgentRunner(
+        checkpoint_store=store,
+        agent_config_overrides={
+            "context_window": 40,
+            "compression_threshold": 0.2,
+            "min_retain_rounds": 1,
+        },
+    )
+
+    result = runner.run("session-compress", "继续")
+
+    assert result.answer == "基于摘要继续回答。"
+    checkpoint = store.load("session-compress")
+    assert checkpoint is not None
+    assert checkpoint.history[0]["role"] == "summary"
+    assert "旧搜索对话摘要。" in checkpoint.history[0]["content"]
+    assert len(checkpoint.archives) == 1
+    assert checkpoint.archives[0]["source_message_count"] == 6
+    assert checkpoint.metadata["archive_count"] == 1

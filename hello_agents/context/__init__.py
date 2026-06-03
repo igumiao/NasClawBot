@@ -5,6 +5,7 @@
 - HistoryManager: 历史管理与压缩
 - ObservationTruncator: 工具输出截断
 - TokenCounter: Token 计数器（缓存 + 增量计算）
+- ContextWindowManager: LLM 调用前上下文窗口检查与压缩
 - Compactor: 对话压缩整合
 - NotesManager: 结构化笔记管理
 - ContextObserver: 可观测性与指标追踪
@@ -14,6 +15,7 @@ from .builder import ContextBuilder, ContextConfig, ContextPacket
 from .history import HistoryManager
 from .truncator import ObservationTruncator
 from .token_counter import TokenCounter
+from .window_manager import ContextWindowManager
 
 __all__ = [
     "ContextBuilder",
@@ -22,5 +24,6 @@ __all__ = [
     "HistoryManager",
     "ObservationTruncator",
     "TokenCounter",
+    "ContextWindowManager",
 ]
 

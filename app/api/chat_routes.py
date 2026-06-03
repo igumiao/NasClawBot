@@ -151,6 +151,7 @@ def build_router() -> APIRouter:
                 created_at=summary.created_at,
                 saved_at=summary.saved_at,
                 message_count=summary.message_count,
+                archive_count=summary.archive_count,
                 metadata=summary.metadata,
             )
             for summary in _agent_checkpoint_store().list()
@@ -170,6 +171,7 @@ def build_router() -> APIRouter:
             created_at=checkpoint.created_at,
             saved_at=checkpoint.saved_at,
             messages=checkpoint.history,
+            archives=checkpoint.archives,
             metadata=checkpoint.metadata,
         )
 
