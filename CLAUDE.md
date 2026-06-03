@@ -70,6 +70,8 @@ There is no formal Python formatter configured yet.
 
 `ToolCallingLoop` performs one forced final LLM pass with `tool_choice="none"` when `max_steps` is reached. That pass summarizes current observations without executing more tools; if it fails or returns tool calls, the loop falls back to the controlled max-steps message.
 
+`ToolObservation` is the loop-level envelope for one tool call. It stores `tool_name`, `tool_call_id`, arguments, full structured `ToolResponse`, and separate LLM-facing `observation_text`; routes should read `observation.response.data` rather than parsing tool-message text.
+
 `ContextWindowManager` performs preflight context checks before LLM calls. NasClawBot currently uses a conservative 64K configured context window, enables smart compression at 70% context pressure, keeps the latest 4 rounds active, writes a `summary` message into active history, and preserves compressed-away originals in checkpoint `archives`.
 
 `frontend/src/components/chat/ChatPanel.tsx` renders chat messages and search results. Search results are displayed with `SearchResultCard`; clicking "加入 qB" calls `/download`.

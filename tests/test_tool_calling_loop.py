@@ -137,6 +137,14 @@ def test_tool_calling_agent_executes_tool_and_continues_to_final_answer():
     tool_payload = json.loads(second_messages[-1]["content"])
     assert tool_payload["text"] == "echo: Dune"
     assert tool_payload["data"] == {"seen": "Dune"}
+    observation = agent.last_result.tool_observations[0]
+    assert observation.tool_name == "echo"
+    assert observation.tool_call_id == "call-1"
+    assert observation.arguments == {"text": "Dune"}
+    assert observation.response.data == {"seen": "Dune"}
+    assert observation.observation_text == second_messages[-1]["content"]
+    assert observation.truncated is False
+    assert "time_ms" in observation.stats
 
 
 def test_tool_calling_agent_feeds_missing_tool_error_back_to_model():
@@ -176,6 +184,9 @@ def test_tool_calling_agent_feeds_missing_tool_error_back_to_model():
     assert tool_message["role"] == "tool"
     tool_payload = json.loads(tool_message["content"])
     assert "missing_tool" in tool_payload["text"]
+    observation = agent.last_result.tool_observations[0]
+    assert observation.response.status.value == "error"
+    assert observation.response.error_info["code"] == "NOT_FOUND"
 
 
 def test_tool_calling_agent_runs_no_tools_finalization_at_max_steps():
@@ -264,6 +275,7 @@ def test_tool_calling_agent_falls_back_if_max_steps_finalization_requests_tool_a
     assert echo_tool.calls == [{"text": "again"}]
     assert len(llm.invoke_with_tools_calls) == 2
     assert llm.invoke_with_tools_calls[1]["tool_choice"] == "none"
+    assert agent.last_result.tool_observations[0].response.data == {"seen": "again"}
 
 
 def test_tool_calling_agent_preflight_compresses_history_before_model_call():
@@ -320,6 +332,67 @@ def test_tool_calling_agent_preflight_compresses_history_before_model_call():
     assert archives[0]["reason"] == "preflight_compression"
     assert archives[0]["source_message_count"] == 6
     assert len(archives[0]["messages"]) == 6
+
+
+def test_tool_observation_keeps_structured_response_when_observation_text_is_truncated():
+    class LargeTool(Tool):
+        def __init__(self):
+            super().__init__(name="large", description="Large output")
+
+        def run(self, parameters):
+            return ToolResponse.success(
+                text="large output",
+                data={"payload": "line1\nline2\nline3\nline4"},
+            )
+
+        def get_parameters(self):
+            return []
+
+    registry = ToolRegistry()
+    registry.register_tool(LargeTool())
+    llm = FakeLLM(
+        tool_responses=[
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-large",
+                        name="large",
+                        arguments="{}",
+                    )
+                ],
+                model="fake-model",
+            ),
+            LLMToolResponse(
+                content="done",
+                tool_calls=[],
+                model="fake-model",
+            ),
+        ]
+    )
+    agent = ToolCallingAgent(
+        name="assistant",
+        llm=llm,
+        tool_registry=registry,
+        config=Config(
+            trace_enabled=False,
+            session_enabled=False,
+            skills_enabled=False,
+            subagent_enabled=False,
+            todowrite_enabled=False,
+            devlog_enabled=False,
+            tool_output_max_lines=1,
+        ),
+    )
+
+    answer = agent.run("large")
+
+    assert answer == "done"
+    observation = agent.last_result.tool_observations[0]
+    assert observation.truncated is True
+    assert observation.response.data == {"payload": "line1\nline2\nline3\nline4"}
+    assert observation.observation_text != observation.response.to_json()
+    assert observation.stats["original_lines"] > observation.stats["kept_lines"]
 
 
 def test_factory_keeps_react_compatibility_and_adds_tool_calling_type():
