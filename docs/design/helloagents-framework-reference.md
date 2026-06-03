@@ -76,6 +76,7 @@ hello_agents/
     history.py           Append-only HistoryManager with compression
     token_counter.py     Token estimation and cache
     truncator.py         Tool output truncation
+    window_manager.py    Preflight context-window checks and compression
     builder.py           GSSC context builder, currently incomplete
 
   observability/
@@ -94,6 +95,7 @@ It already owns several runtime-adjacent concerns:
 
 - `HistoryManager`
 - token counting and compression checks
+- `ContextWindowManager` for preflight model-input compression
 - tool schema construction
 - tool execution helpers
 - trace logging

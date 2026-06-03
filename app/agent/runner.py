@@ -52,11 +52,13 @@ class NasClawAgentRunner:
         llm_factory: Callable[..., Any] | None = None,
         mteam_adapter_factory: Callable[..., MTeamAdapter] | None = None,
         max_steps: int = 4,
+        agent_config_overrides: dict[str, Any] | None = None,
     ):
         self.checkpoint_store = checkpoint_store
         self.llm_factory = llm_factory or HelloAgentsLLM
         self.mteam_adapter_factory = mteam_adapter_factory or MTeamAdapter
         self.max_steps = max_steps
+        self.agent_config_overrides = agent_config_overrides or {}
 
     def run(self, session_id: str, message: str) -> AgentRunResult:
         checkpoint = self.checkpoint_store.load(session_id)
@@ -98,19 +100,27 @@ class NasClawAgentRunner:
                 )
             )
         )
+        config_values = {
+            "trace_enabled": False,
+            "session_enabled": False,
+            "skills_enabled": False,
+            "subagent_enabled": False,
+            "todowrite_enabled": False,
+            "devlog_enabled": False,
+            "preflight_compression_enabled": True,
+            "write_time_compression_enabled": False,
+            "enable_smart_compression": True,
+            "context_window": 64000,
+            "compression_threshold": 0.7,
+            "min_retain_rounds": 4,
+        }
+        config_values.update(self.agent_config_overrides)
         return ToolCallingAgent(
             name="nasclawbot-agent",
             llm=llm,
             tool_registry=registry,
             system_prompt=AGENT_SESSION_PROMPT,
-            config=Config(
-                trace_enabled=False,
-                session_enabled=False,
-                skills_enabled=False,
-                subagent_enabled=False,
-                todowrite_enabled=False,
-                devlog_enabled=False,
-            ),
+            config=Config(**config_values),
             max_steps=self.max_steps,
         )
 
@@ -119,6 +129,7 @@ class NasClawAgentRunner:
         agent.clear_history()
         for message_data in checkpoint.history:
             agent.history_manager.append(Message.from_dict(message_data))
+        setattr(agent, "_conversation_archives", list(checkpoint.archives))
         agent._history_token_count = sum(
             agent.token_counter.count_message(message)
             for message in agent.history_manager.get_history()
@@ -133,6 +144,7 @@ class NasClawAgentRunner:
     ) -> ConversationCheckpoint:
         now = datetime.now().isoformat()
         history = [message.to_dict() for message in agent.get_history()]
+        archives = list(getattr(agent, "_conversation_archives", prior_checkpoint.archives if prior_checkpoint else []))
         metadata = dict(prior_checkpoint.metadata if prior_checkpoint else {})
         metadata.update(
             {
@@ -141,6 +153,7 @@ class NasClawAgentRunner:
                 "tool_names": NasClawAgentRunner._tool_names(agent),
                 "last_status": agent.last_result.status if agent.last_result else "success",
                 "turn_count": sum(1 for message in agent.get_history() if message.role == "user"),
+                "archive_count": len(archives),
             }
         )
         return ConversationCheckpoint(
@@ -148,6 +161,7 @@ class NasClawAgentRunner:
             created_at=prior_checkpoint.created_at if prior_checkpoint else now,
             saved_at=now,
             history=history,
+            archives=archives,
             metadata=metadata,
         )
 

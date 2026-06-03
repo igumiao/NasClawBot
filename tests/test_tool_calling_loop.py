@@ -2,6 +2,7 @@ import json
 
 from hello_agents.agents import ToolCallingAgent, create_agent
 from hello_agents.core.config import Config
+from hello_agents.core.message import Message
 from hello_agents.core.llm_response import LLMResponse, LLMToolResponse, ToolCall
 from hello_agents.tools import Tool, ToolParameter, ToolRegistry, ToolResponse
 
@@ -263,6 +264,62 @@ def test_tool_calling_agent_falls_back_if_max_steps_finalization_requests_tool_a
     assert echo_tool.calls == [{"text": "again"}]
     assert len(llm.invoke_with_tools_calls) == 2
     assert llm.invoke_with_tools_calls[1]["tool_choice"] == "none"
+
+
+def test_tool_calling_agent_preflight_compresses_history_before_model_call():
+    registry = ToolRegistry()
+    registry.register_tool(EchoTool())
+    llm = FakeLLM(
+        tool_responses=[
+            LLMToolResponse(
+                content="final after compression",
+                tool_calls=[],
+                model="fake-model",
+            )
+        ],
+        text_response="compressed summary",
+    )
+    agent = ToolCallingAgent(
+        name="assistant",
+        llm=llm,
+        tool_registry=registry,
+        config=Config(
+            trace_enabled=False,
+            session_enabled=False,
+            skills_enabled=False,
+            subagent_enabled=False,
+            todowrite_enabled=False,
+            devlog_enabled=False,
+            context_window=40,
+            compression_threshold=0.2,
+            min_retain_rounds=1,
+            enable_smart_compression=True,
+            preflight_compression_enabled=True,
+            write_time_compression_enabled=False,
+        ),
+    )
+    for index in range(3):
+        agent.history_manager.append(Message(f"old user message {index} " * 8, "user"))
+        agent.history_manager.append(Message(f"old assistant message {index} " * 8, "assistant"))
+
+    answer = agent.run("new user message")
+
+    assert answer == "final after compression"
+    assert len(llm.invoke_calls) == 1
+    assert len(llm.invoke_with_tools_calls) == 1
+    model_messages = llm.invoke_with_tools_calls[0]["messages"]
+    assert any(
+        message["role"] == "system" and "compressed summary" in message["content"]
+        for message in model_messages
+    )
+    history = agent.get_history()
+    assert history[0].role == "summary"
+    assert "compressed summary" in history[0].content
+    archives = getattr(agent, "_conversation_archives")
+    assert len(archives) == 1
+    assert archives[0]["reason"] == "preflight_compression"
+    assert archives[0]["source_message_count"] == 6
+    assert len(archives[0]["messages"]) == 6
 
 
 def test_factory_keeps_react_compatibility_and_adds_tool_calling_type():

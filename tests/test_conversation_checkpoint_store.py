@@ -15,6 +15,14 @@ def test_json_checkpoint_store_saves_loads_lists_and_deletes(tmp_path):
                 "metadata": {},
             }
         ],
+        archives=[
+            {
+                "id": "archive-1",
+                "created_at": "2026-06-03T10:00:30",
+                "reason": "preflight_compression",
+                "messages": [],
+            }
+        ],
         metadata={"agent_name": "nasclawbot-agent"},
     )
 
@@ -28,6 +36,7 @@ def test_json_checkpoint_store_saves_loads_lists_and_deletes(tmp_path):
     assert len(summaries) == 1
     assert summaries[0].session_id == "session/with spaces"
     assert summaries[0].message_count == 1
+    assert summaries[0].archive_count == 1
     assert summaries[0].metadata["agent_name"] == "nasclawbot-agent"
 
     assert store.delete("session/with spaces") is True

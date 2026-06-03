@@ -66,24 +66,45 @@ become active work.
 
 ### Preflight Compression
 
-Current compression is mostly write-triggered through `Agent.add_message()`.
-That is useful, but a stronger loop should check context pressure before each
-LLM call:
+`ToolCallingLoop` now uses `ContextWindowManager` to check context pressure
+before model calls:
 
 ```text
 before model call:
-  estimate context tokens
+  estimate messages + tool schemas
   if over threshold:
-    summarize old turns
+    summarize old turns with LLM
     keep recent turns
+    archive compressed-away original messages
     rebuild model messages
 ```
 
 This better matches coding-agent style loops where context pressure can change
 after tool observations, prompt layers, and previous assistant/tool messages.
 
-Open point: decide whether compression belongs in `ToolCallingLoop`,
-`HistoryManager`, or a small `ContextManager` wrapper.
+Current placement:
+
+- `ContextWindowManager`: preflight estimation and compression decision
+- `HistoryManager`: active in-memory history only
+- `ConversationCheckpoint.archives`: original messages removed from active
+  history during preflight compression
+
+NasClawBot's current Agent config enables smart preflight compression with a
+0.7 threshold, uses a conservative configured context window of 64K tokens, and
+keeps the most recent 4 rounds. The 100% budget is `Config.context_window`; it
+is not auto-detected from the provider/model yet.
+
+The summary is stored as a `role="summary"` message and is converted to a
+system message when sent to the LLM. This is context-window management, not
+long-term memory.
+
+Checkpoint counters mean:
+
+- `message_count`: number of active `checkpoint.history` messages available for
+  normal conversation restoration.
+- `archive_count`: number of compression archive batches.
+- `archive.source_message_count`: number of original messages moved out of
+  active history by one compression pass.
 
 ### Structured Tool Observations
 
@@ -236,7 +257,7 @@ design awareness without fully implementing adapters for every model API.
 This is only a suggestion, not a committed roadmap:
 
 1. Move session load/save into the loop or a small runtime wrapper.
-2. Add preflight compression before model calls.
+2. Add preflight compression before model calls. Done for `ToolCallingLoop` through `ContextWindowManager`.
 3. Refine tool observations into structured records.
 4. Add permission and approval gate for side-effect tools.
 5. Improve max-steps finalization. Done for `ToolCallingLoop`; it now performs a forced no-tools summary pass.

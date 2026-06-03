@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 import json
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from ..context import ContextWindowManager
 from ..core.message import Message
 
 if TYPE_CHECKING:
@@ -64,6 +65,7 @@ class ToolCallingLoop:
         self.max_steps = max_steps
         self.max_steps_message = max_steps_message
         self.session_name = session_name
+        self.context_window_manager = ContextWindowManager(agent)
 
     def run(self, input_text: str, **kwargs: Any) -> ToolCallingLoopResult:
         """Run one user turn through the generic tool-calling loop."""
@@ -74,6 +76,7 @@ class ToolCallingLoop:
         tool_executions: List[ToolExecutionRecord] = []
 
         if not tool_schemas:
+            messages = self._prepare_messages_for_model_call(messages, [])
             response = self.agent.llm.invoke(messages, **kwargs)
             final_answer = response.content if hasattr(response, "content") else str(response)
             self.agent.add_message(Message(final_answer, "assistant"))
@@ -85,6 +88,7 @@ class ToolCallingLoop:
             )
 
         for step in range(1, self.max_steps + 1):
+            messages = self._prepare_messages_for_model_call(messages, tool_schemas)
             response = self.agent.llm.invoke_with_tools(
                 messages=messages,
                 tools=tool_schemas,
@@ -161,6 +165,19 @@ class ToolCallingLoop:
             tool_executions=tool_executions,
             status="max_steps",
         )
+
+    def _prepare_messages_for_model_call(
+        self,
+        messages: List[Dict[str, Any]],
+        tool_schemas: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        compressed = self.context_window_manager.prepare_for_model_call(
+            messages=messages,
+            tools=tool_schemas,
+        )
+        if compressed:
+            return self._build_api_messages()
+        return messages
 
     def _build_api_messages(self) -> List[Dict[str, Any]]:
         messages: List[Dict[str, Any]] = []

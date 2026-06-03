@@ -12,6 +12,7 @@ class ConversationCheckpoint:
     created_at: str
     saved_at: str
     history: list[dict[str, Any]]
+    archives: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -20,6 +21,7 @@ class ConversationCheckpoint:
             "created_at": self.created_at,
             "saved_at": self.saved_at,
             "history": self.history,
+            "archives": self.archives,
             "metadata": self.metadata,
         }
 
@@ -30,6 +32,7 @@ class ConversationCheckpoint:
             created_at=str(data["created_at"]),
             saved_at=str(data["saved_at"]),
             history=list(data.get("history", [])),
+            archives=list(data.get("archives", [])),
             metadata=dict(data.get("metadata", {})),
         )
 
@@ -42,6 +45,7 @@ class ConversationCheckpointSummary:
     created_at: str
     saved_at: str
     message_count: int
+    archive_count: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
