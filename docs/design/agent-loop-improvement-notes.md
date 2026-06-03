@@ -133,9 +133,8 @@ while concrete download/file policies belong to NasClawBot.
 
 ### Better Max-Steps Handling
 
-The current max-steps behavior returns a controlled failure message.
-
-A better agent harness can do a final no-tools pass:
+The current `ToolCallingLoop` does a final no-tools pass when tool-calling steps
+reach the configured limit:
 
 ```text
 if max steps reached:
@@ -145,8 +144,10 @@ if max steps reached:
 
 This gives users a useful answer instead of only a failure notice.
 
-Open point: this should not allow more tool calls, and should be clearly marked
-as a forced finalization step.
+If the forced finalization call still returns tool calls or fails, the loop
+falls back to the controlled max-steps failure message. The finalization prompt
+is ephemeral and is not saved as normal conversation history; only the final
+assistant answer is persisted.
 
 ### Interrupt And Cancel
 
@@ -238,7 +239,7 @@ This is only a suggestion, not a committed roadmap:
 2. Add preflight compression before model calls.
 3. Refine tool observations into structured records.
 4. Add permission and approval gate for side-effect tools.
-5. Improve max-steps finalization.
+5. Improve max-steps finalization. Done for `ToolCallingLoop`; it now performs a forced no-tools summary pass.
 6. Add error recovery patterns.
 7. Revisit lifecycle hooks and event streaming.
 8. Study interrupt/cancel once long-running calls or streaming UX need it.

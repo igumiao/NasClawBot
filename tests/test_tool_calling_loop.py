@@ -177,7 +177,7 @@ def test_tool_calling_agent_feeds_missing_tool_error_back_to_model():
     assert "missing_tool" in tool_payload["text"]
 
 
-def test_tool_calling_agent_returns_controlled_failure_at_max_steps():
+def test_tool_calling_agent_runs_no_tools_finalization_at_max_steps():
     registry = ToolRegistry()
     registry.register_tool(EchoTool())
     llm = FakeLLM(
@@ -192,7 +192,61 @@ def test_tool_calling_agent_returns_controlled_failure_at_max_steps():
                     )
                 ],
                 model="fake-model",
-            )
+            ),
+            LLMToolResponse(
+                content="I only confirmed echo: again; the rest is unresolved.",
+                tool_calls=[],
+                model="fake-model",
+            ),
+        ]
+    )
+    agent = ToolCallingAgent(
+        name="assistant",
+        llm=llm,
+        tool_registry=registry,
+        config=_config(),
+        max_steps=1,
+    )
+
+    answer = agent.run("loop")
+
+    assert answer == "I only confirmed echo: again; the rest is unresolved."
+    assert len(llm.invoke_with_tools_calls) == 2
+    assert llm.invoke_with_tools_calls[0]["tool_choice"] == "auto"
+    assert llm.invoke_with_tools_calls[1]["tool_choice"] == "none"
+    assert "工具调用步数已经达到上限" in llm.invoke_with_tools_calls[1]["messages"][-1]["content"]
+    assert agent.get_history()[-1].role == "assistant"
+    assert agent.last_result.status == "max_steps"
+
+
+def test_tool_calling_agent_falls_back_if_max_steps_finalization_requests_tool_again():
+    echo_tool = EchoTool()
+    registry = ToolRegistry()
+    registry.register_tool(echo_tool)
+    llm = FakeLLM(
+        tool_responses=[
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-1",
+                        name="echo",
+                        arguments=json.dumps({"text": "again"}),
+                    )
+                ],
+                model="fake-model",
+            ),
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-2",
+                        name="echo",
+                        arguments=json.dumps({"text": "should-not-run"}),
+                    )
+                ],
+                model="fake-model",
+            ),
         ]
     )
     agent = ToolCallingAgent(
@@ -206,8 +260,9 @@ def test_tool_calling_agent_returns_controlled_failure_at_max_steps():
     answer = agent.run("loop")
 
     assert answer == "抱歉，我无法在限定步数内完成这个任务。"
-    assert len(llm.invoke_with_tools_calls) == 1
-    assert agent.get_history()[-1].role == "assistant"
+    assert echo_tool.calls == [{"text": "again"}]
+    assert len(llm.invoke_with_tools_calls) == 2
+    assert llm.invoke_with_tools_calls[1]["tool_choice"] == "none"
 
 
 def test_factory_keeps_react_compatibility_and_adds_tool_calling_type():

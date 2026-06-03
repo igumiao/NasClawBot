@@ -29,6 +29,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `GET /chat/agent/sessions`: lists persisted Agent conversation checkpoint summaries. It does not call an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}`: returns one persisted Agent conversation checkpoint with renderable message history. It does not call an LLM or tools.
 - `app/agent/runner.py`: application-level Agent runner that loads/saves conversation checkpoints, builds the current `ToolCallingAgent`, restores history, and extracts route-facing search results/tool calls.
+- `ToolCallingLoop`: when `max_steps` is reached, performs one forced final LLM pass with `tool_choice="none"` to summarize current observations; falls back to the controlled max-steps message if that pass fails or returns tool calls.
 - `hello_agents/checkpoints/`: framework-level `ConversationCheckpointStore` protocol plus the current JSON implementation.
 - `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused.
 - `app/tools.py`: tool wrappers over existing adapters (MTeamSearchTool, QBAddTorrentTool).
