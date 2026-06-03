@@ -24,6 +24,8 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - There is no active workflow runtime.
 - `/chat` still calls `MTeamSearchTool` directly and does not use LLM/session history.
 - `/chat/agent` is the experimental Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with only `mteam_search`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
+- `GET /chat/agent/sessions` lists persisted Agent checkpoint summaries without calling an LLM or tools.
+- `GET /chat/agent/sessions/{session_id}` returns one persisted Agent checkpoint with renderable message history, also without calling an LLM or tools.
 - `hello_agents/checkpoints/` defines the thin `ConversationCheckpointStore` boundary and the current JSON implementation.
 - Tool wrappers live in `app/tools.py`.
 - M-Team and qB integration lives behind adapters in `app/adapters/`.
@@ -59,6 +61,8 @@ There is no formal Python formatter configured yet.
 
 - `POST /chat`: trims the user message, calls `MTeamSearchTool`, returns `ChatResponse.results`.
 - `POST /chat/agent`: validates the request, delegates to `NasClawAgentRunner`, and returns a normal `ChatResponse`.
+- `GET /chat/agent/sessions`: lists persisted Agent conversation summaries.
+- `GET /chat/agent/sessions/{session_id}`: loads one persisted Agent conversation checkpoint.
 - `POST /download`: accepts a torrent id, calls `QBAddTorrentTool`, submits to qB paused, and returns a receipt.
 - qB management routes are included from `app/api/qb_routes.py`.
 

@@ -25,6 +25,32 @@ class ChatResponse(BaseModel):
     error: str | None = None
 
 
+class AgentSessionSummary(BaseModel):
+    """Compact conversation checkpoint row for session lists."""
+
+    session_id: str
+    created_at: str
+    saved_at: str
+    message_count: int
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentSessionListResponse(BaseModel):
+    """Known Agent conversation sessions."""
+
+    sessions: list[AgentSessionSummary] = Field(default_factory=list)
+
+
+class AgentSessionDetailResponse(BaseModel):
+    """Full persisted conversation checkpoint for UI restoration."""
+
+    session_id: str
+    created_at: str
+    saved_at: str
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class DownloadRequest(BaseModel):
     """Explicit user action to add a torrent to qBittorrent."""
 
