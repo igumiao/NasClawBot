@@ -10,6 +10,7 @@ from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
 from app.api.qb_routes import build_qb_router
 from app.api.schemas import (
+    AgentApprovalResponse,
     AgentSessionDetailResponse,
     AgentSessionListResponse,
     AgentSessionSummary,
@@ -174,6 +175,48 @@ def build_router() -> APIRouter:
             messages=checkpoint.history,
             archives=checkpoint.archives,
             metadata=checkpoint.metadata,
+        )
+
+    @router.post("/chat/agent/sessions/{session_id}/approvals/{approval_id}/approve", response_model=AgentApprovalResponse)
+    def approve_agent_approval(session_id: str, approval_id: str) -> AgentApprovalResponse:
+        """Approve one pending Agent tool call and execute it deterministically."""
+
+        runner = NasClawAgentRunner(checkpoint_store=_agent_checkpoint_store())
+        try:
+            result = runner.approve(session_id, approval_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        return AgentApprovalResponse(
+            session_id=result.session_id,
+            approval_id=result.approval_id,
+            status=result.status,
+            message=result.message,
+            receipt=result.receipt,
+            error=result.error,
+        )
+
+    @router.post("/chat/agent/sessions/{session_id}/approvals/{approval_id}/deny", response_model=AgentApprovalResponse)
+    def deny_agent_approval(session_id: str, approval_id: str) -> AgentApprovalResponse:
+        """Reject one pending Agent tool call without executing it."""
+
+        runner = NasClawAgentRunner(checkpoint_store=_agent_checkpoint_store())
+        try:
+            result = runner.deny(session_id, approval_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        return AgentApprovalResponse(
+            session_id=result.session_id,
+            approval_id=result.approval_id,
+            status=result.status,
+            message=result.message,
+            receipt=result.receipt,
+            error=result.error,
         )
 
     @router.post("/download", response_model=DownloadResponse)

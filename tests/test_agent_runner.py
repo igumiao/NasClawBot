@@ -12,6 +12,9 @@ from hello_agents.tools import Gate
 class FakeSettings:
     mteam_base_url = "https://mteam.local"
     mteam_api_key = "key"
+    qb_base_url = "https://qb.local"
+    qb_username = "user"
+    qb_password = "pass"
     llm_model = "fake-model"
     llm_api_key = "fake-key"
     llm_base_url = "https://llm.local"
@@ -26,6 +29,39 @@ class FakeMTeamAdapter:
         return [
             {"id": 123, "title": f"{keyword} 2160p", "seeders": 10, "size": "10 GiB", "size_bytes": 10737418240},
         ]
+
+    def get_torrent_details(self, torrent_id: str) -> dict[str, Any] | None:
+        return {"id": torrent_id, "title": f"Detail for {torrent_id}"}
+
+    def get_torrent_download_url(self, torrent_id: str) -> str | None:
+        return f"https://mteam.local/download/{torrent_id}"
+
+    def is_download_url_torrent(self, url: str) -> bool:
+        return bool(url)
+
+
+class FakeQBAdapter:
+    calls: list[dict[str, Any]] = []
+
+    def __init__(self, base_url: str = "", username: str = "", password: str = "") -> None:
+        self.base_url = base_url
+        self.username = username
+        self.password = password
+
+    def generate_mteam_torrent_name(self, mteam_id: str, detail: dict[str, Any], qb_category: str) -> str:
+        return f"{mteam_id}-{qb_category}.torrent"
+
+    def add_torrent_url(self, *, url: str, category: str, rename: str, tags: list[str], paused: bool) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "url": url,
+                "category": category,
+                "rename": rename,
+                "tags": tags,
+                "paused": paused,
+            }
+        )
+        return {"ok": True, "status": "submitted_paused", "qb_hash": "fake-hash"}
 
 
 class FakeLLM:
@@ -50,6 +86,7 @@ class FakeLLM:
 def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
     monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
+    monkeypatch.setattr(agent_runner, "QBittorrentAdapter", FakeQBAdapter)
     monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
     FakeLLM.calls = []
     FakeLLM.invoke_calls = []
@@ -101,11 +138,13 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
     assert len(FakeLLM.calls) == 3
     assert any(message["role"] == "tool" for message in FakeLLM.calls[-1])
     assert second.checkpoint.metadata["turn_count"] == 2
+    assert second.checkpoint.metadata["tool_names"] == ["mteam_search", "qb_add_torrent"]
 
 
 def test_nasclaw_agent_runner_persists_preflight_compression_archives(tmp_path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
     monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
+    monkeypatch.setattr(agent_runner, "QBittorrentAdapter", FakeQBAdapter)
     monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
     FakeLLM.calls = []
     FakeLLM.invoke_calls = []
@@ -167,6 +206,7 @@ def test_nasclaw_agent_runner_persists_preflight_compression_archives(tmp_path, 
 def test_nasclaw_agent_runner_persists_pending_approvals(tmp_path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
     monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
+    monkeypatch.setattr(agent_runner, "QBittorrentAdapter", FakeQBAdapter)
     monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
     FakeLLM.calls = []
     FakeLLM.invoke_calls = []
@@ -198,3 +238,132 @@ def test_nasclaw_agent_runner_persists_pending_approvals(tmp_path, monkeypatch: 
     assert checkpoint is not None
     assert checkpoint.metadata["last_status"] == "awaiting_approval"
     assert checkpoint.metadata["pending_approvals"] == result.pending_approvals
+    assert result.checkpoint.metadata["pending_approvals"] is not result.pending_approvals
+
+
+def test_nasclaw_agent_runner_gates_download_tool_by_default(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
+    monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
+    monkeypatch.setattr(agent_runner, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
+    FakeQBAdapter.calls = []
+    FakeLLM.calls = []
+    FakeLLM.invoke_calls = []
+    FakeLLM.responses = [
+        LLMToolResponse(
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="call-download",
+                    name="qb_add_torrent",
+                    arguments='{"torrent_id":"123","qb_category":"movie"}',
+                )
+            ],
+            model="fake-model",
+        ),
+    ]
+    store = JSONConversationCheckpointStore(tmp_path)
+    runner = NasClawAgentRunner(checkpoint_store=store)
+
+    result = runner.run("session-download", "下载 123")
+
+    assert result.status == "awaiting_approval"
+    assert result.pending_approvals[0]["tool_name"] == "qb_add_torrent"
+    assert result.pending_approvals[0]["arguments"] == {"torrent_id": "123", "qb_category": "movie"}
+    assert result.tool_calls[0]["gate_result"] == "ask_user"
+    assert FakeQBAdapter.calls == []
+
+
+def test_nasclaw_agent_runner_approve_executes_pending_download(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
+    FakeQBAdapter.calls = []
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="session-approve",
+            created_at="2026-06-04T10:00:00",
+            saved_at="2026-06-04T10:01:00",
+            history=[
+                {"role": "user", "content": "下载 123", "timestamp": "2026-06-04T10:00:00", "metadata": {}},
+                {
+                    "role": "assistant",
+                    "content": "工具调用需要用户确认后才能执行: qb_add_torrent",
+                    "timestamp": "2026-06-04T10:01:00",
+                    "metadata": {},
+                },
+            ],
+            metadata={
+                "last_status": "awaiting_approval",
+                "pending_approvals": [
+                    {
+                        "approval_id": "approval-1",
+                        "tool_call_id": "call-download",
+                        "tool_name": "qb_add_torrent",
+                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                        "status": "pending",
+                        "reason": "Tool call requires user approval.",
+                        "created_at": "2026-06-04T10:01:00",
+                    }
+                ],
+            },
+        )
+    )
+    runner = NasClawAgentRunner(
+        checkpoint_store=store,
+        mteam_adapter_factory=FakeMTeamAdapter,
+        qb_adapter_factory=FakeQBAdapter,
+    )
+
+    result = runner.approve("session-approve", "approval-1")
+
+    assert result.status == "approved"
+    assert result.receipt is not None
+    assert result.receipt["external_id"] == "123"
+    assert FakeQBAdapter.calls[0]["paused"] is True
+    checkpoint = store.load("session-approve")
+    assert checkpoint is not None
+    assert checkpoint.metadata["pending_approvals"] == []
+    assert checkpoint.metadata["approvals"][0]["status"] == "approved"
+    assert checkpoint.history[-1]["role"] == "assistant"
+    assert "下载请求已提交到 qBittorrent" in checkpoint.history[-1]["content"]
+
+
+def test_nasclaw_agent_runner_deny_does_not_execute_pending_download(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
+    FakeQBAdapter.calls = []
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="session-deny",
+            created_at="2026-06-04T10:00:00",
+            saved_at="2026-06-04T10:01:00",
+            history=[],
+            metadata={
+                "last_status": "awaiting_approval",
+                "pending_approvals": [
+                    {
+                        "approval_id": "approval-1",
+                        "tool_call_id": "call-download",
+                        "tool_name": "qb_add_torrent",
+                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                        "status": "pending",
+                    }
+                ],
+            },
+        )
+    )
+    runner = NasClawAgentRunner(
+        checkpoint_store=store,
+        mteam_adapter_factory=FakeMTeamAdapter,
+        qb_adapter_factory=FakeQBAdapter,
+    )
+
+    result = runner.deny("session-deny", "approval-1")
+
+    assert result.status == "denied"
+    assert FakeQBAdapter.calls == []
+    checkpoint = store.load("session-deny")
+    assert checkpoint is not None
+    assert checkpoint.metadata["pending_approvals"] == []
+    assert checkpoint.metadata["approvals"][0]["status"] == "denied"
+    assert checkpoint.history[-1]["content"] == "已取消这次下载请求。"

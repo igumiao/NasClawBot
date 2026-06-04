@@ -324,6 +324,50 @@ def test_gate_ask_user_returns_pending_approval_without_executing_tool():
     assert [message.role for message in agent.get_history()] == ["user", "assistant", "tool", "assistant"]
 
 
+def test_gate_ask_user_waits_until_all_tool_messages_are_recorded_before_pausing():
+    other_tool = OtherTool()
+    registry = ToolRegistry()
+    registry.register_tool(EchoTool())
+    registry.register_tool(other_tool)
+    llm = FakeLLM(
+        tool_responses=[
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-approval",
+                        name="echo",
+                        arguments=json.dumps({"text": "needs approval"}),
+                    ),
+                    ToolCall(
+                        id="call-other",
+                        name="other",
+                        arguments="{}",
+                    ),
+                ],
+                model="fake-model",
+            )
+        ]
+    )
+    agent = ToolCallingAgent(
+        name="assistant",
+        llm=llm,
+        tool_registry=registry,
+        config=_config(),
+        tool_gate=Gate(confirm=[lambda call: call.tool_name == "echo"]),
+    )
+
+    answer = agent.run("use tools")
+
+    assert answer == "工具调用需要用户确认后才能执行: echo"
+    assert agent.last_result.status == "awaiting_approval"
+    assert other_tool.calls == [{}]
+    history = agent.get_history()
+    assert [message.role for message in history] == ["user", "assistant", "tool", "tool", "assistant"]
+    assert history[2].metadata["tool_call_id"] == "call-approval"
+    assert history[3].metadata["tool_call_id"] == "call-other"
+
+
 def test_tool_calling_agent_feeds_missing_tool_error_back_to_model():
     registry = ToolRegistry()
     registry.register_tool(EchoTool())

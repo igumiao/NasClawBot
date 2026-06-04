@@ -13,10 +13,10 @@ explicit download action -> M-Team detail/token -> qB add paused
 
 There is no active workflow runtime, no `/confirm` route, and no `confirmation_payload`.
 
-An experimental readonly Agent loop now exists alongside the stable baseline:
+An experimental gated Agent loop now exists alongside the stable baseline:
 
 ```text
-/chat/agent -> NasClawAgentRunner -> ToolCallingAgent + mteam_search -> JSON checkpoint persistence
+/chat/agent -> NasClawAgentRunner -> ToolCallingAgent + mteam_search + gated qb_add_torrent -> JSON checkpoint persistence
 ```
 
 This path is for learning and iteration. `/chat` remains the stable no-LLM baseline.
@@ -25,9 +25,11 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 
 - `app/api/chat_routes.py`: FastAPI routes for `/chat`, `/download`, `/health`, `/`, and qB router inclusion.
 - `/chat`: performs a direct `MTeamSearchTool` call and returns `results`. It does not call an LLM and does not persist Agent history.
-- `/chat/agent`: experimental Agent route. It delegates conversation lifecycle to `NasClawAgentRunner`, currently registers only `mteam_search`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
+- `/chat/agent`: experimental Agent route. It delegates conversation lifecycle to `NasClawAgentRunner`, registers `mteam_search` and confirm-gated `qb_add_torrent`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
 - `GET /chat/agent/sessions`: lists persisted Agent conversation checkpoint summaries. It does not call an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}`: returns one persisted Agent conversation checkpoint with renderable message history. It does not call an LLM or tools.
+- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve`: deterministically executes an approved pending `qb_add_torrent` call, appends a normal assistant receipt message, and updates checkpoint metadata. It does not resume the provider tool-call loop.
+- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny`: marks a pending approval denied without executing the tool.
 - `app/agent/runner.py`: application-level Agent runner that loads/saves conversation checkpoints, builds the current `ToolCallingAgent`, restores history, and extracts route-facing search results/tool calls.
 - `ToolCallingLoop`: applies `Filter` before sending tool schemas to the LLM, applies `Gate` before `tool.run()`, returns `awaiting_approval` with `pending_approvals` for confirm-gated calls, and performs one forced final LLM pass with `tool_choice="none"` when `max_steps` is reached.
 - `ToolObservation`: loop-level envelope for one tool call. It stores `tool_name`, `tool_call_id`, arguments, full structured `ToolResponse`, separate LLM-facing `observation_text`, and gate markers (`gate_result`, `gate_reason`, `approval_id`).
@@ -45,7 +47,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 
 - **Filter** (`hello_agents/tools/filter.py`): narrows tool list before sending to LLM. Controls context window and sub-agent capability scope.
 - **Gate** (`hello_agents/tools/gate.py`): three-gate check (deny → confirm → allow) on each `ToolCall` before `tool.run()`. Parameter-aware — `bash("ls")` and `bash("sudo rm -rf /")` can have different outcomes.
-- `ASK_USER` gate results pause the loop with `ToolCallingLoopResult.status == "awaiting_approval"` and route-facing `pending_approvals`. Pending approvals are persisted in checkpoint metadata; approval resume/reject endpoints are not implemented yet.
+- `ASK_USER` gate results pause the loop with `ToolCallingLoopResult.status == "awaiting_approval"` and route-facing `pending_approvals`. Pending approvals are persisted in checkpoint metadata; current approve/deny endpoints resolve them deterministically without LLM resume.
 - Factory functions: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
 - `ToolPermission` and `ToolFilter` have been removed.
 
@@ -110,6 +112,6 @@ GET  /chat/agent/sessions
 GET  /chat/agent/sessions/{session_id}
 ```
 
-Current Agent loop work should focus on `mteam_search` as the only Agent-callable tool. Keep `/download` explicit until approval/gating for side-effect tools is designed and tested.
+Current Agent loop work may expose `qb_add_torrent` only behind approval gating. Keep `/download` as the stable explicit side-effect path, and keep qB submissions paused by default.
 
 Future improvement ideas are intentionally not finalized. Preserve them in `docs/design/agent-loop-improvement-notes.md` rather than overfitting the first loop implementation.
