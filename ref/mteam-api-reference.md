@@ -1,7 +1,7 @@
 # M-Team API Reference
 
 基于 swagger 文档、一线实测、以及 `mt-helper-search-download-analysis.md` 整理。
-最后更新：2026-05-21。
+最后更新：2026-06-04。
 
 ---
 
@@ -268,6 +268,237 @@ id=1172412
 ## 9. `/api/media/imdb/info` — IMDB 媒体信息
 
 参数同上述豆瓣端点（`code` 传 IMDB ID，如 `tt0111161`）。
+
+---
+
+## 10. `/api/member/base` — 单个用户基本信息
+
+**Method**: `POST`
+**Content-Type**: `application/json`
+**参数**: query string
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `id` | int64 | 是 | 用户 UID。不传返回 `{"code":1,"message":"參數錯誤"}`。 |
+
+**请求示例**：
+```
+POST /api/member/base?id=361187
+Content-Type: application/json
+```
+
+**响应结构**：
+```json
+{
+  "code": "0",
+  "message": "SUCCESS",
+  "data": {
+    "uid": "361187",
+    "username": "IGUMIAO",
+    "enabled": true,
+    "role": "6",
+    "country": "8",
+    "donor": false,
+    "donorUntil": null,
+    "warned": false,
+    "warnedUntil": null,
+    "avatarUrl": null,
+    "title": null,
+    "respAt": "2026-06-04 21:26:00",
+    "lastBrowse": "2026-06-04 21:22:47"
+  }
+}
+```
+
+**字段说明**：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `uid` | string | 用户 ID |
+| `username` | string | 用户名 |
+| `enabled` | boolean | 账号是否启用 |
+| `role` | string | 角色 ID（`"6"` = 普通用户，`"3"` = ？） |
+| `country` | string | 国家/地区 ID |
+| `donor` | boolean | 是否为捐赠者 |
+| `donorUntil` | string\|null | 捐赠到期时间 |
+| `warned` | boolean | 是否被警告 |
+| `warnedUntil` | string\|null | 警告到期时间 |
+| `avatarUrl` | string\|null | 头像 URL |
+| `title` | string\|null | 用户头衔 |
+| `respAt` | string | 最近响应时间 |
+| `lastBrowse` | string | 最近浏览时间 |
+
+> **注意**：传入不存在的 ID 返回 `{"code":"0","message":"SUCCESS","data":{}}`（空 data 对象），不会报错。
+
+---
+
+## 11. `/api/member/bases` — 批量查询用户基本信息
+
+**Method**: `POST`
+**Content-Type**: `application/json`（JSON body）
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `ids` | int64[] | 是 | 用户 UID 数组。body 格式：`{"ids": [361187, 300084]}`。 |
+
+**请求示例**：
+```
+POST /api/member/bases
+Content-Type: application/json
+
+{"ids": [361187, 300084]}
+```
+
+**响应结构**：
+```json
+{
+  "code": "0",
+  "message": "SUCCESS",
+  "data": {
+    "361187": {
+      "uid": "361187",
+      "username": "IGUMIAO",
+      "enabled": true,
+      "role": "6",
+      "country": "8",
+      "donor": false,
+      "donorUntil": null,
+      "warned": false,
+      "warnedUntil": null,
+      "avatarUrl": null,
+      "title": null,
+      "respAt": "2026-06-04 21:26:34",
+      "lastBrowse": "2026-06-04 21:22:47"
+    },
+    "300084": {
+      "uid": "300084",
+      "username": "xnwyzxk",
+      ...
+    }
+  }
+}
+```
+
+> `data` 是一个以 UID 字符串为 key 的字典，每个 value 的字段结构与 `/api/member/base` 完全一致。传入的 ID 中如果某些不存在，对应 key 不会出现在返回的 `data` 中。
+
+---
+
+## 12. `/api/member/profile` — 用户完整资料
+
+**Method**: `POST`
+**Content-Type**: `application/json`
+**参数**: query string
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `uid` | int64 | 否 | 目标用户 UID。**不传则返回当前 API key 所属用户自己的完整资料。** |
+
+**请求示例**：
+```
+POST /api/member/profile?uid=361187
+Content-Type: application/json
+```
+
+**响应结构**（顶层）：
+```json
+{
+  "code": "0",
+  "message": "SUCCESS",
+  "data": {
+    "id": "361187",
+    "createdDate": "2025-06-17 11:47:56",
+    "lastModifiedDate": "2026-06-04 21:14:18",
+    "username": "IGUMIAO",
+    "email": "xnwyzxh@gmail.com",
+    "status": "CONFIRMED",
+    "enabled": true,
+    "ip": "43.255.191.8",
+    "country": "8",
+    "gender": "OTHER",
+    "privacy": "LOW",
+    "language": null,
+    "allowDownload": true,
+    "parked": false,
+    "parentId": "300084",
+    "invites": "0",
+    "role": "6",
+    "seedtime": "942216289",
+    "leechtime": "6448187",
+    "torrentCommentCount": "0",
+    "seekCommentCount": "0",
+    "forumCommentCount": "0",
+    "ipCount": "393",
+    "friend": false,
+    "block": false,
+    "anonymous": true,
+    "enabledTfa": true,
+    "releaseCode": "LYG5aa2u",
+    "telegramUserName": null,
+    "telegramChatId": null,
+    "memberStatus": { ... },
+    "memberCount": { ... },
+    "config": { ... },
+    "authorities": [ ... ]
+  }
+}
+```
+
+### `data.memberStatus` — 会员状态
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `vip` | boolean | 是否为 VIP |
+| `vipUntil` | string\|null | VIP 到期时间 |
+| `donor` | boolean | 是否为捐赠者 |
+| `donorUntil` | string\|null | 捐赠到期时间 |
+| `warned` | boolean | 是否被警告 |
+| `warnedUntil` | string\|null | 警告到期时间 |
+| `leechWarn` | boolean | 是否因吸血被警告 |
+| `leechWarnUntil` | string\|null | 吸血警告到期时间 |
+| `noad` | boolean | 是否无广告 |
+| `noadUntil` | string\|null | 无广告到期时间 |
+| `lastLogin` | string\|null | 最后登录时间 |
+| `lastBrowse` | string\|null | 最后浏览时间 |
+| `lastTracker` | string\|null | 最后 tracker 活动时间 |
+
+### `data.memberCount` — 流量与积分
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `bonus` | string | 魔力值（小数，如 `"109387.6"`） |
+| `uploaded` | string | 总上传量（字节） |
+| `downloaded` | string | 总下载量（字节） |
+| `shareRate` | string | 分享率 |
+| `charity` | string | 慈善/捐赠积分 |
+| `uploadReset` | string | 上传重置次数 |
+
+**分享率计算**：`16449805409136 / 2017218865545 ≈ 8.155`，与返回的 `shareRate` 一致。
+
+### `data.config` — 用户配置
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `trackerDomain` | string\|null | 自定义 tracker 域名 |
+| `downloadDomain` | string\|null | 自定义下载域名 |
+| `rssDomain` | string\|null | 自定义 RSS 域名 |
+| `blockCategories` | array | 屏蔽的分类 ID 列表 |
+| `hideFun` | boolean | 隐藏趣味盒 |
+| `showThumbnail` | boolean | 显示缩略图 |
+| `timeType` | string | 时间显示类型（如 `"timeAlive"`） |
+| `trackerDisableSeedbox` | boolean | Tracker 禁用 Seedbox |
+
+### `data.authorities` — 权限列表
+
+字符串数组，包含用户拥有的权限标识。已知值：
+- `USER` — 基础用户
+- `USER_TORRENT` — 种子相关权限
+- `USER_FUN_POST` — 趣味盒发帖
+- `USER_STORE` — 商店
+- `USER_INVITE_REG` — 邀请注册
+- `USER_OFFER_PUBLISH` — 候选发布
+- `USER_ACCOUNT_NEVER_DELETE_PACKED` — 账号永不删除（封存）
+
+> **安全提示**：`profile` 端点返回 `email`、`ip`、`releaseCode` 等敏感字段。在 Agent 上下文中使用时务必过滤，不要将敏感信息暴露给 LLM 或日志。
 
 ---
 
