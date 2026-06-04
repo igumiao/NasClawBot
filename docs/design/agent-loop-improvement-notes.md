@@ -155,7 +155,8 @@ open-loop actions.
 whether the frontend should render a confirmation affordance without reading
 checkpoint internals. `ToolObservation` stores gate markers (`gate_result`,
 `gate_reason`, `approval_id`) at the loop envelope level. The checkpoint keeps
-`metadata["pending_approvals"]` for durable recovery.
+`metadata["pending_approvals"]` for UI/lifecycle recovery and
+`metadata["paused_loop"]` for provider tool-call resume.
 
 At the NasClawBot layer, loop-level pending approvals are normalized into
 `app/agent/approvals.py` `ApprovalRecord` entries. Pending records include
@@ -166,14 +167,15 @@ record expired with `expired_at` instead of executing the tool. Expiration is
 not a user decision, so it does not set `decided_at`.
 
 NasClawBot now registers `qb_add_torrent` in `/chat/agent`, but it is
-confirm-gated. Approving a pending download is deterministic: the approve
-endpoint executes the saved `tool_name + arguments`, updates checkpoint
-metadata, and returns the receipt. On success, the runner asks the LLM for a
-no-tools final summary from safe approval/receipt fields; if summarization
-fails, it falls back to a deterministic receipt message. It does not resume the
-provider tool-call protocol with a new `tool` message.
+confirm-gated. On `ASK_USER`, the loop saves the assistant tool-call message and
+pauses before writing any provider `tool` result. Approving a pending download
+validates `paused_loop` against the `ApprovalRecord`, executes the saved
+`tool_name + arguments`, appends the real provider `tool` result with the
+original `tool_call_id`, and resumes the LLM with `tool_choice="none"`.
+Denying a pending download does not execute the tool; it resumes the provider
+protocol with a `USER_DENIED` tool error and a no-tools final LLM pass.
 
-Future work can upgrade this into a true pause/resume loop:
+The Phase 3 shape is:
 
 ```text
 pause at assistant tool_call
@@ -183,7 +185,11 @@ pause at assistant tool_call
   -> call LLM for final answer
 ```
 
-The current first version intentionally avoids that protocol complexity.
+The deterministic approval summary path remains as a compatibility fallback for
+legacy checkpoints that do not have `paused_loop`. Current limitations are
+intentional: a session rejects new user messages while an approval is pending,
+and the loop supports one pending approval at a time. Multiple simultaneous
+`ASK_USER` tool calls return a controlled approval conflict.
 
 ### Better Max-Steps Handling
 

@@ -61,3 +61,20 @@ class ToolCallingAgent(Agent):
         self.last_result = result
         self._session_metadata["total_steps"] = result.steps
         return result.final_answer
+
+    def resume_tool_call(
+        self,
+        paused_loop: dict[str, Any],
+        tool_response: Any,
+        session_name: Optional[str] = None,
+        **kwargs: Any,
+    ) -> str:
+        loop = ToolCallingLoop(
+            agent=self,
+            max_steps=self.max_steps,
+            session_name=session_name,
+        )
+        result = loop.resume(paused_loop, tool_response, **kwargs)
+        self.last_result = result
+        self._session_metadata["total_steps"] = result.steps
+        return result.final_answer

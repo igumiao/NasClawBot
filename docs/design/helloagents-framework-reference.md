@@ -280,20 +280,26 @@ tool call requested
 This belongs in the framework because many tools can need it, not just
 NasClawBot downloads.
 
-Current status: the pause half exists for `ASK_USER`. The loop returns
-`ToolCallingLoopResult.pending_approvals`, `ToolObservation` records gate
-markers, and NasClawBot persists pending approvals in checkpoint metadata.
-NasClawBot also has deterministic approve/deny endpoints for pending
-`qb_add_torrent` calls. Approve executes the saved tool arguments directly,
-saves the approval record, and may call the LLM for a no-tools final summary
-from safe receipt fields. It does not resume the provider tool-call protocol. A
-true framework-level pause/resume loop is still future work.
+Current status: the framework loop has an MVP pause/resume path for `ASK_USER`.
+The loop returns `ToolCallingLoopResult.pending_approvals`, stores
+`paused_loop` resume state, and records gate markers on `ToolObservation`.
+NasClawBot persists `metadata["pending_approvals"]` for UI/lifecycle recovery
+and `metadata["paused_loop"]` for provider protocol resume.
+
+For `qb_add_torrent`, approve validates the paused provider tool call against
+the application approval record, executes the saved tool arguments, appends the
+provider `tool` result with the original `tool_call_id`, and resumes the LLM
+with `tool_choice="none"`. Deny resumes with a `USER_DENIED` tool error without
+executing the tool. The deterministic approval summary path remains as a
+compatibility fallback for legacy checkpoints without `paused_loop`.
 
 Application-level approval records currently live in `app/agent/approvals.py`,
 not the HelloAgents framework. They add lifecycle fields such as `expires_at`,
 `expired_at`, `decision`, `result`, `error`, and enum-backed `risk` while
-keeping JSON checkpoint storage. This gives NasClawBot a safer deterministic
-approval lifecycle before the framework-level pause/resume design is finalized.
+keeping JSON checkpoint storage. Broader framework-level policy is still open:
+the current branch supports one pending approval at a time, rejects new user
+messages while approval is pending, and treats multiple simultaneous
+`ASK_USER` calls as a controlled conflict.
 
 ### 3. Durable Server Conversation Store
 
