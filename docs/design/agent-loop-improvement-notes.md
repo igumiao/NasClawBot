@@ -157,6 +157,14 @@ checkpoint internals. `ToolObservation` stores gate markers (`gate_result`,
 `gate_reason`, `approval_id`) at the loop envelope level. The checkpoint keeps
 `metadata["pending_approvals"]` for durable recovery.
 
+At the NasClawBot layer, loop-level pending approvals are normalized into
+`app/agent/approvals.py` `ApprovalRecord` entries. Pending records include
+`session_id`, `expires_at`, `risk`, `decision`, `result`, and `error`. Resolved
+records move to `metadata["approvals"]` with `approved`, `denied`, `failed`, or
+`expired` status. Expiration is lazy: approve checks `expires_at` and marks the
+record expired with `expired_at` instead of executing the tool. Expiration is
+not a user decision, so it does not set `decided_at`.
+
 NasClawBot now registers `qb_add_torrent` in `/chat/agent`, but it is
 confirm-gated. Approving a pending download is deterministic: the approve
 endpoint executes the saved `tool_name + arguments`, appends a normal assistant

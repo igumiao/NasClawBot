@@ -289,6 +289,12 @@ appends a normal assistant receipt message, and saves the checkpoint; it does
 not resume the provider tool-call protocol. A true framework-level
 pause/resume loop is still future work.
 
+Application-level approval records currently live in `app/agent/approvals.py`,
+not the HelloAgents framework. They add lifecycle fields such as `expires_at`,
+`expired_at`, `decision`, `result`, `error`, and enum-backed `risk` while
+keeping JSON checkpoint storage. This gives NasClawBot a safer deterministic
+approval lifecycle before the framework-level pause/resume design is finalized.
+
 ### 3. Durable Server Conversation Store
 
 The current `SessionStore` is useful for local/demo/development. For the

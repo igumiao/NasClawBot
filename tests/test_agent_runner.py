@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -233,6 +234,9 @@ def test_nasclaw_agent_runner_persists_pending_approvals(tmp_path, monkeypatch: 
 
     assert result.status == "awaiting_approval"
     assert result.pending_approvals[0]["tool_name"] == "mteam_search"
+    assert result.pending_approvals[0]["session_id"] == "session-approval"
+    assert result.pending_approvals[0]["expires_at"]
+    assert result.pending_approvals[0]["risk"]["level"] == "side_effect"
     assert result.tool_calls[0]["gate_result"] == "ask_user"
     checkpoint = store.load("session-approval")
     assert checkpoint is not None
@@ -270,6 +274,15 @@ def test_nasclaw_agent_runner_gates_download_tool_by_default(tmp_path, monkeypat
     assert result.status == "awaiting_approval"
     assert result.pending_approvals[0]["tool_name"] == "qb_add_torrent"
     assert result.pending_approvals[0]["arguments"] == {"torrent_id": "123", "qb_category": "movie"}
+    assert result.pending_approvals[0]["session_id"] == "session-download"
+    assert result.pending_approvals[0]["expires_at"]
+    assert result.pending_approvals[0]["decision"] is None
+    assert result.pending_approvals[0]["result"] is None
+    assert result.pending_approvals[0]["error"] is None
+    assert result.pending_approvals[0]["risk"] == {
+        "level": "side_effect",
+        "summary": "Submit torrent to qBittorrent in paused state",
+    }
     assert result.tool_calls[0]["gate_result"] == "ask_user"
     assert FakeQBAdapter.calls == []
 
@@ -324,6 +337,9 @@ def test_nasclaw_agent_runner_approve_executes_pending_download(tmp_path, monkey
     assert checkpoint is not None
     assert checkpoint.metadata["pending_approvals"] == []
     assert checkpoint.metadata["approvals"][0]["status"] == "approved"
+    assert checkpoint.metadata["approvals"][0]["decision"] == {"action": "approve"}
+    assert checkpoint.metadata["approvals"][0]["result"]["status"] == "success"
+    assert checkpoint.metadata["approvals"][0]["error"] is None
     assert checkpoint.history[-1]["role"] == "assistant"
     assert "下载请求已提交到 qBittorrent" in checkpoint.history[-1]["content"]
 
@@ -366,4 +382,55 @@ def test_nasclaw_agent_runner_deny_does_not_execute_pending_download(tmp_path, m
     assert checkpoint is not None
     assert checkpoint.metadata["pending_approvals"] == []
     assert checkpoint.metadata["approvals"][0]["status"] == "denied"
+    assert checkpoint.metadata["approvals"][0]["decision"] == {"action": "deny"}
     assert checkpoint.history[-1]["content"] == "已取消这次下载请求。"
+
+
+def test_nasclaw_agent_runner_rejects_expired_approval_without_executing_tool(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
+    FakeQBAdapter.calls = []
+    now = datetime.now()
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="session-expired",
+            created_at=now.isoformat(),
+            saved_at=now.isoformat(),
+            history=[],
+            metadata={
+                "last_status": "awaiting_approval",
+                "pending_approvals": [
+                    {
+                        "approval_id": "approval-expired",
+                        "tool_call_id": "call-download",
+                        "tool_name": "qb_add_torrent",
+                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                        "status": "pending",
+                        "created_at": (now - timedelta(hours=1)).isoformat(),
+                        "expires_at": (now - timedelta(minutes=1)).isoformat(),
+                    }
+                ],
+            },
+        )
+    )
+    runner = NasClawAgentRunner(
+        checkpoint_store=store,
+        mteam_adapter_factory=FakeMTeamAdapter,
+        qb_adapter_factory=FakeQBAdapter,
+    )
+
+    with pytest.raises(ValueError, match="expired"):
+        runner.approve("session-expired", "approval-expired")
+
+    assert FakeQBAdapter.calls == []
+    checkpoint = store.load("session-expired")
+    assert checkpoint is not None
+    assert checkpoint.metadata["pending_approvals"] == []
+    assert checkpoint.metadata["approvals"][0]["status"] == "expired"
+    assert checkpoint.metadata["approvals"][0]["decision"] is None
+    assert checkpoint.metadata["approvals"][0]["decided_at"] is None
+    assert checkpoint.metadata["approvals"][0]["expired_at"]
+    assert checkpoint.history[-1]["content"] == "这次下载确认已过期，请重新发起下载请求。"
