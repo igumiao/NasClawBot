@@ -54,6 +54,17 @@ class AgentSessionDetailResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentApprovalResponse(BaseModel):
+    """Result of a deterministic Agent approval decision."""
+
+    session_id: str
+    approval_id: str
+    status: str
+    message: str
+    receipt: dict[str, Any] | None = None
+    error: str | None = None
+
+
 class DownloadRequest(BaseModel):
     """Explicit user action to add a torrent to qBittorrent."""
 

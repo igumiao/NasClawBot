@@ -220,16 +220,20 @@ class ToolCallingLoop:
                     )
                 )
 
-                if pending_approvals:
-                    self.agent.add_message(Message(response.text, "assistant"))
-                    self._save_session_if_enabled()
-                    return ToolCallingLoopResult(
-                        final_answer=response.text,
-                        steps=step,
-                        tool_observations=tool_observations,
-                        status="awaiting_approval",
-                        pending_approvals=pending_approvals,
-                    )
+            if pending_approvals:
+                # Keep provider tool-call history valid: every tool_call in the
+                # assistant message above must receive a tool message before the
+                # loop pauses for external approval.
+                approval_message = self._pending_approval_message(pending_approvals)
+                self.agent.add_message(Message(approval_message, "assistant"))
+                self._save_session_if_enabled()
+                return ToolCallingLoopResult(
+                    final_answer=approval_message,
+                    steps=step,
+                    tool_observations=tool_observations,
+                    status="awaiting_approval",
+                    pending_approvals=pending_approvals,
+                )
 
         final_answer = self._finalize_after_max_steps(
             messages=messages,
@@ -378,6 +382,12 @@ class ToolCallingLoop:
             "reason": reason,
             "created_at": datetime.now().isoformat(),
         }
+
+    @staticmethod
+    def _pending_approval_message(pending_approvals: List[Dict[str, Any]]) -> str:
+        if len(pending_approvals) == 1:
+            return f"工具调用需要用户确认后才能执行: {pending_approvals[0].get('tool_name', '')}"
+        return f"有 {len(pending_approvals)} 个工具调用需要用户确认后才能执行。"
 
     def _build_observation_text(
         self,

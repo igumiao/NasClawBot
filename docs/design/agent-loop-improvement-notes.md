@@ -157,9 +157,23 @@ checkpoint internals. `ToolObservation` stores gate markers (`gate_result`,
 `gate_reason`, `approval_id`) at the loop envelope level. The checkpoint keeps
 `metadata["pending_approvals"]` for durable recovery.
 
-The first implementation does not register `qb_add_torrent` in `/chat/agent`.
-Approval resume endpoints are still future work; `/download` remains the
-explicit side-effect boundary.
+NasClawBot now registers `qb_add_torrent` in `/chat/agent`, but it is
+confirm-gated. Approving a pending download is deterministic: the approve
+endpoint executes the saved `tool_name + arguments`, appends a normal assistant
+receipt message, updates checkpoint metadata, and returns the receipt. It does
+not resume the provider tool-call protocol with a new `tool` message.
+
+Future work can upgrade this into a true pause/resume loop:
+
+```text
+pause at assistant tool_call
+  -> external approval
+  -> execute tool
+  -> append provider tool result
+  -> call LLM for final answer
+```
+
+The current first version intentionally avoids that protocol complexity.
 
 ### Better Max-Steps Handling
 

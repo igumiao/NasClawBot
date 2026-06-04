@@ -75,6 +75,7 @@ def _patch_chat_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(chat_routes, "QBittorrentAdapter", FakeQBAdapter)
     monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
     monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
+    monkeypatch.setattr(agent_runner, "QBittorrentAdapter", FakeQBAdapter)
 
 
 def test_health_endpoint_returns_ok():
@@ -159,6 +160,49 @@ def test_chat_agent_endpoint_uses_readonly_agent_and_persists_session(tmp_path, 
     assert second.message == "上一轮结果包括 Dune 2160p 和 Dune 1080p。"
     assert len(FakeLLM.calls) == 3
     assert any(message["role"] == "tool" for message in FakeLLM.calls[-1])
+
+
+def test_chat_agent_endpoint_returns_download_pending_approval(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
+
+    class FakeLLM:
+        model = "fake-model"
+        tools_seen: list[list[str]] = []
+        responses = [
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-download",
+                        name="qb_add_torrent",
+                        arguments='{"torrent_id":"123","qb_category":"movie"}',
+                    )
+                ],
+                model="fake-model",
+            ),
+        ]
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def invoke_with_tools(self, messages, tools, tool_choice="auto", **kwargs):
+            FakeLLM.tools_seen.append([tool["function"]["name"] for tool in tools])
+            return FakeLLM.responses.pop(0)
+
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
+    endpoint = _route_for(create_app(), "/chat/agent", "POST").endpoint
+
+    body = endpoint(ChatRequest(session_id="agent-download", message="下载 123"))
+
+    assert body.status == "awaiting_approval"
+    assert body.pending_approvals[0]["tool_name"] == "qb_add_torrent"
+    assert body.pending_approvals[0]["arguments"] == {"torrent_id": "123", "qb_category": "movie"}
+    assert body.tool_calls[0]["gate_result"] == "ask_user"
+    assert "qb_add_torrent" in FakeLLM.tools_seen[0]
+    checkpoint = JSONConversationCheckpointStore(tmp_path).load("agent-download")
+    assert checkpoint is not None
+    assert checkpoint.metadata["pending_approvals"] == body.pending_approvals
 
 
 def test_list_agent_sessions_returns_checkpoint_summaries(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -254,6 +298,123 @@ def test_get_agent_session_returns_404_when_missing(tmp_path, monkeypatch: pytes
         endpoint("missing")
 
     assert excinfo.value.status_code == 404
+
+
+def test_approve_agent_approval_executes_download_and_updates_checkpoint(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="agent-approve",
+            created_at="2026-06-04T10:00:00",
+            saved_at="2026-06-04T10:01:00",
+            history=[],
+            metadata={
+                "last_status": "awaiting_approval",
+                "pending_approvals": [
+                    {
+                        "approval_id": "approval-1",
+                        "tool_call_id": "call-download",
+                        "tool_name": "qb_add_torrent",
+                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                        "status": "pending",
+                    }
+                ],
+            },
+        )
+    )
+
+    endpoint = _route_for(
+        create_app(),
+        "/chat/agent/sessions/{session_id}/approvals/{approval_id}/approve",
+        "POST",
+    ).endpoint
+    body = endpoint("agent-approve", "approval-1")
+
+    assert body.status == "approved"
+    assert body.receipt is not None
+    assert body.receipt["external_id"] == "123"
+    checkpoint = store.load("agent-approve")
+    assert checkpoint is not None
+    assert checkpoint.metadata["pending_approvals"] == []
+    assert checkpoint.metadata["approvals"][0]["status"] == "approved"
+    assert "下载请求已提交到 qBittorrent" in checkpoint.history[-1]["content"]
+
+
+def test_deny_agent_approval_does_not_execute_download(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="agent-deny",
+            created_at="2026-06-04T10:00:00",
+            saved_at="2026-06-04T10:01:00",
+            history=[],
+            metadata={
+                "last_status": "awaiting_approval",
+                "pending_approvals": [
+                    {
+                        "approval_id": "approval-1",
+                        "tool_call_id": "call-download",
+                        "tool_name": "qb_add_torrent",
+                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                        "status": "pending",
+                    }
+                ],
+            },
+        )
+    )
+
+    endpoint = _route_for(
+        create_app(),
+        "/chat/agent/sessions/{session_id}/approvals/{approval_id}/deny",
+        "POST",
+    ).endpoint
+    body = endpoint("agent-deny", "approval-1")
+
+    assert body.status == "denied"
+    assert body.receipt is None
+    checkpoint = store.load("agent-deny")
+    assert checkpoint is not None
+    assert checkpoint.metadata["pending_approvals"] == []
+    assert checkpoint.metadata["approvals"][0]["status"] == "denied"
+    assert checkpoint.history[-1]["content"] == "已取消这次下载请求。"
+
+
+def test_approve_agent_approval_rejects_repeated_decision(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
+    JSONConversationCheckpointStore(tmp_path).save(
+        ConversationCheckpoint(
+            session_id="agent-repeat",
+            created_at="2026-06-04T10:00:00",
+            saved_at="2026-06-04T10:01:00",
+            history=[],
+            metadata={
+                "pending_approvals": [],
+                "approvals": [
+                    {
+                        "approval_id": "approval-1",
+                        "tool_name": "qb_add_torrent",
+                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                        "status": "approved",
+                    }
+                ],
+            },
+        )
+    )
+
+    endpoint = _route_for(
+        create_app(),
+        "/chat/agent/sessions/{session_id}/approvals/{approval_id}/approve",
+        "POST",
+    ).endpoint
+    with pytest.raises(HTTPException) as excinfo:
+        endpoint("agent-repeat", "approval-1")
+
+    assert excinfo.value.status_code == 409
 
 
 def test_download_endpoint_adds_paused_qb_task(monkeypatch: pytest.MonkeyPatch):

@@ -8,7 +8,7 @@ NasClawBot is a single-user NAS/PT media assistant. The active implementation is
 
 ```text
 /chat     -> readonly M-Team search -> search results
-/chat/agent -> experimental NasClawAgentRunner + ToolCallingAgent + JSON checkpoints
+/chat/agent -> experimental NasClawAgentRunner + ToolCallingAgent + gated download approvals + JSON checkpoints
 /download -> explicit user action -> qB add paused
 /qb/*     -> qB task management
 ```
@@ -23,9 +23,11 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - There is no `SequentialWorkflow`.
 - There is no active workflow runtime.
 - `/chat` still calls `MTeamSearchTool` directly and does not use LLM/session history.
-- `/chat/agent` is the experimental Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with only `mteam_search`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
+- `/chat/agent` is the experimental Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with `mteam_search` and confirm-gated `qb_add_torrent`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
 - `GET /chat/agent/sessions` lists persisted Agent checkpoint summaries without calling an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}` returns one persisted Agent checkpoint with renderable message history, also without calling an LLM or tools.
+- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` deterministically executes approved pending `qb_add_torrent` calls and appends a normal assistant message; it does not resume the provider tool-call loop.
+- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny` resolves a pending approval without executing the tool.
 - `hello_agents/checkpoints/` defines the thin `ConversationCheckpointStore` boundary and the current JSON implementation.
 - Tool wrappers live in `app/tools.py`.
 - M-Team and qB integration lives behind adapters in `app/adapters/`.
@@ -64,11 +66,13 @@ There is no formal Python formatter configured yet.
 - `GET /chat/agent/sessions`: lists persisted Agent conversation summaries.
 - `GET /chat/agent/sessions/{session_id}`: loads one persisted Agent conversation checkpoint.
 - `POST /download`: accepts a torrent id, calls `QBAddTorrentTool`, submits to qB paused, and returns a receipt.
+- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve`: approves and executes a pending Agent download request without another LLM call.
+- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny`: cancels a pending Agent download request.
 - qB management routes are included from `app/api/qb_routes.py`.
 
 `app/agent/runner.py` owns the experimental Agent conversation lifecycle: load checkpoint, build the current tool-calling agent, restore history, run one turn, save checkpoint, and extract route-facing search results/tool calls.
 
-`ToolCallingLoop` applies `Filter` before sending tool schemas to the LLM and applies `Gate` before `tool.run()`. `DENY` produces a permission-denied observation without executing the tool. `ASK_USER` pauses the loop with `status="awaiting_approval"` and route-facing `pending_approvals`, which NasClawBot persists in checkpoint metadata. Approval resume/reject endpoints are not implemented yet.
+`ToolCallingLoop` applies `Filter` before sending tool schemas to the LLM and applies `Gate` before `tool.run()`. `DENY` produces a permission-denied observation without executing the tool. `ASK_USER` pauses the loop with `status="awaiting_approval"` and route-facing `pending_approvals`, which NasClawBot persists in checkpoint metadata. Current approve/deny endpoints resolve approvals deterministically; provider tool-call pause/resume is not implemented.
 
 `ToolCallingLoop` performs one forced final LLM pass with `tool_choice="none"` when `max_steps` is reached. That pass summarizes current observations without executing more tools; if it fails or returns tool calls, the loop falls back to the controlled max-steps message.
 
@@ -98,7 +102,7 @@ POST /chat/agent
   -> NasClawAgentRunner
   -> load JSON checkpoint
   -> ToolCallingAgent
-  -> mteam_search only
+  -> mteam_search and confirm-gated qb_add_torrent
   -> tool result back to LLM
   -> save JSON checkpoint
 ```
@@ -116,8 +120,8 @@ POST /chat/agent
 
 ## Next Direction
 
-Continue evolving the readonly Agent loop while keeping `/chat` stable.
+Continue evolving the gated Agent loop while keeping `/chat` stable.
 
-- Start with `mteam_search` as the only Agent-callable tool.
-- Keep `/download` as an explicit user action until approval/gating for side-effect tools is designed and tested.
+- Keep `qb_add_torrent` behind approval gating.
+- Keep `/download` as the stable explicit user action.
 - Keep future loop ideas in `docs/design/agent-loop-improvement-notes.md`; do not prematurely hard-code them into the framework.

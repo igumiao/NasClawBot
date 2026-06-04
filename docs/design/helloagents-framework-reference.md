@@ -283,7 +283,11 @@ NasClawBot downloads.
 Current status: the pause half exists for `ASK_USER`. The loop returns
 `ToolCallingLoopResult.pending_approvals`, `ToolObservation` records gate
 markers, and NasClawBot persists pending approvals in checkpoint metadata.
-Approval resume/reject endpoints are not implemented yet.
+NasClawBot also has deterministic approve/deny endpoints for pending
+`qb_add_torrent` calls. Approve executes the saved tool arguments directly,
+appends a normal assistant receipt message, and saves the checkpoint; it does
+not resume the provider tool-call protocol. A true framework-level
+pause/resume loop is still future work.
 
 ### 3. Durable Server Conversation Store
 
