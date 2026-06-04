@@ -29,8 +29,8 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `GET /chat/agent/sessions`: lists persisted Agent conversation checkpoint summaries. It does not call an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}`: returns one persisted Agent conversation checkpoint with renderable message history. It does not call an LLM or tools.
 - `app/agent/runner.py`: application-level Agent runner that loads/saves conversation checkpoints, builds the current `ToolCallingAgent`, restores history, and extracts route-facing search results/tool calls.
-- `ToolCallingLoop`: when `max_steps` is reached, performs one forced final LLM pass with `tool_choice="none"` to summarize current observations; falls back to the controlled max-steps message if that pass fails or returns tool calls.
-- `ToolObservation`: loop-level envelope for one tool call. It stores `tool_name`, `tool_call_id`, arguments, full structured `ToolResponse`, and separate LLM-facing `observation_text`.
+- `ToolCallingLoop`: applies `Filter` before sending tool schemas to the LLM, applies `Gate` before `tool.run()`, returns `awaiting_approval` with `pending_approvals` for confirm-gated calls, and performs one forced final LLM pass with `tool_choice="none"` when `max_steps` is reached.
+- `ToolObservation`: loop-level envelope for one tool call. It stores `tool_name`, `tool_call_id`, arguments, full structured `ToolResponse`, separate LLM-facing `observation_text`, and gate markers (`gate_result`, `gate_reason`, `approval_id`).
 - `ContextWindowManager`: runs preflight context checks before LLM calls. NasClawBot currently uses a conservative 64K configured context window, enables smart compression at 70% context pressure, keeps the latest 4 rounds active, stores a `summary` message for the model, and preserves compressed-away originals in checkpoint `archives`.
 - `hello_agents/checkpoints/`: framework-level `ConversationCheckpointStore` protocol plus the current JSON implementation.
 - `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused.
@@ -45,6 +45,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 
 - **Filter** (`hello_agents/tools/filter.py`): narrows tool list before sending to LLM. Controls context window and sub-agent capability scope.
 - **Gate** (`hello_agents/tools/gate.py`): three-gate check (deny → confirm → allow) on each `ToolCall` before `tool.run()`. Parameter-aware — `bash("ls")` and `bash("sudo rm -rf /")` can have different outcomes.
+- `ASK_USER` gate results pause the loop with `ToolCallingLoopResult.status == "awaiting_approval"` and route-facing `pending_approvals`. Pending approvals are persisted in checkpoint metadata; approval resume/reject endpoints are not implemented yet.
 - Factory functions: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
 - `ToolPermission` and `ToolFilter` have been removed.
 

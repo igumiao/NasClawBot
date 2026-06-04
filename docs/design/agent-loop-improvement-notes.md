@@ -137,21 +137,29 @@ observation envelope without adding provider-specific fields such as
 Readonly tools can execute automatically. Side-effecting and destructive tools
 need policy before execution.
 
-Future loop shape:
+Current loop shape:
 
 ```text
 model asks for tool
-  -> permission policy checks tool risk
-  -> READONLY executes
-  -> SIDE_EFFECT creates approval request and pauses
-  -> DESTRUCTIVE is blocked or requires stricter confirmation
+  -> Filter decides which tool schemas are visible before the model call
+  -> Gate checks the concrete tool call before tool.run()
+  -> ALLOW executes
+  -> DENY records a ToolObservation with PERMISSION_DENIED and continues
+  -> ASK_USER records a pending approval and pauses with awaiting_approval
 ```
 
 This is central for NasClawBot because download and file operations must not be
 open-loop actions.
 
-Open point: permission metadata probably belongs to HelloAgents tool framework,
-while concrete download/file policies belong to NasClawBot.
+`ToolCallingLoopResult.pending_approvals` is route-facing so the API can decide
+whether the frontend should render a confirmation affordance without reading
+checkpoint internals. `ToolObservation` stores gate markers (`gate_result`,
+`gate_reason`, `approval_id`) at the loop envelope level. The checkpoint keeps
+`metadata["pending_approvals"]` for durable recovery.
+
+The first implementation does not register `qb_add_torrent` in `/chat/agent`.
+Approval resume endpoints are still future work; `/download` remains the
+explicit side-effect boundary.
 
 ### Better Max-Steps Handling
 

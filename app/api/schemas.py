@@ -22,6 +22,7 @@ class ChatResponse(BaseModel):
     message: str = ""
     results: list[ResourceCandidate] = Field(default_factory=list)
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    pending_approvals: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
 
 

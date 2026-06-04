@@ -230,8 +230,22 @@ should go through explicit approval.
 
 ### 1. Permission Policy
 
-Current tool filtering is too binary. HelloAgents should gain framework-level
-permission metadata:
+`ToolCallingLoop` now supports two policy layers:
+
+```text
+Filter -> before model call, controls visible tool schemas
+Gate   -> after model tool_call, before tool.run()
+```
+
+The current Gate result handling is deliberately thin:
+
+```text
+ALLOW    execute tool
+DENY     do not execute; return PERMISSION_DENIED observation
+ASK_USER do not execute; return awaiting_approval and pending approval data
+```
+
+Future framework-level permission metadata can sit on top of this:
 
 ```text
 READONLY      auto executable
@@ -265,6 +279,11 @@ tool call requested
 
 This belongs in the framework because many tools can need it, not just
 NasClawBot downloads.
+
+Current status: the pause half exists for `ASK_USER`. The loop returns
+`ToolCallingLoopResult.pending_approvals`, `ToolObservation` records gate
+markers, and NasClawBot persists pending approvals in checkpoint metadata.
+Approval resume/reject endpoints are not implemented yet.
 
 ### 3. Durable Server Conversation Store
 

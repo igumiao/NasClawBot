@@ -139,6 +139,7 @@ def build_router() -> APIRouter:
             message=result.answer,
             results=result.results,
             tool_calls=result.tool_calls,
+            pending_approvals=result.pending_approvals,
         )
 
     @router.get("/chat/agent/sessions", response_model=AgentSessionListResponse)

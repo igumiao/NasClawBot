@@ -4,7 +4,7 @@ from hello_agents.agents import ToolCallingAgent, create_agent
 from hello_agents.core.config import Config
 from hello_agents.core.message import Message
 from hello_agents.core.llm_response import LLMResponse, LLMToolResponse, ToolCall
-from hello_agents.tools import Tool, ToolParameter, ToolRegistry, ToolResponse
+from hello_agents.tools import Filter, Gate, Tool, ToolParameter, ToolRegistry, ToolResponse
 
 
 class FakeLLM:
@@ -55,6 +55,19 @@ class EchoTool(Tool):
                 description="Text to echo",
             )
         ]
+
+
+class OtherTool(Tool):
+    def __init__(self):
+        super().__init__(name="other", description="Other tool")
+        self.calls = []
+
+    def run(self, parameters):
+        self.calls.append(parameters)
+        return ToolResponse.success(text="other", data={"other": True})
+
+    def get_parameters(self):
+        return []
 
 
 def _config() -> Config:
@@ -145,6 +158,170 @@ def test_tool_calling_agent_executes_tool_and_continues_to_final_answer():
     assert observation.observation_text == second_messages[-1]["content"]
     assert observation.truncated is False
     assert "time_ms" in observation.stats
+
+
+def test_tool_filter_limits_tool_schemas_visible_to_model():
+    registry = ToolRegistry()
+    registry.register_tool(EchoTool())
+    registry.register_tool(OtherTool())
+    llm = FakeLLM(
+        tool_responses=[
+            LLMToolResponse(
+                content="filtered",
+                tool_calls=[],
+                model="fake-model",
+            )
+        ]
+    )
+    agent = ToolCallingAgent(
+        name="assistant",
+        llm=llm,
+        tool_registry=registry,
+        config=_config(),
+        tool_filter=Filter(allow=["echo"]),
+    )
+
+    answer = agent.run("hello")
+
+    assert answer == "filtered"
+    visible_names = {
+        schema["function"]["name"]
+        for schema in llm.invoke_with_tools_calls[0]["tools"]
+    }
+    assert visible_names == {"echo"}
+
+
+def test_tool_filter_blocks_hidden_tool_call_even_if_model_returns_it():
+    hidden_tool = OtherTool()
+    registry = ToolRegistry()
+    registry.register_tool(EchoTool())
+    registry.register_tool(hidden_tool)
+    llm = FakeLLM(
+        tool_responses=[
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-hidden",
+                        name="other",
+                        arguments="{}",
+                    )
+                ],
+                model="fake-model",
+            ),
+            LLMToolResponse(
+                content="The tool is unavailable.",
+                tool_calls=[],
+                model="fake-model",
+            ),
+        ]
+    )
+    agent = ToolCallingAgent(
+        name="assistant",
+        llm=llm,
+        tool_registry=registry,
+        config=_config(),
+        tool_filter=Filter(allow=["echo"]),
+    )
+
+    answer = agent.run("use other")
+
+    assert answer == "The tool is unavailable."
+    assert hidden_tool.calls == []
+    observation = agent.last_result.tool_observations[0]
+    assert observation.gate_result == "deny"
+    assert observation.gate_reason == "Tool is not visible in this agent turn."
+    assert observation.response.error_info["code"] == "TOOL_NOT_VISIBLE"
+
+
+def test_gate_deny_records_observation_without_executing_tool():
+    echo_tool = EchoTool()
+    registry = ToolRegistry()
+    registry.register_tool(echo_tool)
+    llm = FakeLLM(
+        tool_responses=[
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-denied",
+                        name="echo",
+                        arguments=json.dumps({"text": "blocked"}),
+                    )
+                ],
+                model="fake-model",
+            ),
+            LLMToolResponse(
+                content="I cannot run that tool.",
+                tool_calls=[],
+                model="fake-model",
+            ),
+        ]
+    )
+    agent = ToolCallingAgent(
+        name="assistant",
+        llm=llm,
+        tool_registry=registry,
+        config=_config(),
+        tool_gate=Gate(deny=[lambda call: call.tool_name == "echo"]),
+    )
+
+    answer = agent.run("use echo")
+
+    assert answer == "I cannot run that tool."
+    assert echo_tool.calls == []
+    observation = agent.last_result.tool_observations[0]
+    assert observation.gate_result == "deny"
+    assert observation.gate_reason == "Tool call was denied by the permission gate."
+    assert observation.response.status.value == "error"
+    assert observation.response.error_info["code"] == "PERMISSION_DENIED"
+    assert agent.last_result.pending_approvals == []
+
+
+def test_gate_ask_user_returns_pending_approval_without_executing_tool():
+    echo_tool = EchoTool()
+    registry = ToolRegistry()
+    registry.register_tool(echo_tool)
+    llm = FakeLLM(
+        tool_responses=[
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-approval",
+                        name="echo",
+                        arguments=json.dumps({"text": "needs approval"}),
+                    )
+                ],
+                model="fake-model",
+            )
+        ]
+    )
+    agent = ToolCallingAgent(
+        name="assistant",
+        llm=llm,
+        tool_registry=registry,
+        config=_config(),
+        tool_gate=Gate(confirm=[lambda call: call.tool_name == "echo"]),
+    )
+
+    answer = agent.run("use echo")
+
+    assert answer == "工具调用需要用户确认后才能执行: echo"
+    assert echo_tool.calls == []
+    assert len(llm.invoke_with_tools_calls) == 1
+    assert agent.last_result.status == "awaiting_approval"
+    pending = agent.last_result.pending_approvals[0]
+    assert pending["approval_id"].startswith("approval_")
+    assert pending["tool_call_id"] == "call-approval"
+    assert pending["tool_name"] == "echo"
+    assert pending["arguments"] == {"text": "needs approval"}
+    assert pending["status"] == "pending"
+    observation = agent.last_result.tool_observations[0]
+    assert observation.gate_result == "ask_user"
+    assert observation.approval_id == pending["approval_id"]
+    assert observation.response.status.value == "pending_approval"
+    assert [message.role for message in agent.get_history()] == ["user", "assistant", "tool", "assistant"]
 
 
 def test_tool_calling_agent_feeds_missing_tool_error_back_to_model():

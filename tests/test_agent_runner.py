@@ -6,6 +6,7 @@ from app.agent import runner as agent_runner
 from app.agent.runner import NasClawAgentRunner
 from hello_agents.checkpoints import ConversationCheckpoint, JSONConversationCheckpointStore
 from hello_agents.core.llm_response import LLMResponse, LLMToolResponse, ToolCall
+from hello_agents.tools import Gate
 
 
 class FakeSettings:
@@ -161,3 +162,39 @@ def test_nasclaw_agent_runner_persists_preflight_compression_archives(tmp_path, 
     assert len(checkpoint.archives) == 1
     assert checkpoint.archives[0]["source_message_count"] == 6
     assert checkpoint.metadata["archive_count"] == 1
+
+
+def test_nasclaw_agent_runner_persists_pending_approvals(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
+    monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
+    FakeLLM.calls = []
+    FakeLLM.invoke_calls = []
+    FakeLLM.responses = [
+        LLMToolResponse(
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="call-search-approval",
+                    name="mteam_search",
+                    arguments='{"keyword":"Dune"}',
+                )
+            ],
+            model="fake-model",
+        ),
+    ]
+    store = JSONConversationCheckpointStore(tmp_path)
+    runner = NasClawAgentRunner(
+        checkpoint_store=store,
+        tool_gate=Gate(confirm=[lambda call: call.tool_name == "mteam_search"]),
+    )
+
+    result = runner.run("session-approval", "Dune")
+
+    assert result.status == "awaiting_approval"
+    assert result.pending_approvals[0]["tool_name"] == "mteam_search"
+    assert result.tool_calls[0]["gate_result"] == "ask_user"
+    checkpoint = store.load("session-approval")
+    assert checkpoint is not None
+    assert checkpoint.metadata["last_status"] == "awaiting_approval"
+    assert checkpoint.metadata["pending_approvals"] == result.pending_approvals
