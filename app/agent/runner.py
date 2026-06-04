@@ -71,9 +71,8 @@ class NasClawAgentRunner:
     """Run a NasClawBot Agent turn with durable conversation checkpoints.
 
     The current Agent tool set includes readonly `mteam_search` and
-    confirm-gated `qb_add_torrent`. Approval decisions are resolved
-    deterministically by the runner instead of resuming the provider
-    tool-call protocol.
+    confirm-gated `qb_add_torrent`. Approval decisions execute business
+    effects in the runner, then resume the paused provider tool-call protocol.
     """
 
     def __init__(
@@ -100,6 +99,17 @@ class NasClawAgentRunner:
 
     def run(self, session_id: str, message: str) -> AgentRunResult:
         checkpoint = self.checkpoint_store.load(session_id)
+        if checkpoint and self._pending_approval_dicts(checkpoint):
+            return AgentRunResult(
+                session_id=session_id,
+                status="awaiting_approval",
+                answer="当前会话有待确认的工具调用，请先批准或拒绝后再继续。",
+                results=[],
+                tool_calls=[],
+                pending_approvals=self._pending_approval_dicts(checkpoint),
+                checkpoint=checkpoint,
+            )
+
         agent = self._build_agent()
         if checkpoint:
             self._restore_history(agent, checkpoint)
@@ -203,6 +213,90 @@ class NasClawAgentRunner:
         if approval.tool_name != "qb_add_torrent":
             raise ValueError("Only qb_add_torrent approvals can be executed")
 
+        paused_loop = self._find_paused_loop(checkpoint, approval_id)
+        if not paused_loop:
+            return self._approve_deterministically(session_id, checkpoint, approval)
+        self._validate_paused_loop_matches_approval(paused_loop, approval)
+
+        response = self._execute_approved_tool(approval)
+
+        if response.status.value == "error":
+            mark_failed(approval, response)
+            status = ApprovalStatus.FAILED.value
+            error = response.text
+            receipt = None
+        else:
+            receipt = response.data.get("receipt")
+            mark_approved(approval, response)
+            status = ApprovalStatus.APPROVED.value
+            error = None
+
+        agent = self._build_agent()
+        self._restore_history(agent, checkpoint)
+        message = agent.resume_tool_call(paused_loop, response)
+        saved_checkpoint = self._checkpoint_from_resumed_agent(
+            checkpoint=checkpoint,
+            agent=agent,
+            approval=approval,
+            last_status="success" if status == ApprovalStatus.APPROVED.value else "tool_error",
+        )
+        self.checkpoint_store.save(saved_checkpoint)
+        return AgentApprovalResult(
+            session_id=session_id,
+            approval_id=approval_id,
+            status=status,
+            message=message,
+            receipt=receipt,
+            error=error,
+            checkpoint=saved_checkpoint,
+        )
+
+    def deny(self, session_id: str, approval_id: str) -> AgentApprovalResult:
+        checkpoint = self.checkpoint_store.load(session_id)
+        if checkpoint is None:
+            raise KeyError("Agent session not found")
+
+        approval = self._find_approval(checkpoint, approval_id)
+        if approval is None:
+            raise KeyError("Approval not found")
+        if approval.status != ApprovalStatus.PENDING:
+            raise ValueError("Approval has already been resolved")
+
+        paused_loop = self._find_paused_loop(checkpoint, approval_id)
+        if not paused_loop:
+            return self._deny_deterministically(session_id, checkpoint, approval)
+        self._validate_paused_loop_matches_approval(paused_loop, approval)
+
+        mark_denied(approval)
+        denial_response = ToolResponse.error(
+            code="USER_DENIED",
+            message="用户拒绝了这次工具调用。",
+            context={"tool_name": approval.tool_name},
+        )
+        agent = self._build_agent()
+        self._restore_history(agent, checkpoint)
+        message = agent.resume_tool_call(paused_loop, denial_response)
+        saved_checkpoint = self._checkpoint_from_resumed_agent(
+            checkpoint=checkpoint,
+            agent=agent,
+            approval=approval,
+            last_status="approval_denied",
+        )
+        self.checkpoint_store.save(saved_checkpoint)
+        return AgentApprovalResult(
+            session_id=session_id,
+            approval_id=approval_id,
+            status="denied",
+            message=message,
+            checkpoint=saved_checkpoint,
+        )
+
+    def _approve_deterministically(
+        self,
+        session_id: str,
+        checkpoint: ConversationCheckpoint,
+        approval: ApprovalRecord,
+    ) -> AgentApprovalResult:
         response = self._execute_approved_tool(approval)
 
         if response.status.value == "error":
@@ -232,7 +326,7 @@ class NasClawAgentRunner:
         self.checkpoint_store.save(saved_checkpoint)
         return AgentApprovalResult(
             session_id=session_id,
-            approval_id=approval_id,
+            approval_id=approval.approval_id,
             status=status,
             message=message,
             receipt=receipt,
@@ -240,17 +334,12 @@ class NasClawAgentRunner:
             checkpoint=saved_checkpoint,
         )
 
-    def deny(self, session_id: str, approval_id: str) -> AgentApprovalResult:
-        checkpoint = self.checkpoint_store.load(session_id)
-        if checkpoint is None:
-            raise KeyError("Agent session not found")
-
-        approval = self._find_approval(checkpoint, approval_id)
-        if approval is None:
-            raise KeyError("Approval not found")
-        if approval.status != ApprovalStatus.PENDING:
-            raise ValueError("Approval has already been resolved")
-
+    def _deny_deterministically(
+        self,
+        session_id: str,
+        checkpoint: ConversationCheckpoint,
+        approval: ApprovalRecord,
+    ) -> AgentApprovalResult:
         mark_denied(approval)
         message = "已取消这次下载请求。"
         saved_checkpoint = self._save_approval_decision(
@@ -262,7 +351,7 @@ class NasClawAgentRunner:
         self.checkpoint_store.save(saved_checkpoint)
         return AgentApprovalResult(
             session_id=session_id,
-            approval_id=approval_id,
+            approval_id=approval.approval_id,
             status="denied",
             message=message,
             checkpoint=saved_checkpoint,
@@ -324,11 +413,78 @@ class NasClawAgentRunner:
             for item in checkpoint.metadata.get("pending_approvals", [])
             if item.get("approval_id") != approval.approval_id
         ]
+        paused_loop = checkpoint.metadata.get("paused_loop")
+        if isinstance(paused_loop, dict) and paused_loop.get("approval_id") == approval.approval_id:
+            checkpoint.metadata.pop("paused_loop", None)
         approvals = list(checkpoint.metadata.get("approvals", []))
         approvals.append(approval.to_dict())
         checkpoint.metadata["approvals"] = approvals
         checkpoint.metadata["turn_count"] = sum(1 for message in checkpoint.history if message.get("role") == "user")
         return checkpoint
+
+    @staticmethod
+    def _checkpoint_from_resumed_agent(
+        checkpoint: ConversationCheckpoint,
+        agent: ToolCallingAgent,
+        approval: ApprovalRecord,
+        last_status: str,
+    ) -> ConversationCheckpoint:
+        now = datetime.now().isoformat()
+        checkpoint.history = [message.to_dict() for message in agent.get_history()]
+        checkpoint.saved_at = now
+        checkpoint.archives = list(getattr(agent, "_conversation_archives", checkpoint.archives))
+        checkpoint.metadata["last_status"] = last_status
+        checkpoint.metadata["pending_approvals"] = [
+            item
+            for item in checkpoint.metadata.get("pending_approvals", [])
+            if item.get("approval_id") != approval.approval_id
+        ]
+        checkpoint.metadata.pop("paused_loop", None)
+        approvals = list(checkpoint.metadata.get("approvals", []))
+        approvals.append(approval.to_dict())
+        checkpoint.metadata["approvals"] = approvals
+        checkpoint.metadata["turn_count"] = sum(1 for message in checkpoint.history if message.get("role") == "user")
+        checkpoint.metadata["archive_count"] = len(checkpoint.archives)
+        return checkpoint
+
+    @staticmethod
+    def _pending_approval_dicts(checkpoint: ConversationCheckpoint) -> list[dict[str, Any]]:
+        return [
+            approval
+            for approval in checkpoint.metadata.get("pending_approvals", [])
+            if approval.get("status") == ApprovalStatus.PENDING.value
+        ]
+
+    @staticmethod
+    def _find_paused_loop(
+        checkpoint: ConversationCheckpoint,
+        approval_id: str,
+    ) -> dict[str, Any] | None:
+        paused_loop = checkpoint.metadata.get("paused_loop")
+        if isinstance(paused_loop, dict) and paused_loop.get("approval_id") == approval_id:
+            return deepcopy(paused_loop)
+        return None
+
+    @staticmethod
+    def _validate_paused_loop_matches_approval(
+        paused_loop: dict[str, Any],
+        approval: ApprovalRecord,
+    ) -> None:
+        pending_tool_call = dict(paused_loop.get("pending_tool_call") or {})
+        if pending_tool_call.get("id") != approval.tool_call_id:
+            raise ValueError("Paused loop pending tool_call_id does not match approval")
+        if pending_tool_call.get("name") != approval.tool_name:
+            raise ValueError("Paused loop pending tool name does not match approval")
+        if dict(pending_tool_call.get("arguments") or {}) != dict(approval.arguments):
+            raise ValueError("Paused loop pending tool arguments do not match approval")
+
+        assistant_message = dict(paused_loop.get("assistant_message") or {})
+        tool_calls = assistant_message.get("tool_calls") or []
+        for tool_call in tool_calls:
+            function = dict(tool_call.get("function") or {})
+            if tool_call.get("id") == approval.tool_call_id and function.get("name") == approval.tool_name:
+                return
+        raise ValueError("Paused loop assistant message does not contain matching tool call")
 
     @staticmethod
     def _approval_success_message(
@@ -414,6 +570,10 @@ class NasClawAgentRunner:
                 "archive_count": len(archives),
             }
         )
+        if agent.last_result and agent.last_result.paused_loop:
+            metadata["paused_loop"] = deepcopy(agent.last_result.paused_loop)
+        else:
+            metadata.pop("paused_loop", None)
         return ConversationCheckpoint(
             session_id=session_id,
             created_at=prior_checkpoint.created_at if prior_checkpoint else now,

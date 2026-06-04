@@ -321,10 +321,14 @@ def test_gate_ask_user_returns_pending_approval_without_executing_tool():
     assert observation.gate_result == "ask_user"
     assert observation.approval_id == pending["approval_id"]
     assert observation.response.status.value == "pending_approval"
-    assert [message.role for message in agent.get_history()] == ["user", "assistant", "tool", "assistant"]
+    assert [message.role for message in agent.get_history()] == ["user", "assistant"]
+    assert agent.last_result.paused_loop is not None
+    assert agent.last_result.paused_loop["approval_id"] == pending["approval_id"]
+    assert agent.last_result.paused_loop["pending_tool_call"]["id"] == "call-approval"
+    assert agent.last_result.paused_loop["resume_policy"]["final_tool_choice"] == "none"
 
 
-def test_gate_ask_user_waits_until_all_tool_messages_are_recorded_before_pausing():
+def test_gate_ask_user_pauses_before_executing_any_tool_in_the_round():
     other_tool = OtherTool()
     registry = ToolRegistry()
     registry.register_tool(EchoTool())
@@ -361,11 +365,146 @@ def test_gate_ask_user_waits_until_all_tool_messages_are_recorded_before_pausing
 
     assert answer == "工具调用需要用户确认后才能执行: echo"
     assert agent.last_result.status == "awaiting_approval"
-    assert other_tool.calls == [{}]
+    assert other_tool.calls == []
     history = agent.get_history()
-    assert [message.role for message in history] == ["user", "assistant", "tool", "tool", "assistant"]
-    assert history[2].metadata["tool_call_id"] == "call-approval"
-    assert history[3].metadata["tool_call_id"] == "call-other"
+    assert [message.role for message in history] == ["user", "assistant"]
+    assert agent.last_result.paused_loop is not None
+    assert agent.last_result.paused_loop["pending_tool_call"]["id"] == "call-approval"
+    assert agent.last_result.paused_loop["other_tool_calls"][0]["id"] == "call-other"
+
+
+def test_tool_calling_loop_resume_appends_tool_result_and_forces_no_tools_final_answer():
+    echo_tool = EchoTool()
+    registry = ToolRegistry()
+    registry.register_tool(echo_tool)
+    llm = FakeLLM(
+        tool_responses=[
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-approval",
+                        name="echo",
+                        arguments=json.dumps({"text": "needs approval"}),
+                    )
+                ],
+                model="fake-model",
+            ),
+            LLMToolResponse(
+                content="approved final",
+                tool_calls=[],
+                model="fake-model",
+            ),
+        ]
+    )
+    agent = ToolCallingAgent(
+        name="assistant",
+        llm=llm,
+        tool_registry=registry,
+        config=_config(),
+        tool_gate=Gate(confirm=[lambda call: call.tool_name == "echo"]),
+    )
+    agent.run("use echo")
+    paused_loop = agent.last_result.paused_loop
+
+    answer = agent.resume_tool_call(
+        paused_loop,
+        ToolResponse.success(text="echo: needs approval", data={"seen": "needs approval"}),
+    )
+
+    assert answer == "approved final"
+    assert echo_tool.calls == []
+    assert len(llm.invoke_with_tools_calls) == 2
+    assert llm.invoke_with_tools_calls[1]["tool_choice"] == "none"
+    resume_messages = llm.invoke_with_tools_calls[1]["messages"]
+    assert resume_messages[-1]["role"] == "tool"
+    assert resume_messages[-1]["tool_call_id"] == "call-approval"
+    assert [message.role for message in agent.get_history()] == ["user", "assistant", "tool", "assistant"]
+
+
+def test_tool_calling_loop_deny_resume_uses_user_denied_tool_error():
+    registry = ToolRegistry()
+    registry.register_tool(EchoTool())
+    llm = FakeLLM(
+        tool_responses=[
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-approval",
+                        name="echo",
+                        arguments=json.dumps({"text": "blocked"}),
+                    )
+                ],
+                model="fake-model",
+            ),
+            LLMToolResponse(
+                content="denied final",
+                tool_calls=[],
+                model="fake-model",
+            ),
+        ]
+    )
+    agent = ToolCallingAgent(
+        name="assistant",
+        llm=llm,
+        tool_registry=registry,
+        config=_config(),
+        tool_gate=Gate(confirm=[lambda call: call.tool_name == "echo"]),
+    )
+    agent.run("use echo")
+
+    answer = agent.resume_tool_call(
+        agent.last_result.paused_loop,
+        ToolResponse.error(code="USER_DENIED", message="用户拒绝了这次工具调用。"),
+    )
+
+    assert answer == "denied final"
+    assert llm.invoke_with_tools_calls[1]["tool_choice"] == "none"
+    tool_payload = json.loads(llm.invoke_with_tools_calls[1]["messages"][-1]["content"])
+    assert tool_payload["error"]["code"] == "USER_DENIED"
+    assert agent.last_result.status == "tool_error"
+
+
+def test_multiple_ask_user_tool_calls_return_controlled_conflict_without_tool_history():
+    registry = ToolRegistry()
+    registry.register_tool(EchoTool())
+    registry.register_tool(OtherTool())
+    llm = FakeLLM(
+        tool_responses=[
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-approval-1",
+                        name="echo",
+                        arguments=json.dumps({"text": "one"}),
+                    ),
+                    ToolCall(
+                        id="call-approval-2",
+                        name="other",
+                        arguments="{}",
+                    ),
+                ],
+                model="fake-model",
+            ),
+        ]
+    )
+    agent = ToolCallingAgent(
+        name="assistant",
+        llm=llm,
+        tool_registry=registry,
+        config=_config(),
+        tool_gate=Gate(confirm=[lambda call: True]),
+    )
+
+    answer = agent.run("use both")
+
+    assert "一次只能确认一个工具调用" in answer
+    assert agent.last_result.status == "approval_conflict"
+    assert [message.role for message in agent.get_history()] == ["user", "assistant"]
+    assert agent.get_history()[-1].metadata == {}
+    assert agent.last_result.paused_loop is None
 
 
 def test_tool_calling_agent_feeds_missing_tool_error_back_to_model():

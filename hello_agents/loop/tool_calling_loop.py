@@ -56,6 +56,7 @@ class ToolCallingLoopResult:
     tool_observations: List[ToolObservation] = field(default_factory=list)
     status: str = "success"
     pending_approvals: List[Dict[str, Any]] = field(default_factory=list)
+    paused_loop: Optional[Dict[str, Any]] = None
 
     @property
     def tool_executions(self) -> List[ToolObservation]:
@@ -130,6 +131,22 @@ class ToolCallingLoop:
                 )
 
             assistant_message = self._assistant_tool_call_message(response)
+            gate_plan = self._build_gate_plan(
+                tool_calls=tool_calls,
+                filter_active=filter_active,
+                visible_tool_names=visible_tool_names,
+            )
+            ask_user_items = [item for item in gate_plan if item["gate_result_enum"] == GateResult.ASK_USER]
+            if len(ask_user_items) > 1:
+                final_answer = "一次只能确认一个工具调用，请重新说明要执行的单个操作。"
+                self.agent.add_message(Message(final_answer, "assistant"))
+                self._save_session_if_enabled()
+                return ToolCallingLoopResult(
+                    final_answer=final_answer,
+                    steps=step,
+                    status="approval_conflict",
+                )
+
             messages.append(assistant_message)
             self.agent.add_message(
                 Message(
@@ -138,55 +155,45 @@ class ToolCallingLoop:
                     metadata={"tool_calls": assistant_message["tool_calls"]},
                 )
             )
+            if ask_user_items:
+                ask_item = ask_user_items[0]
+                gate_reason = "Tool call requires user approval."
+                approval = self._build_pending_approval(
+                    tool_call_id=ask_item["tool_call"].id,
+                    tool_name=ask_item["tool_call"].name,
+                    arguments=ask_item["arguments"] or {},
+                    reason=gate_reason,
+                )
+                pending_approvals.append(approval)
+                observation = self._pending_approval_observation(ask_item, approval)
+                tool_observations.append(observation)
+                self._log_tool_result(step, observation)
+                approval_message = self._pending_approval_message(pending_approvals)
+                paused_loop = self._build_paused_loop_state(
+                    approval=approval,
+                    assistant_message=assistant_message,
+                    pending_item=ask_item,
+                    gate_plan=gate_plan,
+                    step=step,
+                )
+                self._save_session_if_enabled()
+                return ToolCallingLoopResult(
+                    final_answer=approval_message,
+                    steps=step,
+                    tool_observations=tool_observations,
+                    status="awaiting_approval",
+                    pending_approvals=pending_approvals,
+                    paused_loop=paused_loop,
+                )
 
-            for tool_call in tool_calls:
-                arguments = self._parse_arguments(tool_call.arguments)
-                gate_result: Optional[str] = None
-                gate_reason: Optional[str] = None
-                approval_id: Optional[str] = None
-
-                if arguments is None:
-                    response = ToolResponse.error(
-                        code="INVALID_ARGUMENTS",
-                        message=f"参数格式不正确 - {tool_call.arguments}",
-                        context={"tool_name": tool_call.name},
-                    )
-                elif filter_active and tool_call.name not in visible_tool_names:
-                    gate_result = "deny"
-                    gate_reason = "Tool is not visible in this agent turn."
-                    response = ToolResponse.error(
-                        code="TOOL_NOT_VISIBLE",
-                        message=f"工具 '{tool_call.name}' 当前不可用。",
-                        context={"tool_name": tool_call.name},
-                    )
-                else:
-                    gate_result_enum = self._check_gate(tool_call.name, arguments)
-                    gate_result = self._gate_result_name(gate_result_enum)
-                    if gate_result_enum == GateResult.DENY:
-                        gate_reason = "Tool call was denied by the permission gate."
-                        response = ToolResponse.error(
-                            code="PERMISSION_DENIED",
-                            message=f"工具调用被权限规则拒绝: {tool_call.name}",
-                            context={"tool_name": tool_call.name},
-                        )
-                    elif gate_result_enum == GateResult.ASK_USER:
-                        gate_reason = "Tool call requires user approval."
-                        approval = self._build_pending_approval(
-                            tool_call_id=tool_call.id,
-                            tool_name=tool_call.name,
-                            arguments=arguments,
-                            reason=gate_reason,
-                        )
-                        approval_id = approval["approval_id"]
-                        pending_approvals.append(approval)
-                        response = ToolResponse.pending_approval(
-                            text=f"工具调用需要用户确认后才能执行: {tool_call.name}",
-                            data={"approval": approval},
-                            context={"tool_name": tool_call.name},
-                        )
-                    else:
-                        response = self._execute_tool_call(tool_call.name, arguments)
-
+            for item in gate_plan:
+                tool_call = item["tool_call"]
+                arguments = item["arguments"]
+                gate_result = item["gate_result"]
+                gate_reason = item["gate_reason"]
+                response = item["response"]
+                if response is None:
+                    response = self._execute_tool_call(tool_call.name, arguments or {})
                 observation_text, truncation = self._build_observation_text(tool_call.name, response)
                 observation = ToolObservation(
                     tool_name=tool_call.name,
@@ -197,7 +204,6 @@ class ToolCallingLoop:
                     truncated=bool(truncation.get("truncated", False)),
                     gate_result=gate_result,
                     gate_reason=gate_reason,
-                    approval_id=approval_id,
                     stats=truncation.get("stats", {}),
                 )
                 self._log_tool_result(step, observation)
@@ -220,21 +226,6 @@ class ToolCallingLoop:
                     )
                 )
 
-            if pending_approvals:
-                # Keep provider tool-call history valid: every tool_call in the
-                # assistant message above must receive a tool message before the
-                # loop pauses for external approval.
-                approval_message = self._pending_approval_message(pending_approvals)
-                self.agent.add_message(Message(approval_message, "assistant"))
-                self._save_session_if_enabled()
-                return ToolCallingLoopResult(
-                    final_answer=approval_message,
-                    steps=step,
-                    tool_observations=tool_observations,
-                    status="awaiting_approval",
-                    pending_approvals=pending_approvals,
-                )
-
         final_answer = self._finalize_after_max_steps(
             messages=messages,
             tool_schemas=tool_schemas,
@@ -248,6 +239,163 @@ class ToolCallingLoop:
             tool_observations=tool_observations,
             status="max_steps",
             pending_approvals=pending_approvals,
+        )
+
+    def resume(
+        self,
+        paused_loop: Dict[str, Any],
+        tool_response: ToolResponse,
+        **kwargs: Any,
+    ) -> ToolCallingLoopResult:
+        """Resume a provider tool-call turn after an external approval decision."""
+
+        messages = self._build_api_messages()
+        tool_schemas = self._build_visible_tool_schemas()
+        pending_call = dict(paused_loop.get("pending_tool_call") or {})
+        pending_tool_name = str(pending_call.get("name") or "")
+        pending_tool_call_id = str(pending_call.get("id") or "")
+        pending_arguments = dict(pending_call.get("arguments") or {})
+        step = int(paused_loop.get("step") or 1)
+
+        tool_observations: List[ToolObservation] = []
+        response_by_id = {pending_tool_call_id: tool_response}
+        for skipped_call in paused_loop.get("other_tool_calls") or []:
+            skipped_id = str(skipped_call.get("id") or "")
+            if skipped_id:
+                response_by_id[skipped_id] = ToolResponse.error(
+                    code="TOOL_SKIPPED_DURING_APPROVAL",
+                    message="本轮工具调用因等待用户确认而未执行。",
+                    context={"tool_name": skipped_call.get("name", "")},
+                )
+
+        for raw_call in paused_loop.get("tool_calls") or [pending_call]:
+            tool_call_id = str(raw_call.get("id") or "")
+            tool_name = str(raw_call.get("name") or "")
+            arguments = dict(raw_call.get("arguments") or {})
+            response = response_by_id.get(tool_call_id)
+            if response is None:
+                response = ToolResponse.error(
+                    code="TOOL_SKIPPED_DURING_APPROVAL",
+                    message="本轮工具调用因等待用户确认而未执行。",
+                    context={"tool_name": tool_name},
+                )
+            observation_text, truncation = self._build_observation_text(tool_name, response)
+            observation = ToolObservation(
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                arguments=arguments,
+                response=response,
+                observation_text=observation_text,
+                truncated=bool(truncation.get("truncated", False)),
+                approval_id=paused_loop.get("approval_id") if tool_call_id == pending_tool_call_id else None,
+                stats=truncation.get("stats", {}),
+            )
+            self._log_tool_result(step, observation)
+            tool_observations.append(observation)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": observation.observation_text,
+                }
+            )
+            self.agent.add_message(
+                Message(
+                    observation.observation_text,
+                    "tool",
+                    metadata={
+                        "tool_call_id": tool_call_id,
+                        "tool_name": tool_name,
+                    },
+                )
+            )
+
+        final_answer = self._finalize_after_resume(
+            messages=messages,
+            tool_schemas=tool_schemas,
+            **kwargs,
+        )
+        self.agent.add_message(Message(final_answer, "assistant"))
+        self._save_session_if_enabled()
+        return ToolCallingLoopResult(
+            final_answer=final_answer,
+            steps=step + 1,
+            tool_observations=tool_observations,
+            status="success" if tool_response.status.value != "error" else "tool_error",
+        )
+
+    def _build_gate_plan(
+        self,
+        tool_calls: List[Any],
+        filter_active: bool,
+        visible_tool_names: set[str],
+    ) -> List[Dict[str, Any]]:
+        plan: List[Dict[str, Any]] = []
+        for tool_call in tool_calls:
+            arguments = self._parse_arguments(tool_call.arguments)
+            gate_result: Optional[str] = None
+            gate_reason: Optional[str] = None
+            gate_result_enum = GateResult.ALLOW
+            response: ToolResponse | None = None
+
+            if arguments is None:
+                response = ToolResponse.error(
+                    code="INVALID_ARGUMENTS",
+                    message=f"参数格式不正确 - {tool_call.arguments}",
+                    context={"tool_name": tool_call.name},
+                )
+            elif filter_active and tool_call.name not in visible_tool_names:
+                gate_result_enum = GateResult.DENY
+                gate_result = "deny"
+                gate_reason = "Tool is not visible in this agent turn."
+                response = ToolResponse.error(
+                    code="TOOL_NOT_VISIBLE",
+                    message=f"工具 '{tool_call.name}' 当前不可用。",
+                    context={"tool_name": tool_call.name},
+                )
+            else:
+                gate_result_enum = self._check_gate(tool_call.name, arguments)
+                gate_result = self._gate_result_name(gate_result_enum)
+                if gate_result_enum == GateResult.DENY:
+                    gate_reason = "Tool call was denied by the permission gate."
+                    response = ToolResponse.error(
+                        code="PERMISSION_DENIED",
+                        message=f"工具调用被权限规则拒绝: {tool_call.name}",
+                        context={"tool_name": tool_call.name},
+                    )
+
+            plan.append(
+                {
+                    "tool_call": tool_call,
+                    "arguments": arguments,
+                    "gate_result": gate_result,
+                    "gate_reason": gate_reason,
+                    "gate_result_enum": gate_result_enum,
+                    "response": response,
+                }
+            )
+        return plan
+
+    def _pending_approval_observation(
+        self,
+        item: Dict[str, Any],
+        approval: Dict[str, Any],
+    ) -> ToolObservation:
+        tool_call = item["tool_call"]
+        response = ToolResponse.pending_approval(
+            text=f"工具调用需要用户确认后才能执行: {tool_call.name}",
+            data={"approval": approval},
+            context={"tool_name": tool_call.name},
+        )
+        return ToolObservation(
+            tool_name=tool_call.name,
+            tool_call_id=tool_call.id,
+            arguments=item["arguments"] or {},
+            response=response,
+            observation_text=response.to_json(),
+            gate_result="ask_user",
+            gate_reason="Tool call requires user approval.",
+            approval_id=approval["approval_id"],
         )
 
     def _build_visible_tool_schemas(self) -> List[Dict[str, Any]]:
@@ -384,6 +532,48 @@ class ToolCallingLoop:
         }
 
     @staticmethod
+    def _serialize_tool_call(tool_call: Any, arguments: Dict[str, Any] | None) -> Dict[str, Any]:
+        return {
+            "id": tool_call.id,
+            "name": tool_call.name,
+            "arguments": arguments or {},
+            "raw_arguments": tool_call.arguments,
+        }
+
+    def _build_paused_loop_state(
+        self,
+        approval: Dict[str, Any],
+        assistant_message: Dict[str, Any],
+        pending_item: Dict[str, Any],
+        gate_plan: List[Dict[str, Any]],
+        step: int,
+    ) -> Dict[str, Any]:
+        pending_tool_call = self._serialize_tool_call(
+            pending_item["tool_call"],
+            pending_item["arguments"],
+        )
+        tool_calls = [
+            self._serialize_tool_call(item["tool_call"], item["arguments"])
+            for item in gate_plan
+        ]
+        return {
+            "approval_id": approval["approval_id"],
+            "assistant_message": assistant_message,
+            "pending_tool_call": pending_tool_call,
+            "tool_calls": tool_calls,
+            "other_tool_calls": [
+                tool_call
+                for tool_call in tool_calls
+                if tool_call["id"] != pending_tool_call["id"]
+            ],
+            "step": step,
+            "resume_policy": {
+                "final_tool_choice": "none",
+                "append_user_message": False,
+            },
+        }
+
+    @staticmethod
     def _pending_approval_message(pending_approvals: List[Dict[str, Any]]) -> str:
         if len(pending_approvals) == 1:
             return f"工具调用需要用户确认后才能执行: {pending_approvals[0].get('tool_name', '')}"
@@ -430,6 +620,29 @@ class ToolCallingLoop:
         if response.tool_calls:
             return self.max_steps_message
         return response.content or self.max_steps_message
+
+    def _finalize_after_resume(
+        self,
+        messages: List[Dict[str, Any]],
+        tool_schemas: List[Dict[str, Any]],
+        **kwargs: Any,
+    ) -> str:
+        try:
+            response = self.agent.llm.invoke_with_tools(
+                messages=messages,
+                tools=tool_schemas,
+                tool_choice="none",
+                **kwargs,
+            )
+        except Exception as exc:
+            if self.agent.config.debug:
+                print(f"审批恢复后的最终总结失败: {exc}")
+            return "审批结果已记录，但生成最终回复失败。"
+
+        self._log_model_output(0, response)
+        if response.tool_calls:
+            return "审批结果已记录。"
+        return response.content or "审批结果已记录。"
 
     def _log_model_output(self, step: int, response: Any) -> None:
         if not self.agent.trace_logger:
