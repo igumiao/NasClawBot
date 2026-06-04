@@ -26,7 +26,7 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - `/chat/agent` is the experimental Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with `mteam_search` and confirm-gated `qb_add_torrent`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
 - `GET /chat/agent/sessions` lists persisted Agent checkpoint summaries without calling an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}` returns one persisted Agent checkpoint with renderable message history, also without calling an LLM or tools.
-- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` deterministically executes approved pending `qb_add_torrent` calls and appends a normal assistant message; it does not resume the provider tool-call loop.
+- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` deterministically executes approved pending `qb_add_torrent` calls, then may call the LLM for a no-tools final summary; it does not resume the provider tool-call loop.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny` resolves a pending approval without executing the tool.
 - `hello_agents/checkpoints/` defines the thin `ConversationCheckpointStore` boundary and the current JSON implementation.
 - Tool wrappers live in `app/tools.py`.
@@ -66,13 +66,13 @@ There is no formal Python formatter configured yet.
 - `GET /chat/agent/sessions`: lists persisted Agent conversation summaries.
 - `GET /chat/agent/sessions/{session_id}`: loads one persisted Agent conversation checkpoint.
 - `POST /download`: accepts a torrent id, calls `QBAddTorrentTool`, submits to qB paused, and returns a receipt.
-- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve`: approves and executes a pending Agent download request without another LLM call.
+- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve`: approves and executes a pending Agent download request; on success, the runner asks the LLM for a no-tools final summary and falls back to a deterministic receipt message if summarization fails.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny`: cancels a pending Agent download request.
 - qB management routes are included from `app/api/qb_routes.py`.
 
 `app/agent/runner.py` owns the experimental Agent conversation lifecycle: load checkpoint, build the current tool-calling agent, restore history, run one turn, save checkpoint, and extract route-facing search results/tool calls.
 
-`ToolCallingLoop` applies `Filter` before sending tool schemas to the LLM and applies `Gate` before `tool.run()`. `DENY` produces a permission-denied observation without executing the tool. `ASK_USER` pauses the loop with `status="awaiting_approval"` and route-facing `pending_approvals`, which NasClawBot persists in checkpoint metadata. Current approve/deny endpoints resolve approvals deterministically; provider tool-call pause/resume is not implemented.
+`ToolCallingLoop` applies `Filter` before sending tool schemas to the LLM and applies `Gate` before `tool.run()`. `DENY` produces a permission-denied observation without executing the tool. `ASK_USER` pauses the loop with `status="awaiting_approval"` and route-facing `pending_approvals`, which NasClawBot persists in checkpoint metadata. Current approve/deny endpoints resolve approvals deterministically; approve success may call the LLM for a no-tools final summary from safe receipt fields. Provider tool-call pause/resume is not implemented.
 
 `app/agent/approvals.py` defines the application-level approval lifecycle. Pending records include `session_id`, `expires_at`, `risk`, `decision`, `result`, and `error`; resolved records move from checkpoint `metadata["pending_approvals"]` to `metadata["approvals"]`.
 

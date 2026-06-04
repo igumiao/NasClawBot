@@ -84,6 +84,12 @@ class FakeLLM:
         return LLMResponse(content=FakeLLM.text_response, model=self.model)
 
 
+class FailingSummaryLLM(FakeLLM):
+    def invoke(self, messages, **kwargs):
+        FailingSummaryLLM.invoke_calls.append(messages)
+        raise RuntimeError("summary failed")
+
+
 def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
     monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
@@ -290,6 +296,8 @@ def test_nasclaw_agent_runner_gates_download_tool_by_default(tmp_path, monkeypat
 def test_nasclaw_agent_runner_approve_executes_pending_download(tmp_path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
     FakeQBAdapter.calls = []
+    FakeLLM.invoke_calls = []
+    FakeLLM.text_response = "已为你提交到 qBittorrent，任务当前保持暂停。"
     store = JSONConversationCheckpointStore(tmp_path)
     store.save(
         ConversationCheckpoint(
@@ -325,14 +333,20 @@ def test_nasclaw_agent_runner_approve_executes_pending_download(tmp_path, monkey
         checkpoint_store=store,
         mteam_adapter_factory=FakeMTeamAdapter,
         qb_adapter_factory=FakeQBAdapter,
+        llm_factory=FakeLLM,
     )
 
     result = runner.approve("session-approve", "approval-1")
 
     assert result.status == "approved"
+    assert result.message == "已为你提交到 qBittorrent，任务当前保持暂停。"
     assert result.receipt is not None
     assert result.receipt["external_id"] == "123"
     assert FakeQBAdapter.calls[0]["paused"] is True
+    assert len(FakeLLM.invoke_calls) == 1
+    summary_payload = FakeLLM.invoke_calls[0][1]["content"]
+    assert "qb_add_torrent" in summary_payload
+    assert "https://mteam.local/download" not in summary_payload
     checkpoint = store.load("session-approve")
     assert checkpoint is not None
     assert checkpoint.metadata["pending_approvals"] == []
@@ -341,7 +355,47 @@ def test_nasclaw_agent_runner_approve_executes_pending_download(tmp_path, monkey
     assert checkpoint.metadata["approvals"][0]["result"]["status"] == "success"
     assert checkpoint.metadata["approvals"][0]["error"] is None
     assert checkpoint.history[-1]["role"] == "assistant"
-    assert "下载请求已提交到 qBittorrent" in checkpoint.history[-1]["content"]
+    assert checkpoint.history[-1]["content"] == "已为你提交到 qBittorrent，任务当前保持暂停。"
+
+
+def test_nasclaw_agent_runner_approve_falls_back_when_summary_fails(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
+    FakeQBAdapter.calls = []
+    FailingSummaryLLM.invoke_calls = []
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="session-fallback",
+            created_at="2026-06-04T10:00:00",
+            saved_at="2026-06-04T10:01:00",
+            history=[],
+            metadata={
+                "last_status": "awaiting_approval",
+                "pending_approvals": [
+                    {
+                        "approval_id": "approval-1",
+                        "tool_call_id": "call-download",
+                        "tool_name": "qb_add_torrent",
+                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                        "status": "pending",
+                    }
+                ],
+            },
+        )
+    )
+    runner = NasClawAgentRunner(
+        checkpoint_store=store,
+        mteam_adapter_factory=FakeMTeamAdapter,
+        qb_adapter_factory=FakeQBAdapter,
+        llm_factory=FailingSummaryLLM,
+    )
+
+    result = runner.approve("session-fallback", "approval-1")
+
+    assert result.status == "approved"
+    assert "下载请求已提交到 qBittorrent" in result.message
+    assert result.receipt is not None
+    assert len(FailingSummaryLLM.invoke_calls) == 1
 
 
 def test_nasclaw_agent_runner_deny_does_not_execute_pending_download(tmp_path, monkeypatch: pytest.MonkeyPatch):

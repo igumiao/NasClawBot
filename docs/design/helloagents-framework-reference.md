@@ -285,9 +285,9 @@ Current status: the pause half exists for `ASK_USER`. The loop returns
 markers, and NasClawBot persists pending approvals in checkpoint metadata.
 NasClawBot also has deterministic approve/deny endpoints for pending
 `qb_add_torrent` calls. Approve executes the saved tool arguments directly,
-appends a normal assistant receipt message, and saves the checkpoint; it does
-not resume the provider tool-call protocol. A true framework-level
-pause/resume loop is still future work.
+saves the approval record, and may call the LLM for a no-tools final summary
+from safe receipt fields. It does not resume the provider tool-call protocol. A
+true framework-level pause/resume loop is still future work.
 
 Application-level approval records currently live in `app/agent/approvals.py`,
 not the HelloAgents framework. They add lifecycle fields such as `expires_at`,

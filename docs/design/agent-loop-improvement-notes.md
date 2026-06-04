@@ -167,9 +167,11 @@ not a user decision, so it does not set `decided_at`.
 
 NasClawBot now registers `qb_add_torrent` in `/chat/agent`, but it is
 confirm-gated. Approving a pending download is deterministic: the approve
-endpoint executes the saved `tool_name + arguments`, appends a normal assistant
-receipt message, updates checkpoint metadata, and returns the receipt. It does
-not resume the provider tool-call protocol with a new `tool` message.
+endpoint executes the saved `tool_name + arguments`, updates checkpoint
+metadata, and returns the receipt. On success, the runner asks the LLM for a
+no-tools final summary from safe approval/receipt fields; if summarization
+fails, it falls back to a deterministic receipt message. It does not resume the
+provider tool-call protocol with a new `tool` message.
 
 Future work can upgrade this into a true pause/resume loop:
 

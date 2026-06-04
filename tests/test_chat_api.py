@@ -9,7 +9,7 @@ from app.api import chat_routes, qb_routes
 from app.api.schemas import ChatRequest, DownloadRequest, QBTorrentActionRequest
 from app.main import create_app
 from hello_agents.checkpoints import ConversationCheckpoint, JSONConversationCheckpointStore
-from hello_agents.core.llm_response import LLMToolResponse, ToolCall
+from hello_agents.core.llm_response import LLMResponse, LLMToolResponse, ToolCall
 
 
 def _route_for(app, path: str, method: str):
@@ -69,6 +69,19 @@ class FakeQBAdapter:
         return f"{mteam_id}.torrent"
 
 
+class FakeApprovalLLM:
+    model = "fake-model"
+    invoke_calls: list[list[dict[str, object]]] = []
+    text_response = "已提交到 qBittorrent，任务保持暂停。"
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    def invoke(self, messages, **kwargs):
+        FakeApprovalLLM.invoke_calls.append(messages)
+        return LLMResponse(content=self.text_response, model=self.model)
+
+
 def _patch_chat_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(chat_routes, "get_settings", lambda: FakeSettings())
     monkeypatch.setattr(chat_routes, "MTeamAdapter", FakeMTeamAdapter)
@@ -76,6 +89,7 @@ def _patch_chat_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
     monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
     monkeypatch.setattr(agent_runner, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeApprovalLLM)
 
 
 def test_health_endpoint_returns_ok():
@@ -303,6 +317,7 @@ def test_get_agent_session_returns_404_when_missing(tmp_path, monkeypatch: pytes
 def test_approve_agent_approval_executes_download_and_updates_checkpoint(tmp_path, monkeypatch: pytest.MonkeyPatch):
     _patch_chat_adapters(monkeypatch)
     monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
+    FakeApprovalLLM.invoke_calls = []
     store = JSONConversationCheckpointStore(tmp_path)
     store.save(
         ConversationCheckpoint(
@@ -333,13 +348,15 @@ def test_approve_agent_approval_executes_download_and_updates_checkpoint(tmp_pat
     body = endpoint("agent-approve", "approval-1")
 
     assert body.status == "approved"
+    assert body.message == "已提交到 qBittorrent，任务保持暂停。"
     assert body.receipt is not None
     assert body.receipt["external_id"] == "123"
+    assert len(FakeApprovalLLM.invoke_calls) == 1
     checkpoint = store.load("agent-approve")
     assert checkpoint is not None
     assert checkpoint.metadata["pending_approvals"] == []
     assert checkpoint.metadata["approvals"][0]["status"] == "approved"
-    assert "下载请求已提交到 qBittorrent" in checkpoint.history[-1]["content"]
+    assert checkpoint.history[-1]["content"] == "已提交到 qBittorrent，任务保持暂停。"
 
 
 def test_deny_agent_approval_does_not_execute_download(tmp_path, monkeypatch: pytest.MonkeyPatch):
