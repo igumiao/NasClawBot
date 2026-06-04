@@ -13,7 +13,7 @@ from hello_agents.checkpoints import ConversationCheckpoint, ConversationCheckpo
 from hello_agents.core.config import Config
 from hello_agents.core.llm import HelloAgentsLLM
 from hello_agents.core.message import Message
-from hello_agents.tools import ToolRegistry
+from hello_agents.tools import Filter, Gate, ToolRegistry
 
 
 AGENT_SESSION_PROMPT = """你是 NasClawBot 的只读媒体搜索助手。
@@ -34,6 +34,7 @@ class AgentRunResult:
     answer: str
     results: list[ResourceCandidate]
     tool_calls: list[dict[str, Any]]
+    pending_approvals: list[dict[str, Any]]
     checkpoint: ConversationCheckpoint
 
 
@@ -52,12 +53,16 @@ class NasClawAgentRunner:
         mteam_adapter_factory: Callable[..., MTeamAdapter] | None = None,
         max_steps: int = 4,
         agent_config_overrides: dict[str, Any] | None = None,
+        tool_filter: Filter | None = None,
+        tool_gate: Gate | None = None,
     ):
         self.checkpoint_store = checkpoint_store
         self.llm_factory = llm_factory or HelloAgentsLLM
         self.mteam_adapter_factory = mteam_adapter_factory or MTeamAdapter
         self.max_steps = max_steps
         self.agent_config_overrides = agent_config_overrides or {}
+        self.tool_filter = tool_filter or Filter(allow=["mteam_search"])
+        self.tool_gate = tool_gate or Gate()
 
     def run(self, session_id: str, message: str) -> AgentRunResult:
         checkpoint = self.checkpoint_store.load(session_id)
@@ -79,6 +84,7 @@ class NasClawAgentRunner:
             answer=answer,
             results=self._agent_results(agent),
             tool_calls=self._agent_tool_calls(agent),
+            pending_approvals=agent.last_result.pending_approvals if agent.last_result else [],
             checkpoint=saved_checkpoint,
         )
 
@@ -121,6 +127,8 @@ class NasClawAgentRunner:
             system_prompt=AGENT_SESSION_PROMPT,
             config=Config(**config_values),
             max_steps=self.max_steps,
+            tool_filter=self.tool_filter,
+            tool_gate=self.tool_gate,
         )
 
     @staticmethod
@@ -151,6 +159,7 @@ class NasClawAgentRunner:
                 "model": getattr(agent.llm, "model", None),
                 "tool_names": NasClawAgentRunner._tool_names(agent),
                 "last_status": agent.last_result.status if agent.last_result else "success",
+                "pending_approvals": agent.last_result.pending_approvals if agent.last_result else [],
                 "turn_count": sum(1 for message in agent.get_history() if message.role == "user"),
                 "archive_count": len(archives),
             }
@@ -185,6 +194,9 @@ class NasClawAgentRunner:
                 "stats": observation.response.stats or {},
                 "truncated": observation.truncated,
                 "observation_stats": observation.stats,
+                "gate_result": observation.gate_result,
+                "gate_reason": observation.gate_reason,
+                "approval_id": observation.approval_id,
             }
             for observation in agent.last_result.tool_observations
         ]

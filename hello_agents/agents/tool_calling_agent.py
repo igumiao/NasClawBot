@@ -9,6 +9,8 @@ from ..loop import ToolCallingLoop, ToolCallingLoopResult
 
 if TYPE_CHECKING:
     from ..tools.registry import ToolRegistry
+    from ..tools.filter import Filter
+    from ..tools.gate import Gate
 
 
 DEFAULT_TOOL_CALLING_SYSTEM_PROMPT = """你是一个可以使用工具完成任务的 AI 助手。
@@ -29,6 +31,8 @@ class ToolCallingAgent(Agent):
         system_prompt: Optional[str] = None,
         config: Optional[Config] = None,
         max_steps: int = 5,
+        tool_filter: Optional["Filter"] = None,
+        tool_gate: Optional["Gate"] = None,
     ):
         super().__init__(
             name=name,
@@ -38,6 +42,8 @@ class ToolCallingAgent(Agent):
             tool_registry=tool_registry,
         )
         self.max_steps = max_steps
+        self.tool_filter = tool_filter
+        self.tool_gate = tool_gate
         self.last_result: Optional[ToolCallingLoopResult] = None
 
     def run(

@@ -150,6 +150,7 @@ def test_chat_agent_endpoint_uses_readonly_agent_and_persists_session(tmp_path, 
     assert first.tool_calls[0]["tool"] == "mteam_search"
     assert first.tool_calls[0]["status"] == "success"
     assert first.tool_calls[0]["truncated"] is False
+    assert first.pending_approvals == []
     assert (tmp_path / "agent-session-1.json").exists()
 
     second = endpoint(ChatRequest(session_id="agent-session-1", message="上一轮有哪些结果？"))

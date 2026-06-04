@@ -6,12 +6,15 @@ not in this loop.
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime
 import json
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from uuid import uuid4
 
 from ..context import ContextWindowManager
 from ..core.message import Message
 from ..tools import ToolResponse
+from ..tools.gate import GateResult, ToolCall as GateToolCall
 
 if TYPE_CHECKING:
     from ..core.agent import Agent
@@ -37,6 +40,9 @@ class ToolObservation:
     response: ToolResponse
     observation_text: str
     truncated: bool = False
+    gate_result: Optional[str] = None
+    gate_reason: Optional[str] = None
+    approval_id: Optional[str] = None
     # Loop/truncation stats, not tool execution stats. Tool stats live on response.stats.
     stats: Dict[str, Any] = field(default_factory=dict)
 
@@ -49,6 +55,7 @@ class ToolCallingLoopResult:
     steps: int
     tool_observations: List[ToolObservation] = field(default_factory=list)
     status: str = "success"
+    pending_approvals: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def tool_executions(self) -> List[ToolObservation]:
@@ -82,8 +89,11 @@ class ToolCallingLoop:
 
         self.agent.add_message(Message(input_text, "user"))
         messages = self._build_api_messages()
-        tool_schemas = self.agent._build_tool_schemas()
+        tool_schemas = self._build_visible_tool_schemas()
+        visible_tool_names = self._tool_schema_names(tool_schemas)
+        filter_active = bool(getattr(self.agent, "tool_filter", None))
         tool_observations: List[ToolObservation] = []
+        pending_approvals: List[Dict[str, Any]] = []
 
         if not tool_schemas:
             messages = self._prepare_messages_for_model_call(messages, [])
@@ -131,14 +141,51 @@ class ToolCallingLoop:
 
             for tool_call in tool_calls:
                 arguments = self._parse_arguments(tool_call.arguments)
+                gate_result: Optional[str] = None
+                gate_reason: Optional[str] = None
+                approval_id: Optional[str] = None
+
                 if arguments is None:
                     response = ToolResponse.error(
                         code="INVALID_ARGUMENTS",
                         message=f"参数格式不正确 - {tool_call.arguments}",
                         context={"tool_name": tool_call.name},
                     )
+                elif filter_active and tool_call.name not in visible_tool_names:
+                    gate_result = "deny"
+                    gate_reason = "Tool is not visible in this agent turn."
+                    response = ToolResponse.error(
+                        code="TOOL_NOT_VISIBLE",
+                        message=f"工具 '{tool_call.name}' 当前不可用。",
+                        context={"tool_name": tool_call.name},
+                    )
                 else:
-                    response = self._execute_tool_call(tool_call.name, arguments)
+                    gate_result_enum = self._check_gate(tool_call.name, arguments)
+                    gate_result = self._gate_result_name(gate_result_enum)
+                    if gate_result_enum == GateResult.DENY:
+                        gate_reason = "Tool call was denied by the permission gate."
+                        response = ToolResponse.error(
+                            code="PERMISSION_DENIED",
+                            message=f"工具调用被权限规则拒绝: {tool_call.name}",
+                            context={"tool_name": tool_call.name},
+                        )
+                    elif gate_result_enum == GateResult.ASK_USER:
+                        gate_reason = "Tool call requires user approval."
+                        approval = self._build_pending_approval(
+                            tool_call_id=tool_call.id,
+                            tool_name=tool_call.name,
+                            arguments=arguments,
+                            reason=gate_reason,
+                        )
+                        approval_id = approval["approval_id"]
+                        pending_approvals.append(approval)
+                        response = ToolResponse.pending_approval(
+                            text=f"工具调用需要用户确认后才能执行: {tool_call.name}",
+                            data={"approval": approval},
+                            context={"tool_name": tool_call.name},
+                        )
+                    else:
+                        response = self._execute_tool_call(tool_call.name, arguments)
 
                 observation_text, truncation = self._build_observation_text(tool_call.name, response)
                 observation = ToolObservation(
@@ -148,6 +195,9 @@ class ToolCallingLoop:
                     response=response,
                     observation_text=observation_text,
                     truncated=bool(truncation.get("truncated", False)),
+                    gate_result=gate_result,
+                    gate_reason=gate_reason,
+                    approval_id=approval_id,
                     stats=truncation.get("stats", {}),
                 )
                 self._log_tool_result(step, observation)
@@ -170,6 +220,17 @@ class ToolCallingLoop:
                     )
                 )
 
+                if pending_approvals:
+                    self.agent.add_message(Message(response.text, "assistant"))
+                    self._save_session_if_enabled()
+                    return ToolCallingLoopResult(
+                        final_answer=response.text,
+                        steps=step,
+                        tool_observations=tool_observations,
+                        status="awaiting_approval",
+                        pending_approvals=pending_approvals,
+                    )
+
         final_answer = self._finalize_after_max_steps(
             messages=messages,
             tool_schemas=tool_schemas,
@@ -182,7 +243,29 @@ class ToolCallingLoop:
             steps=self.max_steps,
             tool_observations=tool_observations,
             status="max_steps",
+            pending_approvals=pending_approvals,
         )
+
+    def _build_visible_tool_schemas(self) -> List[Dict[str, Any]]:
+        schemas = self.agent._build_tool_schemas()
+        tool_filter = getattr(self.agent, "tool_filter", None)
+        if not tool_filter:
+            return schemas
+
+        allowed_names = set(tool_filter.apply(list(self._tool_schema_names(schemas))))
+        return [
+            schema
+            for schema in schemas
+            if schema.get("function", {}).get("name") in allowed_names
+        ]
+
+    @staticmethod
+    def _tool_schema_names(tool_schemas: List[Dict[str, Any]]) -> set[str]:
+        return {
+            str(schema.get("function", {}).get("name"))
+            for schema in tool_schemas
+            if schema.get("function", {}).get("name")
+        }
 
     def _prepare_messages_for_model_call(
         self,
@@ -268,6 +351,33 @@ class ToolCallingLoop:
             )
 
         return self.agent.tool_registry.execute_tool(tool_name, arguments)
+
+    def _check_gate(self, tool_name: str, arguments: Dict[str, Any]) -> GateResult:
+        gate = getattr(self.agent, "tool_gate", None)
+        if not gate:
+            return GateResult.ALLOW
+        return gate.check(GateToolCall(tool_name=tool_name, params=arguments))
+
+    @staticmethod
+    def _gate_result_name(result: GateResult) -> str:
+        return result.name.lower()
+
+    @staticmethod
+    def _build_pending_approval(
+        tool_call_id: str,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        reason: str,
+    ) -> Dict[str, Any]:
+        return {
+            "approval_id": f"approval_{uuid4().hex}",
+            "tool_call_id": tool_call_id,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "status": "pending",
+            "reason": reason,
+            "created_at": datetime.now().isoformat(),
+        }
 
     def _build_observation_text(
         self,
@@ -360,6 +470,9 @@ class ToolCallingLoop:
                 "observation_text": observation.observation_text,
                 "truncated": observation.truncated,
                 "observation_stats": observation.stats,
+                "gate_result": observation.gate_result,
+                "gate_reason": observation.gate_reason,
+                "approval_id": observation.approval_id,
             },
             step=step,
         )
