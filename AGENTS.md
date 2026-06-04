@@ -48,6 +48,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - **Filter** (`hello_agents/tools/filter.py`): narrows tool list before sending to LLM. Controls context window and sub-agent capability scope.
 - **Gate** (`hello_agents/tools/gate.py`): three-gate check (deny → confirm → allow) on each `ToolCall` before `tool.run()`. Parameter-aware — `bash("ls")` and `bash("sudo rm -rf /")` can have different outcomes.
 - `ASK_USER` gate results pause the loop with `ToolCallingLoopResult.status == "awaiting_approval"` and route-facing `pending_approvals`. Pending approvals are persisted in checkpoint metadata; current approve/deny endpoints resolve them deterministically without LLM resume.
+- `app/agent/approvals.py`: application-level `ApprovalRecord` lifecycle for gated tool calls. Pending records live in checkpoint `metadata["pending_approvals"]`; resolved records move to `metadata["approvals"]` with `approved`, `denied`, `failed`, or `expired` status.
 - Factory functions: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
 - `ToolPermission` and `ToolFilter` have been removed.
 

@@ -7,6 +7,15 @@ from typing import Any, Callable
 
 from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
+from app.agent.approvals import (
+    ApprovalRecord,
+    ApprovalStatus,
+    create_pending_approval,
+    mark_approved,
+    mark_denied,
+    mark_expired,
+    mark_failed,
+)
 from app.config import get_settings
 from app.domain.models import ResourceCandidate
 from app.tools import MTeamSearchTool, QBAddTorrentTool
@@ -93,11 +102,12 @@ class NasClawAgentRunner:
             self._restore_history(agent, checkpoint)
 
         answer = agent.run(message)
-        pending_approvals = self._agent_pending_approvals(agent)
+        pending_approvals = self._agent_pending_approvals(agent, session_id)
         saved_checkpoint = self._checkpoint_from_agent(
             session_id=session_id,
             agent=agent,
             prior_checkpoint=checkpoint,
+            pending_approvals=pending_approvals,
         )
         self.checkpoint_store.save(saved_checkpoint)
 
@@ -175,44 +185,41 @@ class NasClawAgentRunner:
         approval = self._find_approval(checkpoint, approval_id)
         if approval is None:
             raise KeyError("Approval not found")
-        if approval.get("status") != "pending":
+        if approval.status != ApprovalStatus.PENDING:
             raise ValueError("Approval has already been resolved")
-        if approval.get("tool_name") != "qb_add_torrent":
+        if approval.is_expired():
+            mark_expired(approval)
+            saved_checkpoint = self._save_approval_decision(
+                checkpoint=checkpoint,
+                approval=approval,
+                assistant_message="这次下载确认已过期，请重新发起下载请求。",
+                last_status="approval_expired",
+            )
+            self.checkpoint_store.save(saved_checkpoint)
+            raise ValueError("Approval has expired")
+        if approval.tool_name != "qb_add_torrent":
             raise ValueError("Only qb_add_torrent approvals can be executed")
 
         response = self._execute_approved_tool(approval)
-        decided_at = datetime.now().isoformat()
 
         if response.status.value == "error":
             message = f"下载请求执行失败：{response.text}"
-            status = "failed"
+            mark_failed(approval, response)
+            status = ApprovalStatus.FAILED.value
             error = response.text
             receipt = None
-            approval.update(
-                {
-                    "status": status,
-                    "decided_at": decided_at,
-                    "error": response.error_info or {"message": response.text},
-                }
-            )
         else:
             receipt = response.data.get("receipt")
             message = self._approval_success_message(approval, receipt)
-            status = "approved"
+            mark_approved(approval, response)
+            status = ApprovalStatus.APPROVED.value
             error = None
-            approval.update(
-                {
-                    "status": status,
-                    "decided_at": decided_at,
-                    "result": response.to_dict(),
-                }
-            )
 
         saved_checkpoint = self._save_approval_decision(
             checkpoint=checkpoint,
             approval=approval,
             assistant_message=message,
-            last_status="success" if status == "approved" else "tool_error",
+            last_status="success" if status == ApprovalStatus.APPROVED.value else "tool_error",
         )
         self.checkpoint_store.save(saved_checkpoint)
         return AgentApprovalResult(
@@ -233,15 +240,10 @@ class NasClawAgentRunner:
         approval = self._find_approval(checkpoint, approval_id)
         if approval is None:
             raise KeyError("Approval not found")
-        if approval.get("status") != "pending":
+        if approval.status != ApprovalStatus.PENDING:
             raise ValueError("Approval has already been resolved")
 
-        approval.update(
-            {
-                "status": "denied",
-                "decided_at": datetime.now().isoformat(),
-            }
-        )
+        mark_denied(approval)
         message = "已取消这次下载请求。"
         saved_checkpoint = self._save_approval_decision(
             checkpoint=checkpoint,
@@ -270,7 +272,7 @@ class NasClawAgentRunner:
         )
         agent._session_metadata = dict(checkpoint.metadata)
 
-    def _execute_approved_tool(self, approval: dict[str, Any]) -> ToolResponse:
+    def _execute_approved_tool(self, approval: ApprovalRecord) -> ToolResponse:
         settings = get_settings()
         tool = QBAddTorrentTool(
             self.mteam_adapter_factory(
@@ -283,25 +285,25 @@ class NasClawAgentRunner:
                 password=settings.qb_password,
             ),
         )
-        return tool.run_with_timing(dict(approval.get("arguments", {})))
+        return tool.run_with_timing(dict(approval.arguments))
 
     @staticmethod
     def _find_approval(
         checkpoint: ConversationCheckpoint,
         approval_id: str,
-    ) -> dict[str, Any] | None:
+    ) -> ApprovalRecord | None:
         for approval in checkpoint.metadata.get("pending_approvals", []):
             if approval.get("approval_id") == approval_id:
-                return approval
+                return ApprovalRecord.from_dict(approval, session_id=checkpoint.session_id)
         for approval in checkpoint.metadata.get("approvals", []):
             if approval.get("approval_id") == approval_id:
-                return approval
+                return ApprovalRecord.from_dict(approval, session_id=checkpoint.session_id)
         return None
 
     @staticmethod
     def _save_approval_decision(
         checkpoint: ConversationCheckpoint,
-        approval: dict[str, Any],
+        approval: ApprovalRecord,
         assistant_message: str,
         last_status: str,
     ) -> ConversationCheckpoint:
@@ -312,22 +314,21 @@ class NasClawAgentRunner:
         checkpoint.metadata["pending_approvals"] = [
             item
             for item in checkpoint.metadata.get("pending_approvals", [])
-            if item.get("approval_id") != approval.get("approval_id")
+            if item.get("approval_id") != approval.approval_id
         ]
         approvals = list(checkpoint.metadata.get("approvals", []))
-        approvals.append(deepcopy(approval))
+        approvals.append(approval.to_dict())
         checkpoint.metadata["approvals"] = approvals
         checkpoint.metadata["turn_count"] = sum(1 for message in checkpoint.history if message.get("role") == "user")
         return checkpoint
 
     @staticmethod
     def _approval_success_message(
-        approval: dict[str, Any],
+        approval: ApprovalRecord,
         receipt: dict[str, Any] | None,
     ) -> str:
-        arguments = approval.get("arguments", {})
-        torrent_id = str(arguments.get("torrent_id", ""))
-        category = str(arguments.get("qb_category", ""))
+        torrent_id = str(approval.arguments.get("torrent_id", ""))
+        category = str(approval.arguments.get("qb_category", ""))
         if receipt:
             title = receipt.get("resource_title") or torrent_id
             status = receipt.get("status") or "submitted_paused"
@@ -339,6 +340,7 @@ class NasClawAgentRunner:
         session_id: str,
         agent: ToolCallingAgent,
         prior_checkpoint: ConversationCheckpoint | None,
+        pending_approvals: list[dict[str, Any]],
     ) -> ConversationCheckpoint:
         now = datetime.now().isoformat()
         history = [message.to_dict() for message in agent.get_history()]
@@ -350,7 +352,7 @@ class NasClawAgentRunner:
                 "model": getattr(agent.llm, "model", None),
                 "tool_names": NasClawAgentRunner._tool_names(agent),
                 "last_status": agent.last_result.status if agent.last_result else "success",
-                "pending_approvals": NasClawAgentRunner._agent_pending_approvals(agent),
+                "pending_approvals": deepcopy(pending_approvals),
                 "turn_count": sum(1 for message in agent.get_history() if message.role == "user"),
                 "archive_count": len(archives),
             }
@@ -393,10 +395,13 @@ class NasClawAgentRunner:
         ]
 
     @staticmethod
-    def _agent_pending_approvals(agent: ToolCallingAgent) -> list[dict[str, Any]]:
+    def _agent_pending_approvals(agent: ToolCallingAgent, session_id: str) -> list[dict[str, Any]]:
         if not agent.last_result:
             return []
-        return deepcopy(agent.last_result.pending_approvals)
+        return [
+            create_pending_approval(raw, session_id=session_id).to_dict()
+            for raw in deepcopy(agent.last_result.pending_approvals)
+        ]
 
     @staticmethod
     def _agent_results(agent: ToolCallingAgent) -> list[ResourceCandidate]:
