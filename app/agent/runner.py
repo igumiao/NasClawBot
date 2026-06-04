@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
+import json
 from typing import Any, Callable
 
 from app.adapters.mteam import MTeamAdapter
@@ -85,6 +86,7 @@ class NasClawAgentRunner:
         agent_config_overrides: dict[str, Any] | None = None,
         tool_filter: Filter | None = None,
         tool_gate: Gate | None = None,
+        approval_summary_enabled: bool = True,
     ):
         self.checkpoint_store = checkpoint_store
         self.llm_factory = llm_factory or HelloAgentsLLM
@@ -94,6 +96,7 @@ class NasClawAgentRunner:
         self.agent_config_overrides = agent_config_overrides or {}
         self.tool_filter = tool_filter or Filter(allow=["mteam_search", "qb_add_torrent"])
         self.tool_gate = tool_gate or Gate(confirm=[lambda call: call.tool_name == "qb_add_torrent"])
+        self.approval_summary_enabled = approval_summary_enabled
 
     def run(self, session_id: str, message: str) -> AgentRunResult:
         checkpoint = self.checkpoint_store.load(session_id)
@@ -210,8 +213,13 @@ class NasClawAgentRunner:
             receipt = None
         else:
             receipt = response.data.get("receipt")
-            message = self._approval_success_message(approval, receipt)
             mark_approved(approval, response)
+            fallback_message = self._approval_success_message(approval, receipt)
+            message = self._summarize_approval_success(
+                approval=approval,
+                receipt=receipt,
+                fallback_message=fallback_message,
+            )
             status = ApprovalStatus.APPROVED.value
             error = None
 
@@ -334,6 +342,55 @@ class NasClawAgentRunner:
             status = receipt.get("status") or "submitted_paused"
             return f"下载请求已提交到 qBittorrent（暂停状态）：{title}。torrent_id={torrent_id}, category={category}, status={status}。"
         return f"下载请求已提交到 qBittorrent（暂停状态）。torrent_id={torrent_id}, category={category}。"
+
+    def _summarize_approval_success(
+        self,
+        approval: ApprovalRecord,
+        receipt: dict[str, Any] | None,
+        fallback_message: str,
+    ) -> str:
+        if not self.approval_summary_enabled:
+            return fallback_message
+
+        settings = get_settings()
+        llm = self.llm_factory(
+            model=settings.llm_model,
+            api_key=settings.llm_api_key,
+            base_url=settings.llm_base_url,
+            temperature=0.2,
+        )
+        payload = {
+            "approval_id": approval.approval_id,
+            "tool_name": approval.tool_name,
+            "arguments": {
+                "torrent_id": approval.arguments.get("torrent_id"),
+                "qb_category": approval.arguments.get("qb_category"),
+            },
+            "status": approval.status.value,
+            "receipt": receipt or {},
+        }
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你正在总结一个已经由后端确定性执行完成的用户审批动作。"
+                    "不要调用工具，不要声称执行了额外操作。"
+                    "只基于给定结果，用简洁中文回复用户。"
+                    "必须说明 qBittorrent 任务是暂停状态。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(payload, ensure_ascii=False, indent=2),
+            },
+        ]
+        try:
+            response = llm.invoke(messages)
+        except Exception:
+            return fallback_message
+
+        content = response.content if hasattr(response, "content") else str(response)
+        return content.strip() or fallback_message
 
     @staticmethod
     def _checkpoint_from_agent(
