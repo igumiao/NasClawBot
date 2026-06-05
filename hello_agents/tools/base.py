@@ -45,6 +45,7 @@ class ToolParameter(BaseModel):
     description: str
     required: bool = True
     default: Any = None
+    enum: Optional[List[Any]] = None
 
 
 class Tool(ABC):
@@ -260,6 +261,9 @@ class Tool(ABC):
             # 如果有默认值，添加到描述中（OpenAI schema 不支持 default 字段）
             if param.default is not None:
                 prop["description"] = f"{param.description} (默认: {param.default})"
+
+            if param.enum is not None:
+                prop["enum"] = param.enum
 
             # 如果是数组类型，添加 items 定义
             if param.type == "array":

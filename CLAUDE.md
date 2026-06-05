@@ -31,6 +31,7 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - `hello_agents/checkpoints/` defines the thin `ConversationCheckpointStore` boundary and the current JSON implementation.
 - Tool wrappers live in `app/tools/` (per-tool modules, re-exported via `__init__.py`).
 - M-Team and qB integration lives behind adapters in `app/adapters/`.
+- `mteam_search` exposes only optional `keyword`, `mode`, `sort_by`, `imdb`, and `douban` to the LLM. It requests 20 rows from M-Team and returns at most 5 candidates.
 - `hello_agents/tools/` provides `Filter` (pre-LLM tool selection) and `Gate` (pre-execution deny/confirm).
 - `ToolPermission` and `ToolFilter` have been removed in favor of `Filter` + `Gate`.
 - Historical LangGraph and HelloAgents runtime docs are archived under `docs/archive/`.
@@ -41,7 +42,7 @@ Backend, from repo root:
 
 ```bash
 .venv/bin/python -m pytest -q
-.venv/bin/python -m pytest tests/test_chat_api.py tests/test_mteam_adapter.py tests/test_qb_adapter.py -q
+.venv/bin/python -m pytest tests/test_chat_api.py tests/test_mteam_adapter.py tests/test_mteam_search_tool.py tests/test_qb_adapter.py -q
 .venv/bin/python -m compileall app hello_agents -q
 .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
@@ -87,6 +88,16 @@ While a session has a pending approval, `/chat/agent` rejects new user messages.
 `frontend/src/components/chat/ChatPanel.tsx` renders chat messages and search results. Search results are displayed with `SearchResultCard`; clicking "加入 qB" calls `/download`.
 
 `ref/mteam-api-reference.md` is the local source of truth for M-Team endpoints.
+
+### M-Team Search Contract
+
+- `mode`: `normal`, `movie`, `tvshow`, or `music`.
+- `sort_by`: `smallest`, `largest`, or `most_seeded`. Omit it for M-Team's default newest-first ordering.
+- Do not expose `discount`, pagination, raw sort fields, categories, or local hard filters to the LLM in the current phase.
+- Keep the adapter reusable: it returns the full first-page pool of 20 rows. `MTeamSearchTool` applies the product-facing limit of 5.
+- Read `seeders`, `leechers`, and `discount` only from each result's `status` object.
+- Use release `name` as the candidate display title. Detect resolution from `smallDescr` first, falling back to `name` only when `smallDescr` is absent or empty. Current normalized values include `4320p`, `2160p`, `1080p`, and `720p`.
+- Return `discount` as informational candidate metadata; do not use it as a search input.
 
 ### Tool Safety: Filter + Gate
 

@@ -43,6 +43,17 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `frontend/`: React + Vite workspace with Chat, Downloads, and Settings tabs.
 - `ref/mteam-api-reference.md`: authoritative local M-Team API reference.
 
+### M-Team Search Contract
+
+- Agent-facing `mteam_search` parameters are optional `keyword`, `mode`, `sort_by`, `imdb`, and `douban`.
+- `mode` is limited to `normal`, `movie`, `tvshow`, and `music`.
+- `sort_by` is limited to `smallest`, `largest`, and `most_seeded`. Omitting it preserves M-Team's default newest-first ordering.
+- Do not expose `discount`, pagination, raw `sortField`/`sortDirection`, categories, or local hard-filter arguments to the Agent in the current phase.
+- The adapter requests page 1 with 20 rows. `MTeamSearchTool` returns at most the first 5 normalized candidates so `/chat`, `/chat/agent`, and the frontend share the same product limit.
+- Read dynamic torrent state only from the response `status` object: `status.seeders`, `status.leechers`, and `status.discount`. Top-level fields with those names are not authoritative.
+- Candidate display titles prefer the release `name`. Resolution detection prefers `smallDescr`; only when it is absent or empty may detection fall back to `name`. Supported normalized resolutions currently include `4320p`, `2160p`, `1080p`, and `720p`.
+- `discount` is returned as candidate information for user choice, but it is not an Agent search parameter.
+
 ### Tool Safety
 
 - **Filter** (`hello_agents/tools/filter.py`): narrows tool list before sending to LLM. Controls context window and sub-agent capability scope.
@@ -79,7 +90,7 @@ Run backend commands from repo root:
 
 ```bash
 .venv/bin/python -m pytest -q
-.venv/bin/python -m pytest tests/test_chat_api.py tests/test_mteam_adapter.py tests/test_qb_adapter.py -q
+.venv/bin/python -m pytest tests/test_chat_api.py tests/test_mteam_adapter.py tests/test_mteam_search_tool.py tests/test_qb_adapter.py -q
 .venv/bin/python -m compileall app hello_agents -q
 .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
@@ -105,15 +116,15 @@ npm run dev
 
 ## Direction
 
-Continue evolving the readonly Agent loop without replacing the stable baseline too early:
+Continue evolving the gated Agent loop without replacing the stable baseline too early:
 
 ```text
 POST /chat          # stable direct search baseline
-POST /chat/agent    # experimental readonly Agent loop
+POST /chat/agent    # experimental Agent loop with readonly tools and gated download
 GET  /chat/agent/sessions
 GET  /chat/agent/sessions/{session_id}
 ```
 
-Current Agent loop work may expose `qb_add_torrent` only behind approval gating. Keep `/download` as the stable explicit side-effect path, and keep qB submissions paused by default.
+The current Agent loop exposes `qb_add_torrent` only behind approval gating. Keep `/download` as the stable explicit side-effect path, and keep qB submissions paused by default.
 
 Future improvement ideas are intentionally not finalized. Preserve them in `docs/design/agent-loop-improvement-notes.md` rather than overfitting the first loop implementation.
