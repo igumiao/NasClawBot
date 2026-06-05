@@ -147,7 +147,7 @@
 }
 ```
 
-> **注意**: 列表中的 `seeders`/`leechers` 可能为 `null`。需要精确做种数时，应在确认前用 `/api/torrent/detail` 获取 `data.status.seeders`。
+> **注意**: 顶层的 `seeders`/`leechers` 字段**始终为 null**（100/100 实测）。做种/下载数据统一从 `status.seeders` / `status.leechers` 读取。
 
 ### 获取 filter 参数的合法 ID
 
