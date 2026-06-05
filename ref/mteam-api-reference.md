@@ -24,7 +24,7 @@
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `keyword` | string (≤100) | 是 | 搜索关键词。**可以为空字符串 `""`，但不能不传这个字段。** |
+| `keyword` | string (≤100) | 否 | 搜索关键词。可以为空字符串 `""` 或不传，此时返回全站最新（配合其他过滤器使用）。 |
 | `mode` | string | 否 | 搜索模式，默认 `normal`。取值见下方。 |
 | `pageNumber` | int32 [1, 1000] | 否 | 页码，默认 1。 |
 | `pageSize` | int32 [1, 200] | 否 | 每页条数，默认 10。 |
@@ -90,6 +90,7 @@
 
 ### 最小可用请求体
 
+按关键词搜索：
 ```json
 {
   "keyword": "dune",
@@ -97,6 +98,23 @@
   "pageNumber": 1,
   "pageSize": 10,
   "visible": 1
+}
+```
+
+按 IMDB / 豆瓣 ID 搜索（无需 keyword）：
+```json
+{
+  "imdb": "tt0145487",
+  "pageNumber": 1,
+  "pageSize": 10
+}
+```
+
+浏览全站最新：
+```json
+{
+  "pageNumber": 1,
+  "pageSize": 10
 }
 ```
 
