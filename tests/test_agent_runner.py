@@ -148,7 +148,7 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
     assert len(FakeLLM.calls) == 3
     assert any(message["role"] == "tool" for message in FakeLLM.calls[-1])
     assert second.checkpoint.metadata["turn_count"] == 2
-    assert second.checkpoint.metadata["tool_names"] == ["mteam_search", "qb_add_torrent"]
+    assert second.checkpoint.metadata["tool_names"] == ["member_profile", "mteam_search", "qb_add_torrent"]
 
 
 def test_nasclaw_agent_runner_persists_preflight_compression_archives(tmp_path, monkeypatch: pytest.MonkeyPatch):
