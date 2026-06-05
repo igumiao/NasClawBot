@@ -19,7 +19,7 @@ from app.agent.approvals import (
 )
 from app.config import get_settings
 from app.domain.models import ResourceCandidate
-from app.tools import MTeamSearchTool, QBAddTorrentTool
+from app.tools import MemberProfileTool, MTeamSearchTool, QBAddTorrentTool
 from hello_agents.agents import ToolCallingAgent
 from hello_agents.checkpoints import ConversationCheckpoint, ConversationCheckpointStore
 from hello_agents.core.config import Config
@@ -32,11 +32,12 @@ from hello_agents.tools.response import ToolResponse
 AGENT_SESSION_PROMPT = """你是 NasClawBot 的媒体搜索和下载助手。
 
 你可以使用 mteam_search 搜索候选资源。
+当用户询问上传量、下载量、分享率、最近登录时间等个人数据时，可以调用 member_profile 查询。
 当用户明确要求下载某个 M-Team torrent id 或上一轮候选资源时，可以调用 qb_add_torrent 提出下载请求。
 qb_add_torrent 会先等待用户确认；在用户确认前，不要声称已经下载或已经提交到 qBittorrent。
 只有后端审批执行返回成功结果后，才能说下载任务已经提交。
 如果用户追问上一轮搜索结果，可以结合当前会话历史回答。
-当需要搜索时，调用 mteam_search；当用户明确要求下载时，调用 qb_add_torrent；当已有信息足够时，直接回答。
+当需要搜索时，调用 mteam_search；当需要查询数据时，调用 member_profile；当用户明确要求下载时，调用 qb_add_torrent；当已有信息足够时，直接回答。
 回答要简洁，并优先列出标题、分辨率、做种数、大小和 M-Team torrent id。
 """
 
@@ -93,7 +94,7 @@ class NasClawAgentRunner:
         self.qb_adapter_factory = qb_adapter_factory or QBittorrentAdapter
         self.max_steps = max_steps
         self.agent_config_overrides = agent_config_overrides or {}
-        self.tool_filter = tool_filter or Filter(allow=["mteam_search", "qb_add_torrent"])
+        self.tool_filter = tool_filter or Filter(allow=["mteam_search", "member_profile", "qb_add_torrent"])
         self.tool_gate = tool_gate or Gate(confirm=[lambda call: call.tool_name == "qb_add_torrent"])
         self.approval_summary_enabled = approval_summary_enabled
 
@@ -142,21 +143,16 @@ class NasClawAgentRunner:
             base_url=settings.llm_base_url,
             temperature=0.2,
         )
-        registry = ToolRegistry()
-        registry.register_tool(
-            MTeamSearchTool(
-                self.mteam_adapter_factory(
-                    base_url=settings.mteam_base_url,
-                    api_key=settings.mteam_api_key,
-                )
-            )
+        mteam_adapter = self.mteam_adapter_factory(
+            base_url=settings.mteam_base_url,
+            api_key=settings.mteam_api_key,
         )
+        registry = ToolRegistry()
+        registry.register_tool(MTeamSearchTool(mteam_adapter))
+        registry.register_tool(MemberProfileTool(mteam_adapter))
         registry.register_tool(
             QBAddTorrentTool(
-                self.mteam_adapter_factory(
-                    base_url=settings.mteam_base_url,
-                    api_key=settings.mteam_api_key,
-                ),
+                mteam_adapter,
                 self.qb_adapter_factory(
                     base_url=settings.qb_base_url,
                     username=settings.qb_username,

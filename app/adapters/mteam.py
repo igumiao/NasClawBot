@@ -36,6 +36,12 @@ class MTeamAdapter:
     def download_token_endpoint(self) -> str:
         return f"{self._normalized_base_url()}/api/torrent/genDlToken"
 
+    def member_profile_endpoint(self, uid: str | None = None) -> str:
+        base = f"{self._normalized_base_url()}/api/member/profile"
+        if uid and uid.strip():
+            return f"{base}?uid={uid.strip()}"
+        return base
+
     def build_headers(self) -> dict[str, str]:
         """Build shared request headers for authenticated M-Team calls."""
         return {"x-api-key": self.api_key}
@@ -238,6 +244,22 @@ class MTeamAdapter:
 
     def get_download_url(self, torrent_id: str) -> str | None:
         return self.get_torrent_download_url(torrent_id=torrent_id)
+
+    def get_member_profile(self, uid: str | None = None) -> dict[str, Any] | None:
+        """Fetch the full profile for a member (or self when uid is None)."""
+        if not self._is_configured():
+            logger.warning("M-Team member profile skipped: adapter is not configured")
+            return None
+        logger.info("M-Team member profile started uid=%s", uid or "self")
+        endpoint = self.member_profile_endpoint(uid)
+        raw = self._post(endpoint)
+        data = self._response_data_or_none(raw)
+        logger.info(
+            "M-Team member profile finished uid=%s found=%s",
+            uid or "self",
+            isinstance(data, dict),
+        )
+        return data if isinstance(data, dict) else None
 
     @staticmethod
     def _format_size(size_value: Any) -> str:
