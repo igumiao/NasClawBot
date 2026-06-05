@@ -2,17 +2,17 @@ import { useState } from "react";
 import { ChatPanel } from "../components/chat/ChatPanel";
 import { DownloadsPanel } from "../components/downloads/DownloadsPanel";
 import { ConversationSidebar } from "../components/layout/ConversationSidebar";
-import { getWorkspacePanelId, getWorkspaceTabId, WorkspaceTabs } from "../components/layout/WorkspaceTabs";
+import { WorkspaceTabs } from "../components/layout/WorkspaceTabs";
 import { SettingsPanel } from "../components/settings/SettingsPanel";
 import type { WorkspaceTab } from "../state/uiState";
+
+function panelStyle(active: boolean): React.CSSProperties {
+  return { display: active ? undefined : "none" };
+}
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("chat");
   const [downloadRefreshSignal, setDownloadRefreshSignal] = useState(0);
-  const activePanelProps = {
-    id: getWorkspacePanelId(activeTab),
-    labelledBy: getWorkspaceTabId(activeTab)
-  };
 
   return (
     <div className="app-shell">
@@ -25,16 +25,26 @@ export function AppShell() {
             <span className="backend-status-text">Backend online</span>
           </div>
         </header>
-        {activeTab === "chat" && (
+        <div style={panelStyle(activeTab === "chat")}>
           <ChatPanel
-            {...activePanelProps}
+            id="workspace-panel-chat"
+            labelledBy="workspace-tab-chat"
             onDownloadSubmitted={() => setDownloadRefreshSignal((value) => value + 1)}
           />
-        )}
-        {activeTab === "downloads" && (
-          <DownloadsPanel {...activePanelProps} refreshSignal={downloadRefreshSignal} />
-        )}
-        {activeTab === "settings" && <SettingsPanel {...activePanelProps} />}
+        </div>
+        <div style={panelStyle(activeTab === "downloads")}>
+          <DownloadsPanel
+            id="workspace-panel-downloads"
+            labelledBy="workspace-tab-downloads"
+            refreshSignal={downloadRefreshSignal}
+          />
+        </div>
+        <div style={panelStyle(activeTab === "settings")}>
+          <SettingsPanel
+            id="workspace-panel-settings"
+            labelledBy="workspace-tab-settings"
+          />
+        </div>
       </main>
     </div>
   );

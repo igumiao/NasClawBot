@@ -4,10 +4,50 @@ export type ResourceCandidate = {
   media_type: string;
   year: number | null;
   seeders: number;
+  leechers: number;
+  discount: string | null;
+  imdb: string | null;
+  douban: string | null;
   resolution: string | null;
   size: string;
   size_bytes: number | null;
   source: string;
+};
+
+export type AgentToolCall = {
+  tool: string;
+  tool_call_id: string;
+  arguments: Record<string, unknown>;
+  status: string;
+  stats: Record<string, unknown>;
+  truncated: boolean;
+  observation_stats: Record<string, unknown>;
+  gate_result: "allow" | "deny" | "ask_user" | null;
+  gate_reason: string | null;
+  approval_id: string | null;
+};
+
+export type ApprovalRisk = {
+  level: "readonly" | "side_effect" | "destructive";
+  summary: string;
+};
+
+export type PendingApproval = {
+  approval_id: string;
+  session_id: string;
+  tool_call_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  status: "pending" | "approved" | "denied" | "failed" | "expired";
+  reason: string;
+  created_at: string;
+  expires_at: string;
+  decided_at: string | null;
+  decision: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  error: Record<string, unknown> | null;
+  expired_at: string | null;
+  risk: ApprovalRisk;
 };
 
 export type ChatResponse = {
@@ -15,8 +55,42 @@ export type ChatResponse = {
   status: string;
   message: string;
   results: ResourceCandidate[];
-  tool_calls: Array<Record<string, unknown>>;
+  tool_calls: AgentToolCall[];
+  pending_approvals: PendingApproval[];
   error: string | null;
+};
+
+export type AgentApprovalResponse = {
+  session_id: string;
+  approval_id: string;
+  status: string;
+  message: string;
+  receipt: Record<string, unknown> | null;
+  error: string | null;
+};
+
+export type AgentSessionMessage = {
+  role: "user" | "assistant" | "system" | "tool" | "summary";
+  content: string;
+  timestamp: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+export type AgentSessionArchive = {
+  id: string;
+  created_at: string;
+  reason: string;
+  messages: AgentSessionMessage[];
+  source_message_count?: number;
+};
+
+export type AgentSessionDetailResponse = {
+  session_id: string;
+  created_at: string;
+  saved_at: string;
+  messages: AgentSessionMessage[];
+  archives: AgentSessionArchive[];
+  metadata: Record<string, unknown>;
 };
 
 export type DownloadResponse = {

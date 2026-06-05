@@ -31,6 +31,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve`: approves a pending `qb_add_torrent` call. For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, resumes the LLM with `tool_choice="none"`, and clears the pending approval. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny`: denies a pending Agent tool call without executing the tool. For checkpoints with `paused_loop`, the runner resumes the provider tool-call protocol with a `USER_DENIED` tool error and a no-tools final LLM pass.
 - `app/agent/runner.py`: application-level Agent runner that loads/saves conversation checkpoints, builds the current `ToolCallingAgent`, restores history, and extracts route-facing search results/tool calls.
+- `NasClawAgentRunner.run/approve/deny` are serialized per session inside the current server process so concurrent approval decisions cannot execute the same side effect twice. Cross-process coordination remains a future durable-store concern.
 - `ToolCallingLoop`: applies `Filter` before sending tool schemas to the LLM, applies `Gate` before `tool.run()`, returns `awaiting_approval` with `pending_approvals` for confirm-gated calls, and performs one forced final LLM pass with `tool_choice="none"` when `max_steps` is reached.
 - `ToolObservation`: loop-level envelope for one tool call. It stores `tool_name`, `tool_call_id`, arguments, full structured `ToolResponse`, separate LLM-facing `observation_text`, and gate markers (`gate_result`, `gate_reason`, `approval_id`).
 - `ContextWindowManager`: runs preflight context checks before LLM calls. NasClawBot currently uses a conservative 64K configured context window, enables smart compression at 70% context pressure, keeps the latest 4 rounds active, stores a `summary` message for the model, and preserves compressed-away originals in checkpoint `archives`.
@@ -40,7 +41,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `app/adapters/mteam.py`: M-Team API boundary for search, detail, download token generation, and member profile.
 - `app/adapters/qbittorrent.py`: qBittorrent API boundary for paused add, listing, detail, and control.
 - `app/domain/models.py`: shared search result models.
-- `frontend/`: React + Vite workspace with Chat, Downloads, and Settings tabs.
+- `frontend/`: React + Vite workspace with Chat, Downloads, and Settings tabs. Chat uses `/chat/agent`, renders Agent tool activity and gated approval cards, stores the active Agent session id in browser session storage, and restores it through `GET /chat/agent/sessions/{session_id}` after refresh.
 - `ref/mteam-api-reference.md`: authoritative local M-Team API reference.
 
 ### M-Team Search Contract
@@ -59,7 +60,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - **Filter** (`hello_agents/tools/filter.py`): narrows tool list before sending to LLM. Controls context window and sub-agent capability scope.
 - **Gate** (`hello_agents/tools/gate.py`): three-gate check (deny → confirm → allow) on each `ToolCall` before `tool.run()`. Parameter-aware — `bash("ls")` and `bash("sudo rm -rf /")` can have different outcomes.
 - `ASK_USER` gate results pause the loop with `ToolCallingLoopResult.status == "awaiting_approval"` and route-facing `pending_approvals`. The loop saves the assistant tool-call message but does not write a provider `tool` result before approval. `pending_approvals` are persisted for UI/lifecycle recovery; `metadata["paused_loop"]` is persisted for provider protocol resume.
-- While a session has a pending approval, new user messages are rejected. The current loop allows one pending approval at a time; multiple simultaneous `ASK_USER` tool calls return a controlled approval conflict.
+- While a non-expired approval is pending, new user messages are rejected. Expired approvals are moved to resolved metadata before the next Agent turn so the session can continue without executing the tool. The current loop allows one pending approval at a time; multiple simultaneous `ASK_USER` tool calls return a controlled approval conflict.
 - `app/agent/approvals.py`: application-level `ApprovalRecord` lifecycle for gated tool calls. Pending records live in checkpoint `metadata["pending_approvals"]`; resolved records move to `metadata["approvals"]` with `approved`, `denied`, `failed`, or `expired` status.
 - Factory functions: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
 - `ToolPermission` and `ToolFilter` have been removed.
@@ -75,7 +76,6 @@ The following are intentionally not part of the active implementation:
 - `WorkflowEnvelope` / runtime session persistence.
 - `/confirm`.
 - `ConfirmationPayload`.
-- Candidate approval card flow.
 
 Historical design and research docs live under `docs/archive/`.
 

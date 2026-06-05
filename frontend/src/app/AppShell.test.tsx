@@ -5,6 +5,7 @@ import { App } from "./App";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  sessionStorage.clear();
 });
 
 describe("AppShell", () => {

@@ -2,8 +2,10 @@
 
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from functools import wraps
 import json
+from threading import Lock, RLock
 from typing import Any, Callable
 
 from app.adapters.mteam import MTeamAdapter
@@ -27,6 +29,26 @@ from hello_agents.core.llm import HelloAgentsLLM
 from hello_agents.core.message import Message
 from hello_agents.tools import Filter, Gate, ToolRegistry
 from hello_agents.tools.response import ToolResponse
+
+
+_SESSION_LOCKS: dict[str, RLock] = {}
+_SESSION_LOCKS_GUARD = Lock()
+
+
+def _session_lock(session_id: str) -> RLock:
+    with _SESSION_LOCKS_GUARD:
+        return _SESSION_LOCKS.setdefault(session_id, RLock())
+
+
+def _serialize_session(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Serialize one session inside the current server process."""
+
+    @wraps(method)
+    def wrapper(self: Any, session_id: str, *args: Any, **kwargs: Any) -> Any:
+        with _session_lock(session_id):
+            return method(self, session_id, *args, **kwargs)
+
+    return wrapper
 
 
 AGENT_SESSION_PROMPT = """你是 NasClawBot 的媒体搜索和下载助手。
@@ -101,8 +123,11 @@ class NasClawAgentRunner:
         self.tool_gate = tool_gate or Gate(confirm=[lambda call: call.tool_name == "qb_add_torrent"])
         self.approval_summary_enabled = approval_summary_enabled
 
+    @_serialize_session
     def run(self, session_id: str, message: str) -> AgentRunResult:
         checkpoint = self.checkpoint_store.load(session_id)
+        if checkpoint:
+            checkpoint = self._expire_pending_approvals(checkpoint)
         if checkpoint and self._pending_approval_dicts(checkpoint):
             return AgentRunResult(
                 session_id=session_id,
@@ -189,6 +214,7 @@ class NasClawAgentRunner:
             tool_gate=self.tool_gate,
         )
 
+    @_serialize_session
     def approve(self, session_id: str, approval_id: str) -> AgentApprovalResult:
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint is None:
@@ -200,12 +226,9 @@ class NasClawAgentRunner:
         if approval.status != ApprovalStatus.PENDING:
             raise ValueError("Approval has already been resolved")
         if approval.is_expired():
-            mark_expired(approval)
-            saved_checkpoint = self._save_approval_decision(
+            saved_checkpoint = self._expire_approval(
                 checkpoint=checkpoint,
                 approval=approval,
-                assistant_message="这次下载确认已过期，请重新发起下载请求。",
-                last_status="approval_expired",
             )
             self.checkpoint_store.save(saved_checkpoint)
             raise ValueError("Approval has expired")
@@ -250,6 +273,7 @@ class NasClawAgentRunner:
             checkpoint=saved_checkpoint,
         )
 
+    @_serialize_session
     def deny(self, session_id: str, approval_id: str) -> AgentApprovalResult:
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint is None:
@@ -260,6 +284,13 @@ class NasClawAgentRunner:
             raise KeyError("Approval not found")
         if approval.status != ApprovalStatus.PENDING:
             raise ValueError("Approval has already been resolved")
+        if approval.is_expired():
+            saved_checkpoint = self._expire_approval(
+                checkpoint=checkpoint,
+                approval=approval,
+            )
+            self.checkpoint_store.save(saved_checkpoint)
+            raise ValueError("Approval has expired")
 
         paused_loop = self._find_paused_loop(checkpoint, approval_id)
         if not paused_loop:
@@ -396,6 +427,71 @@ class NasClawAgentRunner:
                 return ApprovalRecord.from_dict(approval, session_id=checkpoint.session_id)
         return None
 
+    def _expire_pending_approvals(
+        self,
+        checkpoint: ConversationCheckpoint,
+    ) -> ConversationCheckpoint:
+        expired: list[ApprovalRecord] = []
+        for item in checkpoint.metadata.get("pending_approvals", []):
+            if item.get("status") != ApprovalStatus.PENDING.value:
+                continue
+            approval = ApprovalRecord.from_dict(item, session_id=checkpoint.session_id)
+            if approval.is_expired():
+                expired.append(approval)
+        if not expired:
+            return checkpoint
+
+        for approval in expired:
+            checkpoint = self._expire_approval(checkpoint, approval)
+        self.checkpoint_store.save(checkpoint)
+        return checkpoint
+
+    @classmethod
+    def _expire_approval(
+        cls,
+        checkpoint: ConversationCheckpoint,
+        approval: ApprovalRecord,
+    ) -> ConversationCheckpoint:
+        mark_expired(approval)
+        tool_call_ids = {approval.tool_call_id}
+        paused_loop = checkpoint.metadata.pop("paused_loop", None)
+        if isinstance(paused_loop, dict):
+            pending_tool_call = paused_loop.get("pending_tool_call")
+            if isinstance(pending_tool_call, dict):
+                tool_call_ids.add(str(pending_tool_call.get("id") or ""))
+            assistant_message = paused_loop.get("assistant_message")
+            if isinstance(assistant_message, dict):
+                for tool_call in assistant_message.get("tool_calls") or []:
+                    if isinstance(tool_call, dict):
+                        tool_call_ids.add(str(tool_call.get("id") or ""))
+        tool_call_ids.discard("")
+        checkpoint.history = [
+            message
+            for message in checkpoint.history
+            if not cls._assistant_message_has_any_tool_call(message, tool_call_ids)
+        ]
+        return cls._save_approval_decision(
+            checkpoint=checkpoint,
+            approval=approval,
+            assistant_message="这次下载确认已过期，请重新发起下载请求。",
+            last_status="approval_expired",
+        )
+
+    @staticmethod
+    def _assistant_message_has_any_tool_call(message: dict[str, Any], tool_call_ids: set[str]) -> bool:
+        if message.get("role") != "assistant":
+            return False
+        metadata = message.get("metadata")
+        if not isinstance(metadata, dict):
+            return False
+        tool_calls = metadata.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            return False
+        return any(
+            isinstance(tool_call, dict) and tool_call.get("id") in tool_call_ids
+            for tool_call in tool_calls
+        )
+
     @staticmethod
     def _save_approval_decision(
         checkpoint: ConversationCheckpoint,
@@ -403,7 +499,7 @@ class NasClawAgentRunner:
         assistant_message: str,
         last_status: str,
     ) -> ConversationCheckpoint:
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         checkpoint.history.append(Message(assistant_message, "assistant").to_dict())
         checkpoint.saved_at = now
         checkpoint.metadata["last_status"] = last_status
@@ -428,7 +524,7 @@ class NasClawAgentRunner:
         approval: ApprovalRecord,
         last_status: str,
     ) -> ConversationCheckpoint:
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         checkpoint.history = [message.to_dict() for message in agent.get_history()]
         checkpoint.saved_at = now
         checkpoint.archives = list(getattr(agent, "_conversation_archives", checkpoint.archives))
@@ -554,7 +650,7 @@ class NasClawAgentRunner:
         prior_checkpoint: ConversationCheckpoint | None,
         pending_approvals: list[dict[str, Any]],
     ) -> ConversationCheckpoint:
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         history = [message.to_dict() for message in agent.get_history()]
         archives = list(getattr(agent, "_conversation_archives", prior_checkpoint.archives if prior_checkpoint else []))
         metadata = dict(prior_checkpoint.metadata if prior_checkpoint else {})
