@@ -20,6 +20,10 @@ class ResourceCandidate(BaseModel):
     year: int | None = None
     resolution: str | None = None
     seeders: int = 0
+    leechers: int = 0
+    discount: str | None = None
+    imdb: str | None = None
+    douban: str | None = None
     size: str
     size_bytes: int | None = None
     source: str

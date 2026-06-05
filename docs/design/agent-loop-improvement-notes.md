@@ -14,8 +14,8 @@ The current experimental loop is:
 /chat/agent
   -> NasClawAgentRunner
   -> load JSON checkpoint from memory/agent-sessions/{session_id}.json
-  -> build ToolCallingAgent with mteam_search only
-  -> run mteam_search-only tool loop
+  -> build ToolCallingAgent with mteam_search + member_profile + gated qb_add_torrent
+  -> run filtered/gated tool loop
   -> save JSON checkpoint
 ```
 
@@ -32,12 +32,45 @@ GET /chat/agent/sessions/{session_id}
 This is good enough for proving:
 
 - a normal tool-calling loop separate from teaching ReAct
-- readonly tool execution
+- automatic readonly tool execution plus approval-gated side effects
 - multi-turn conversation history
 - JSON checkpoint persistence through `ConversationCheckpointStore`
 - browser-side session discovery and history restoration
 
 It is not yet a full Agent runtime.
+
+### Current M-Team Search Surface
+
+The first search-tool refinement deliberately exposes a small semantic query
+surface instead of the full M-Team Swagger request:
+
+```text
+keyword?   free-text search; empty is valid
+mode?      normal | movie | tvshow | music
+sort_by?   smallest | largest | most_seeded
+imdb?      exact external id
+douban?    exact external id
+```
+
+Important current decisions:
+
+- Omitting `sort_by` preserves M-Team's default newest-first ordering.
+- `discount` remains candidate metadata, not a search parameter, because the
+  API accepts only one discount value and overlapping meanings such as `FREE`
+  and `_2X_FREE` are ambiguous for natural-language requests.
+- Pagination, categories, raw sort fields, and local hard filters are not
+  exposed to the Agent in this phase.
+- The adapter requests page 1 with 20 rows. `MTeamSearchTool` returns the first
+  5 normalized candidates to keep the model and UI result set compact.
+- Dynamic state comes from `status.seeders`, `status.leechers`, and
+  `status.discount`; top-level fields with the same names are not authoritative.
+- Display titles prefer release `name`. Resolution detection prefers
+  `smallDescr`, falls back to `name` only when the description is absent, and
+  currently recognizes 4320p/8K, 2160p/4K, 1080p, and 720p.
+
+Possible future refinements such as local hard filters, richer ranking, or a
+separate detail-verification tool should be justified by concrete user
+scenarios rather than added to the first search schema by default.
 
 ## Notes Worth Preserving
 
@@ -298,7 +331,7 @@ This is only a suggestion, not a committed roadmap:
 1. Move session load/save into the loop or a small runtime wrapper.
 2. Add preflight compression before model calls. Done for `ToolCallingLoop` through `ContextWindowManager`.
 3. Refine tool observations into structured records. Done through `ToolObservation`.
-4. Add permission and approval gate for side-effect tools.
+4. Add permission and approval gate for side-effect tools. Done for the current `Filter` + `Gate` + approval pause/resume path.
 5. Improve max-steps finalization. Done for `ToolCallingLoop`; it now performs a forced no-tools summary pass.
 6. Add error recovery patterns.
 7. Revisit lifecycle hooks and event streaming.

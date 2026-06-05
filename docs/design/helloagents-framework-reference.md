@@ -32,15 +32,19 @@ The active NasClawBot app is intentionally simple:
 ```
 
 There is currently no active workflow runtime, no `/confirm` route, no
-server-side Agent session state, and no production Agent loop.
-
-The next framework step should be:
+`confirmation_payload`, or production workflow runner. An experimental
+cross-request Agent loop is active alongside `/chat`:
 
 ```text
-messages + tools -> minimal Agent loop -> tool call/result -> final answer
+/chat/agent
+  -> NasClawAgentRunner
+  -> ToolCallingAgent
+  -> mteam_search + member_profile + confirm-gated qb_add_torrent
+  -> JSON ConversationCheckpointStore
 ```
 
-Start with readonly tools only.
+Readonly tools execute automatically. Side-effect tools remain behind `Gate`
+approval and qB submissions remain paused by default.
 
 ## Module Map
 
@@ -169,6 +173,32 @@ Related design notes:
 
 - [Agent Loop Improvement Notes](agent-loop-improvement-notes.md)
 
+### Tool Schema And M-Team Search Boundary
+
+`ToolParameter` supports optional enum values, allowing app tools to give the
+LLM a constrained JSON Schema without exposing provider-specific API fields.
+Runtime validation still belongs in the concrete tool because schema guidance
+alone does not guarantee valid model arguments.
+
+The current Agent-facing `mteam_search` surface is:
+
+```text
+keyword?   mode?   sort_by?   imdb?   douban?
+```
+
+It intentionally does not expose M-Team pagination, categories, discounts,
+raw sort fields, or local hard filters. The app adapter maps the semantic sort
+presets to M-Team fields, returns the full first-page pool, and the tool returns
+at most 5 normalized candidates.
+
+This is an app-level boundary:
+
+- provider request/response semantics and normalization belong in
+  `app/adapters/mteam.py`
+- Agent-facing parameters, runtime validation, and the 5-result product limit
+  belong in `app/tools/mteam_search.py`
+- reusable JSON Schema enum support belongs in `hello_agents/tools/base.py`
+
 ## Important Distinctions
 
 ### SessionStore vs AgentRuntime
@@ -223,8 +253,8 @@ Fixed workflows are better for:
 - destructive actions
 - routes with strict frontend/API contracts
 
-For NasClawBot, readonly Agent loops can come first. Side-effecting actions
-should go through explicit approval.
+For NasClawBot, readonly tools can execute automatically. Side-effecting
+actions should go through explicit approval.
 
 ## Gaps To Extend In HelloAgents
 
@@ -367,9 +397,9 @@ it as one of:
 - NasClawBot app adapter
 - archived design no longer active
 
-### Phase 2: Minimal Readonly Agent Loop
+### Phase 2: Minimal Agent Loop
 
-Implemented a small loop using existing pieces:
+Implemented a small gated loop using existing pieces:
 
 - `Agent` base where possible
 - `HistoryManager`
@@ -379,22 +409,24 @@ Implemented a small loop using existing pieces:
 - `HelloAgentsLLM.invoke_with_tools`
 - `ConversationCheckpointStore` for cross-request persistence
 
-First tool:
+Current tool set:
 
 ```text
-mteam_search READONLY
+mteam_search        READONLY
+member_profile      READONLY
+qb_add_torrent      SIDE_EFFECT, confirm-gated
 ```
 
-Do not add qB write tools to the open loop yet.
+Do not add ungated qB write tools to the open loop.
 
 ### Phase 3: Framework-Level Policy And Approval
 
-Extend HelloAgents with:
+The initial Filter/Gate and pause/resume path is implemented. Future refinement
+may extend HelloAgents with:
 
-- permission enum
-- approval event
-- pending approval response/status
-- pause/resume contract
+- richer permission metadata
+- broader approval events and policy composition
+- multiple pending approvals or stronger runtime coordination
 - tests against side-effect tool execution
 
 ### Phase 4: Durable Runtime Store

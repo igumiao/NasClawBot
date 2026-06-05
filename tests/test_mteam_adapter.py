@@ -23,11 +23,89 @@ def test_mteam_endpoints_normalize_trailing_slash():
     assert adapter.download_token_endpoint() == "https://example.com/api/torrent/genDlToken", "download token endpoint should strip trailing slash"
 
 
-def test_mteam_empty_keyword_raises_value_error():
+def test_mteam_empty_keyword_is_preserved_for_browsing():
     adapter = MTeamAdapter(base_url="https://example.com", api_key="secret")
 
-    with pytest.raises(ValueError):
-        adapter.build_search_payload(keyword="   ")
+    payload = adapter.build_search_payload(keyword="   ")
+
+    assert payload["keyword"] == ""
+
+
+@pytest.mark.parametrize(
+    ("sort_field", "sort_direction"),
+    [
+        ("SIZE", "ASC"),
+        ("SIZE", "DESC"),
+        ("SEEDERS", "DESC"),
+    ],
+)
+def test_mteam_search_payload_preserves_supported_sorting(sort_field: str, sort_direction: str):
+    adapter = MTeamAdapter(base_url="https://example.com", api_key="secret")
+
+    payload = adapter.build_search_payload(
+        keyword="Dune",
+        mode="movie",
+        sort_field=sort_field,
+        sort_direction=sort_direction,
+        imdb="tt1160419",
+        douban="3001114",
+    )
+
+    assert payload["mode"] == "movie"
+    assert payload["sortField"] == sort_field
+    assert payload["sortDirection"] == sort_direction
+    assert payload["imdb"] == "tt1160419"
+    assert payload["douban"] == "3001114"
+
+
+def test_mteam_search_payload_omits_default_sort_fields():
+    adapter = MTeamAdapter(base_url="https://example.com", api_key="secret")
+
+    payload = adapter.build_search_payload(keyword="")
+
+    assert "sortField" not in payload
+    assert "sortDirection" not in payload
+
+
+def test_mteam_search_uses_status_for_dynamic_fields(monkeypatch):
+    adapter = MTeamAdapter(base_url="https://example.com", api_key="secret")
+    monkeypatch.setattr(
+        MTeamAdapter,
+        "_post",
+        lambda *args, **kwargs: {
+            "code": "0",
+            "data": {
+                "data": [
+                    {
+                        "id": "1174857",
+                        "name": "Dune 2021 2160p",
+                        "smallDescr": "1080p @ 22998 kbps",
+                        "size": "28521295549",
+                        "imdb": "tt1160419",
+                        "douban": "3001114",
+                        "seeders": 999,
+                        "leechers": 999,
+                        "discount": "NORMAL",
+                        "status": {
+                            "seeders": "3",
+                            "leechers": "1",
+                            "discount": "PERCENT_50",
+                        },
+                    }
+                ]
+            },
+        },
+    )
+
+    rows = adapter.search_torrents_by_keyword("Dune")
+
+    assert rows[0]["seeders"] == 3
+    assert rows[0]["leechers"] == 1
+    assert rows[0]["discount"] == "PERCENT_50"
+    assert rows[0]["imdb"] == "tt1160419"
+    assert rows[0]["douban"] == "3001114"
+    assert rows[0]["title"] == "Dune 2021 2160p"
+    assert rows[0]["small_description"] == "1080p @ 22998 kbps"
 
 
 def test_mteam_headers_only_include_api_key():

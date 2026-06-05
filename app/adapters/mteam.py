@@ -14,6 +14,10 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+MTEAM_SEARCH_MODES = {"normal", "movie", "tvshow", "music"}
+MTEAM_SORT_FIELDS = {"CREATED_DATE", "SIZE", "SEEDERS", "LEECHERS", "TIMES_COMPLETED", "NAME"}
+MTEAM_SORT_DIRECTIONS = {"ASC", "DESC"}
+
 
 @dataclass(slots=True)
 class MTeamAdapter:
@@ -48,27 +52,59 @@ class MTeamAdapter:
 
     def build_search_payload(
         self,
-        keyword: str,
+        keyword: str = "",
         page: int = 1,
         page_size: int = 20,
         categories: list[int] | None = None,
+        mode: str = "normal",
+        sort_field: str | None = None,
+        sort_direction: str | None = None,
+        imdb: str | None = None,
+        douban: str | None = None,
     ) -> dict:
         """Validate and build search payload in one place."""
-        clean_keyword = keyword.strip()
-        if not clean_keyword:
-            raise ValueError("keyword must not be empty")
-        if page < 1:
-            raise ValueError("page must be >= 1")
-        if page_size < 1:
-            raise ValueError("page_size must be >= 1")
-        return {
-            "mode": "normal",
+        clean_keyword = str(keyword or "").strip()
+        clean_mode = str(mode or "normal").strip().lower()
+        clean_sort_field = str(sort_field).strip().upper() if sort_field is not None else None
+        clean_sort_direction = str(sort_direction).strip().upper() if sort_direction is not None else None
+        clean_imdb = str(imdb).strip() if imdb is not None else ""
+        clean_douban = str(douban).strip() if douban is not None else ""
+
+        if len(clean_keyword) > 100:
+            raise ValueError("keyword must be <= 100 characters")
+        if clean_mode not in MTEAM_SEARCH_MODES:
+            raise ValueError(f"mode must be one of: {', '.join(sorted(MTEAM_SEARCH_MODES))}")
+        if not 1 <= page <= 1000:
+            raise ValueError("page must be between 1 and 1000")
+        if not 1 <= page_size <= 200:
+            raise ValueError("page_size must be between 1 and 200")
+        if (clean_sort_field is None) != (clean_sort_direction is None):
+            raise ValueError("sort_field and sort_direction must be provided together")
+        if clean_sort_field is not None and clean_sort_field not in MTEAM_SORT_FIELDS:
+            raise ValueError(f"sort_field must be one of: {', '.join(sorted(MTEAM_SORT_FIELDS))}")
+        if clean_sort_direction is not None and clean_sort_direction not in MTEAM_SORT_DIRECTIONS:
+            raise ValueError("sort_direction must be ASC or DESC")
+        if len(clean_imdb) > 32:
+            raise ValueError("imdb must be <= 32 characters")
+        if len(clean_douban) > 32:
+            raise ValueError("douban must be <= 32 characters")
+
+        payload = {
+            "mode": clean_mode,
             "keyword": clean_keyword,
             "categories": categories or [],
             "visible": 1,
             "pageNumber": page,
             "pageSize": page_size,
         }
+        if clean_sort_field is not None and clean_sort_direction is not None:
+            payload["sortField"] = clean_sort_field
+            payload["sortDirection"] = clean_sort_direction
+        if clean_imdb:
+            payload["imdb"] = clean_imdb
+        if clean_douban:
+            payload["douban"] = clean_douban
+        return payload
 
     def build_detail_payload(self, torrent_id: str) -> dict[str, str]:
         """Payload shape for detail lookup by M-Team torrent id."""
@@ -122,18 +158,39 @@ class MTeamAdapter:
             return None
         return payload.get("data")
 
-    def search_torrents_by_keyword(self, keyword: str, page: int = 1, page_size: int = 20) -> list[dict[str, Any]]:
+    def search_torrents_by_keyword(
+        self,
+        keyword: str = "",
+        page: int = 1,
+        page_size: int = 20,
+        *,
+        mode: str = "normal",
+        sort_field: str | None = None,
+        sort_direction: str | None = None,
+        imdb: str | None = None,
+        douban: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Return normalized candidate rows from M-Team search."""
         if not self._is_configured():
             logger.warning("M-Team search skipped: adapter is not configured")
             return []
         logger.info(
-            "M-Team search started keyword=%s page=%s page_size=%s",
+            "M-Team search started keyword=%s mode=%s page=%s page_size=%s",
             keyword,
+            mode,
             page,
             page_size,
         )
-        payload = self.build_search_payload(keyword=keyword, page=page, page_size=page_size)
+        payload = self.build_search_payload(
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+            mode=mode,
+            sort_field=sort_field,
+            sort_direction=sort_direction,
+            imdb=imdb,
+            douban=douban,
+        )
         raw = self._post(self.search_endpoint(), json_payload=payload)
         data = self._response_data_or_none(raw)
         if not isinstance(data, dict):
@@ -151,16 +208,24 @@ class MTeamAdapter:
             if not torrent_id:
                 continue
             status_info = item.get("status")
-            if isinstance(status_info, dict):
-                seeders = int(status_info.get("seeders", 0) or 0)
-            else:
-                seeders = int(item.get("seeders", 0) or 0)
+            if not isinstance(status_info, dict):
+                status_info = {}
+            seeders = self._coerce_int(status_info.get("seeders")) or 0
+            leechers = self._coerce_int(status_info.get("leechers")) or 0
+            discount = str(status_info.get("discount") or "").strip() or None
+            name = str(item.get("name") or "").strip()
+            small_description = str(item.get("smallDescr") or "").strip()
             normalized.append(
                 {
                     "id": torrent_id,
-                    "title": str(item.get("smallDescr") or item.get("name") or f"M-Team {torrent_id}"),
-                    "name": str(item.get("name") or item.get("smallDescr") or f"M-Team {torrent_id}"),
+                    "title": name or small_description or f"M-Team {torrent_id}",
+                    "name": name or small_description or f"M-Team {torrent_id}",
+                    "small_description": small_description or None,
                     "seeders": seeders,
+                    "leechers": leechers,
+                    "discount": discount,
+                    "imdb": str(item.get("imdb") or "").strip() or None,
+                    "douban": str(item.get("douban") or "").strip() or None,
                     "size": self._format_size(item.get("size")),
                     "size_bytes": self._coerce_int(item.get("size")),
                     "source": "mteam",
@@ -236,7 +301,7 @@ class MTeamAdapter:
         logger.info("Torrent URL validation finished valid=%s content_type=%s", valid, content_type)
         return valid
 
-    def search(self, keyword: str, page: int = 1, page_size: int = 20) -> list[dict[str, Any]]:
+    def search(self, keyword: str = "", page: int = 1, page_size: int = 20) -> list[dict[str, Any]]:
         return self.search_torrents_by_keyword(keyword=keyword, page=page, page_size=page_size)
 
     def get_detail(self, torrent_id: str) -> dict[str, Any] | None:

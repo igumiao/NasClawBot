@@ -26,7 +26,16 @@ class FakeMTeamAdapter:
         self.base_url = base_url
         self.api_key = api_key
 
-    def search_torrents_by_keyword(self, keyword: str, page: int = 1, page_size: int = 20) -> list[dict[str, Any]]:
+    def search_torrents_by_keyword(
+        self,
+        keyword: str,
+        page: int = 1,
+        page_size: int = 20,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        _ = page
+        _ = page_size
+        _ = kwargs
         return [
             {"id": 123, "title": f"{keyword} 2160p", "seeders": 10, "size": "10 GiB", "size_bytes": 10737418240},
         ]
