@@ -1,4 +1,7 @@
-from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+from threading import Event
+from time import sleep
 from typing import Any
 
 import pytest
@@ -575,6 +578,7 @@ def test_nasclaw_agent_runner_approve_executes_pending_download(tmp_path, monkey
                         "status": "pending",
                         "reason": "Tool call requires user approval.",
                         "created_at": "2026-06-04T10:01:00",
+                        "expires_at": "2099-06-04T10:31:00",
                     }
                 ],
             },
@@ -691,13 +695,15 @@ def test_nasclaw_agent_runner_deny_does_not_execute_pending_download(tmp_path, m
     assert checkpoint.history[-1]["content"] == "已取消这次下载请求。"
 
 
+@pytest.mark.parametrize("decision", ["approve", "deny"])
 def test_nasclaw_agent_runner_rejects_expired_approval_without_executing_tool(
+    decision: str,
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
     FakeQBAdapter.calls = []
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     store = JSONConversationCheckpointStore(tmp_path)
     store.save(
         ConversationCheckpoint(
@@ -728,7 +734,7 @@ def test_nasclaw_agent_runner_rejects_expired_approval_without_executing_tool(
     )
 
     with pytest.raises(ValueError, match="expired"):
-        runner.approve("session-expired", "approval-expired")
+        getattr(runner, decision)("session-expired", "approval-expired")
 
     assert FakeQBAdapter.calls == []
     checkpoint = store.load("session-expired")
@@ -739,3 +745,167 @@ def test_nasclaw_agent_runner_rejects_expired_approval_without_executing_tool(
     assert checkpoint.metadata["approvals"][0]["decided_at"] is None
     assert checkpoint.metadata["approvals"][0]["expired_at"]
     assert checkpoint.history[-1]["content"] == "这次下载确认已过期，请重新发起下载请求。"
+
+
+def test_nasclaw_agent_runner_expires_pending_approval_before_accepting_new_message(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
+    FakeQBAdapter.calls = []
+    FakeLLM.calls = []
+    FakeLLM.tool_choices = []
+    FakeLLM.responses = [
+        LLMToolResponse(
+            content="可以继续搜索。",
+            tool_calls=[],
+            model="fake-model",
+        ),
+    ]
+    now = datetime.now(timezone.utc)
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="session-expired-continue",
+            created_at=now.isoformat(),
+            saved_at=now.isoformat(),
+            history=[
+                {"role": "user", "content": "下载 123", "timestamp": now.isoformat(), "metadata": {}},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": now.isoformat(),
+                    "metadata": {
+                        "tool_calls": [
+                            {
+                                "id": "call-download",
+                                "type": "function",
+                                "function": {
+                                    "name": "qb_add_torrent",
+                                    "arguments": '{"torrent_id":"123","qb_category":"movie"}',
+                                },
+                            }
+                        ]
+                    },
+                },
+            ],
+            metadata={
+                "last_status": "awaiting_approval",
+                "pending_approvals": [
+                    {
+                        "approval_id": "approval-expired",
+                        "tool_call_id": "call-download",
+                        "tool_name": "qb_add_torrent",
+                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                        "status": "pending",
+                        "created_at": (now - timedelta(hours=1)).isoformat(),
+                    }
+                ],
+                "paused_loop": {
+                    "approval_id": "approval-expired",
+                    "pending_tool_call": {"id": "call-other"},
+                    "assistant_message": {
+                        "tool_calls": [
+                            {
+                                "id": "call-other",
+                                "type": "function",
+                                "function": {"name": "qb_add_torrent", "arguments": "{}"},
+                            }
+                        ]
+                    },
+                },
+            },
+        )
+    )
+    runner = NasClawAgentRunner(
+        checkpoint_store=store,
+        mteam_adapter_factory=FakeMTeamAdapter,
+        qb_adapter_factory=FakeQBAdapter,
+        llm_factory=FakeLLM,
+    )
+
+    result = runner.run("session-expired-continue", "继续搜索")
+
+    assert result.status == "success"
+    assert result.answer == "可以继续搜索。"
+    assert result.pending_approvals == []
+    assert FakeQBAdapter.calls == []
+    checkpoint = store.load("session-expired-continue")
+    assert checkpoint is not None
+    assert checkpoint.metadata["pending_approvals"] == []
+    assert checkpoint.metadata["approvals"][0]["status"] == "expired"
+    assert "paused_loop" not in checkpoint.metadata
+    assert not any(
+        message.get("role") == "assistant" and (message.get("metadata") or {}).get("tool_calls")
+        for message in checkpoint.history
+    )
+    assert [message["content"] for message in checkpoint.history if message["role"] == "user"] == [
+        "下载 123",
+        "继续搜索",
+    ]
+
+
+def test_nasclaw_agent_runner_serializes_concurrent_approval_decisions(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
+    now = datetime.now(timezone.utc)
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="session-concurrent-approval",
+            created_at=now.isoformat(),
+            saved_at=now.isoformat(),
+            history=[],
+            metadata={
+                "last_status": "awaiting_approval",
+                "pending_approvals": [
+                    {
+                        "approval_id": "approval-1",
+                        "tool_call_id": "call-download",
+                        "tool_name": "qb_add_torrent",
+                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                        "status": "pending",
+                        "created_at": now.isoformat(),
+                        "expires_at": (now + timedelta(minutes=30)).isoformat(),
+                    }
+                ],
+            },
+        )
+    )
+    runner = NasClawAgentRunner(
+        checkpoint_store=store,
+        approval_summary_enabled=False,
+    )
+    execution_started = Event()
+    release_execution = Event()
+    executions: list[str] = []
+
+    def execute_once(approval):
+        executions.append(approval.approval_id)
+        execution_started.set()
+        assert release_execution.wait(timeout=2)
+        return agent_runner.ToolResponse.success(
+            text="submitted",
+            data={"receipt": {"external_id": "123", "status": "submitted_paused"}},
+        )
+
+    monkeypatch.setattr(runner, "_execute_approved_tool", execute_once)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        approve_future = executor.submit(runner.approve, "session-concurrent-approval", "approval-1")
+        assert execution_started.wait(timeout=2)
+        deny_future = executor.submit(runner.deny, "session-concurrent-approval", "approval-1")
+        sleep(0.05)
+        assert executions == ["approval-1"]
+        release_execution.set()
+
+        assert approve_future.result(timeout=2).status == "approved"
+        with pytest.raises(ValueError, match="already been resolved"):
+            deny_future.result(timeout=2)
+
+    checkpoint = store.load("session-concurrent-approval")
+    assert checkpoint is not None
+    assert checkpoint.metadata["pending_approvals"] == []
+    assert checkpoint.metadata["approvals"][0]["status"] == "approved"

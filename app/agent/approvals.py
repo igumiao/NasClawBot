@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -96,8 +96,8 @@ class ApprovalRecord:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], session_id: str | None = None) -> "ApprovalRecord":
-        created_at = str(data.get("created_at") or datetime.now().isoformat())
-        expires_at = str(data.get("expires_at") or (datetime.now() + APPROVAL_TTL).isoformat())
+        created_at = str(data.get("created_at") or datetime.now(timezone.utc).isoformat())
+        expires_at = str(data.get("expires_at") or (_parse_datetime(created_at) + APPROVAL_TTL).isoformat())
         tool_name = str(data.get("tool_name") or "")
         return cls(
             approval_id=str(data["approval_id"]),
@@ -118,7 +118,7 @@ class ApprovalRecord:
         )
 
     def is_expired(self, now: datetime | None = None) -> bool:
-        return (now or datetime.now()) > _parse_datetime(self.expires_at)
+        return (now or datetime.now(timezone.utc)) > _parse_datetime(self.expires_at)
 
 
 def create_pending_approval(
@@ -128,7 +128,7 @@ def create_pending_approval(
 ) -> ApprovalRecord:
     """Normalize a loop-level pending approval into an app-level record."""
 
-    created_at = str(raw.get("created_at") or (now or datetime.now()).isoformat())
+    created_at = str(raw.get("created_at") or (now or datetime.now(timezone.utc)).isoformat())
     expires_at = str(raw.get("expires_at") or (_parse_datetime(created_at) + APPROVAL_TTL).isoformat())
     tool_name = str(raw.get("tool_name") or "")
     return ApprovalRecord(
@@ -151,7 +151,7 @@ def mark_approved(
     now: datetime | None = None,
 ) -> ApprovalRecord:
     record.status = ApprovalStatus.APPROVED
-    record.decided_at = (now or datetime.now()).isoformat()
+    record.decided_at = (now or datetime.now(timezone.utc)).isoformat()
     record.decision = {"action": "approve"}
     record.result = response.to_dict()
     record.error = None
@@ -164,7 +164,7 @@ def mark_failed(
     now: datetime | None = None,
 ) -> ApprovalRecord:
     record.status = ApprovalStatus.FAILED
-    record.decided_at = (now or datetime.now()).isoformat()
+    record.decided_at = (now or datetime.now(timezone.utc)).isoformat()
     record.decision = {"action": "approve"}
     record.result = None
     record.error = response.error_info or {"message": response.text}
@@ -176,7 +176,7 @@ def mark_denied(
     now: datetime | None = None,
 ) -> ApprovalRecord:
     record.status = ApprovalStatus.DENIED
-    record.decided_at = (now or datetime.now()).isoformat()
+    record.decided_at = (now or datetime.now(timezone.utc)).isoformat()
     record.decision = {"action": "deny"}
     return record
 
@@ -186,7 +186,7 @@ def mark_expired(
     now: datetime | None = None,
 ) -> ApprovalRecord:
     record.status = ApprovalStatus.EXPIRED
-    record.expired_at = (now or datetime.now()).isoformat()
+    record.expired_at = (now or datetime.now(timezone.utc)).isoformat()
     record.decided_at = None
     record.decision = None
     return record
@@ -205,4 +205,7 @@ def risk_for_tool(tool_name: str) -> ApprovalRisk:
 
 
 def _parse_datetime(value: str) -> datetime:
-    return datetime.fromisoformat(value)
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt

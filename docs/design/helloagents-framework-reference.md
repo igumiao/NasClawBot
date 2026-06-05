@@ -328,8 +328,13 @@ not the HelloAgents framework. They add lifecycle fields such as `expires_at`,
 `expired_at`, `decision`, `result`, `error`, and enum-backed `risk` while
 keeping JSON checkpoint storage. Broader framework-level policy is still open:
 the current branch supports one pending approval at a time, rejects new user
-messages while approval is pending, and treats multiple simultaneous
-`ASK_USER` calls as a controlled conflict.
+messages while a non-expired approval is pending, resolves expired approvals
+before the next turn without executing the tool, and treats multiple
+simultaneous `ASK_USER` calls as a controlled conflict.
+
+NasClawBot currently serializes `run/approve/deny` per session inside one
+server process. Cross-process approval coordination remains outside the JSON
+checkpoint store's guarantees and belongs in a future transactional store.
 
 ### 3. Durable Server Conversation Store
 

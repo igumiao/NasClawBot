@@ -6,7 +6,7 @@ afterEach(() => {
 });
 
 describe("chatApi", () => {
-  it("posts a chat message with the current session", async () => {
+  it("posts a chat message to the Agent endpoint with the current session", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -20,6 +20,10 @@ describe("chatApi", () => {
               media_type: "movie",
               year: null,
               seeders: 10,
+              leechers: 2,
+              discount: "FREE",
+              imdb: "tt1160419",
+              douban: "3001114",
               resolution: "2160p",
               size: "60 GB",
               size_bytes: null,
@@ -27,6 +31,7 @@ describe("chatApi", () => {
             }
           ],
           tool_calls: [],
+          pending_approvals: [],
           error: null
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -36,7 +41,7 @@ describe("chatApi", () => {
     const result = await chatApi.sendMessage("session-1", "Dune tonight");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/chat",
+      "/chat/agent",
       expect.objectContaining({
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -44,6 +49,118 @@ describe("chatApi", () => {
       }),
     );
     expect(result.results[0]?.title).toBe("Dune");
+  });
+
+  it("exposes sendAgentMessage as the explicit Agent API method", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session_id: "session-1",
+          status: "completed",
+          message: "ok",
+          results: [],
+          tool_calls: [],
+          pending_approvals: [],
+          error: null
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await chatApi.sendAgentMessage("session-1", "hello");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/chat/agent",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ session_id: "session-1", message: "hello" })
+      }),
+    );
+  });
+
+  it("approves an Agent tool call and encodes route parameters", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session_id: "session/one",
+          approval_id: "approval?one",
+          status: "approved",
+          message: "approved",
+          receipt: { status: "submitted_paused" },
+          error: null
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const result = await chatApi.approveAgentCall("session/one", "approval?one");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/chat/agent/sessions/session%2Fone/approvals/approval%3Fone/approve",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      }),
+    );
+    expect(result.status).toBe("approved");
+  });
+
+  it("denies an Agent tool call and encodes route parameters", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session_id: "session one",
+          approval_id: "approval/one",
+          status: "denied",
+          message: "denied",
+          receipt: null,
+          error: null
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await chatApi.denyAgentCall("session one", "approval/one");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/chat/agent/sessions/session%20one/approvals/approval%2Fone/deny",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({})
+      }),
+    );
+  });
+
+  it("fetches an Agent session and encodes the session id", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session_id: "session/one",
+          created_at: "2026-06-05T10:00:00",
+          saved_at: "2026-06-05T10:01:00",
+          messages: [
+            {
+              role: "user",
+              content: "Dune",
+              timestamp: "2026-06-05T10:00:00",
+              metadata: {}
+            }
+          ],
+          archives: [],
+          metadata: { pending_approvals: [] }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const result = await chatApi.fetchAgentSession("session/one");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/chat/agent/sessions/session%2Fone",
+      expect.objectContaining({ signal: undefined }),
+    );
+    expect(result.messages[0]?.content).toBe("Dune");
   });
 
   it("posts an explicit download request", async () => {

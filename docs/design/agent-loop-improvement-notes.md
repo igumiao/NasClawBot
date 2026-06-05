@@ -29,6 +29,22 @@ GET /chat/agent/sessions/{session_id}
   -> load one checkpoint with message history
 ```
 
+The browser Chat tab now exercises this Agent path directly:
+
+```text
+natural-language request
+  -> /chat/agent
+  -> assistant answer + tool activity + search candidates
+  -> selected candidate sent back through /chat/agent
+  -> gated qb_add_torrent approval card
+  -> approve or deny endpoint
+```
+
+The browser keeps the active Agent session id in session storage and restores
+the checkpoint after a page refresh. The current UI derives display messages
+from raw checkpoint history; a dedicated backend display-message projection
+remains a possible future improvement.
+
 This is good enough for proving:
 
 - a normal tool-calling loop separate from teaching ReAct
@@ -195,9 +211,12 @@ At the NasClawBot layer, loop-level pending approvals are normalized into
 `app/agent/approvals.py` `ApprovalRecord` entries. Pending records include
 `session_id`, `expires_at`, `risk`, `decision`, `result`, and `error`. Resolved
 records move to `metadata["approvals"]` with `approved`, `denied`, `failed`, or
-`expired` status. Expiration is lazy: approve checks `expires_at` and marks the
-record expired with `expired_at` instead of executing the tool. Expiration is
-not a user decision, so it does not set `decided_at`.
+`expired` status. Expiration is lazy: approve/deny check `expires_at`, and the
+runner also resolves expired approvals before accepting a new Agent turn.
+Expiration never executes the tool. It removes the unresolved provider
+assistant tool-call message before continuing so later model calls do not see
+an orphaned tool-call protocol entry. Expiration is not a user decision, so it
+does not set `decided_at`.
 
 NasClawBot now registers `qb_add_torrent` in `/chat/agent`, but it is
 confirm-gated. On `ASK_USER`, the loop saves the assistant tool-call message and
@@ -220,9 +239,15 @@ pause at assistant tool_call
 
 The deterministic approval summary path remains as a compatibility fallback for
 legacy checkpoints that do not have `paused_loop`. Current limitations are
-intentional: a session rejects new user messages while an approval is pending,
-and the loop supports one pending approval at a time. Multiple simultaneous
-`ASK_USER` tool calls return a controlled approval conflict.
+intentional: a session rejects new user messages while a non-expired approval
+is pending, and the loop supports one pending approval at a time. Multiple
+simultaneous `ASK_USER` tool calls return a controlled approval conflict.
+
+`NasClawAgentRunner.run/approve/deny` are serialized by session inside the
+current server process. This closes the local race where two concurrent
+approval decisions could both observe `pending` and execute the same download.
+This is intentionally not presented as distributed coordination; a future
+SQLite/transactional store must provide the equivalent guard across processes.
 
 ### Better Max-Steps Handling
 
