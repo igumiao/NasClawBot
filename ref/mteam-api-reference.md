@@ -33,8 +33,8 @@
 | `discount` | string | 否 | 优惠过滤，见下方枚举。 |
 | `categories` | int64[] | 否 | 分类 ID 数组，见分类映射表。 |
 | `visible` | int32 | 否 | 可见性过滤，默认 1。 |
-| `imdb` | string | 否 | 按 IMDB ID 过滤（如 `tt0145487`）。 |
-| `douban` | string | 否 | 按豆瓣 ID 过滤（如 `1292052`）。 |
+| `imdb` | string | 否 | 按 IMDB ID 过滤（如 `tt0145487`）。可独立使用（无需 `keyword`）。与 `keyword` 同时使用时为 **AND** 关系。与 `douban` 同时使用时为 **OR** 关系。 |
+| `douban` | string | 否 | 按豆瓣 ID 过滤（如 `1292052`）。可独立使用（无需 `keyword`）。与 `keyword` 同时使用时为 **AND** 关系。与 `imdb` 同时使用时为 **OR** 关系。 |
 | `sources` | int64[] | 否 | 来源 ID 数组（如 BluRay, WEB-DL）。 |
 | `mediums` | int64[] | 否 | 介质 ID 数组（如 UHD Blu-ray, BD）。 |
 | `standards` | int64[] | 否 | 分辨率标准 ID 数组。 |
