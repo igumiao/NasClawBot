@@ -133,21 +133,33 @@
     "totalPages": 13,
     "data": [
       {
-        "id": "1172412",
-        "name": "Outlander 2026 S08 ...",
-        "smallDescr": "...",
-        "size": "20895219507",
-        "category": "402",
-        "seeders": 18,
-        "leechers": 21,
-        "...": "..."
+        "id": "1174857",
+        "name": "Dune 2021 2160p ...",
+        "smallDescr": "[沙丘][...]",
+        "size": "28521295549",
+        "category": "421",
+        "imdb": "tt1160419",
+        "douban": "3001114",
+        "seeders": null,
+        "leechers": null,
+        "discount": null,
+        "status": {
+          "seeders": "3",
+          "leechers": "0",
+          "discount": "PERCENT_50",
+          "timesCompleted": "212",
+          "status": "NORMAL",
+          "visible": true,
+          "toppingLevel": "0",
+          "...": "..."
+        }
       }
     ]
   }
 }
 ```
 
-> **注意**: 顶层的 `seeders`/`leechers` 字段**始终为 null**（100/100 实测）。做种/下载数据统一从 `status.seeders` / `status.leechers` 读取。
+> **重要**: 所有动态状态数据（`seeders`、`leechers`、`discount`、`timesCompleted`）**仅在 `status` 子对象中**，顶层同名字段始终为 `null`。`status.discount` 反映实时优惠状态，顶层无此数据。静态元数据（`name`、`size`、`category`、`imdb`、`douban`）放在顶层。
 
 ### 获取 filter 参数的合法 ID
 
