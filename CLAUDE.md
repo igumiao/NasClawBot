@@ -23,13 +23,13 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - There is no `SequentialWorkflow`.
 - There is no active workflow runtime.
 - `/chat` still calls `MTeamSearchTool` directly and does not use LLM/session history.
-- `/chat/agent` is the experimental Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with `mteam_search` and confirm-gated `qb_add_torrent`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
+- `/chat/agent` is the experimental Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with `mteam_search`, read-only `member_profile`, and confirm-gated `qb_add_torrent`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
 - `GET /chat/agent/sessions` lists persisted Agent checkpoint summaries without calling an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}` returns one persisted Agent checkpoint with renderable message history, also without calling an LLM or tools.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` approves a pending `qb_add_torrent` call. For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, resumes the LLM with `tool_choice="none"`, and clears the pending approval. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny` denies a pending Agent tool call without executing the tool. For checkpoints with `paused_loop`, the runner resumes the provider tool-call protocol with a `USER_DENIED` tool error and a no-tools final LLM pass.
 - `hello_agents/checkpoints/` defines the thin `ConversationCheckpointStore` boundary and the current JSON implementation.
-- Tool wrappers live in `app/tools.py`.
+- Tool wrappers live in `app/tools/` (per-tool modules, re-exported via `__init__.py`).
 - M-Team and qB integration lives behind adapters in `app/adapters/`.
 - `hello_agents/tools/` provides `Filter` (pre-LLM tool selection) and `Gate` (pre-execution deny/confirm).
 - `ToolPermission` and `ToolFilter` have been removed in favor of `Filter` + `Gate`.
@@ -92,7 +92,7 @@ While a session has a pending approval, `/chat/agent` rejects new user messages.
 
 Two independent layers, no `ToolPermission` enum:
 
-- **Filter** (`hello_agents/tools/filter.py`): runs **before** tools are sent to the LLM. Narrows the tool list to control context window usage and sub-agent capability scope. `Filter(allow=["mteam_search"])` or `Filter(allow=lambda name: ...)`.
+- **Filter** (`hello_agents/tools/filter.py`): runs **before** tools are sent to the LLM. Narrows the tool list to control context window usage and sub-agent capability scope. Currently allows `["mteam_search", "member_profile", "qb_add_torrent"]`. `Filter(allow=lambda name: ...)` also supported.
 - **Gate** (`hello_agents/tools/gate.py`): runs **after** LLM returns a tool call, **before** `tool.run()`. Three gates: deny_rules → confirm_rules → default allow. Works on `ToolCall` (tool_name + params), so decisions can be parameter-aware (`bash("ls")` passes, `bash("sudo rm -rf /")` denied).
 
 Factory functions for common deny rules: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
@@ -106,7 +106,7 @@ POST /chat/agent
   -> NasClawAgentRunner
   -> load JSON checkpoint
   -> ToolCallingAgent
-  -> mteam_search and confirm-gated qb_add_torrent
+  -> mteam_search, member_profile, and confirm-gated qb_add_torrent
   -> tool result back to LLM
   -> save JSON checkpoint
 ```

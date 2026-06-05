@@ -16,7 +16,7 @@ There is no active workflow runtime, no `/confirm` route, and no `confirmation_p
 An experimental gated Agent loop now exists alongside the stable baseline:
 
 ```text
-/chat/agent -> NasClawAgentRunner -> ToolCallingAgent + mteam_search + gated qb_add_torrent -> JSON checkpoint persistence
+/chat/agent -> NasClawAgentRunner -> ToolCallingAgent + mteam_search + member_profile + gated qb_add_torrent -> JSON checkpoint persistence
 ```
 
 This path is for learning and iteration. `/chat` remains the stable no-LLM baseline.
@@ -25,7 +25,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 
 - `app/api/chat_routes.py`: FastAPI routes for `/chat`, `/download`, `/health`, `/`, and qB router inclusion.
 - `/chat`: performs a direct `MTeamSearchTool` call and returns `results`. It does not call an LLM and does not persist Agent history.
-- `/chat/agent`: experimental Agent route. It delegates conversation lifecycle to `NasClawAgentRunner`, registers `mteam_search` and confirm-gated `qb_add_torrent`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
+- `/chat/agent`: experimental Agent route. It delegates conversation lifecycle to `NasClawAgentRunner`, registers `mteam_search`, read-only `member_profile`, and confirm-gated `qb_add_torrent`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
 - `GET /chat/agent/sessions`: lists persisted Agent conversation checkpoint summaries. It does not call an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}`: returns one persisted Agent conversation checkpoint with renderable message history. It does not call an LLM or tools.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve`: approves a pending `qb_add_torrent` call. For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, resumes the LLM with `tool_choice="none"`, and clears the pending approval. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
@@ -36,8 +36,8 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `ContextWindowManager`: runs preflight context checks before LLM calls. NasClawBot currently uses a conservative 64K configured context window, enables smart compression at 70% context pressure, keeps the latest 4 rounds active, stores a `summary` message for the model, and preserves compressed-away originals in checkpoint `archives`.
 - `hello_agents/checkpoints/`: framework-level `ConversationCheckpointStore` protocol plus the current JSON implementation.
 - `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused.
-- `app/tools.py`: tool wrappers over existing adapters (MTeamSearchTool, QBAddTorrentTool).
-- `app/adapters/mteam.py`: M-Team API boundary for search, detail, and download token generation.
+- `app/tools/`: per-tool modules (`mteam_search.py`, `member_profile.py`, `qb_add_torrent.py`), re-exported via `__init__.py`.
+- `app/adapters/mteam.py`: M-Team API boundary for search, detail, download token generation, and member profile.
 - `app/adapters/qbittorrent.py`: qBittorrent API boundary for paused add, listing, detail, and control.
 - `app/domain/models.py`: shared search result models.
 - `frontend/`: React + Vite workspace with Chat, Downloads, and Settings tabs.
