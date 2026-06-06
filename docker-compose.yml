@@ -1,0 +1,12 @@
+services:
+  nasclawbot:
+    build: .
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      # Persist agent conversation checkpoints
+      - ./memory:/app/memory
+      # Persist SQLite database (if used)
+      - ./nas_media_agent.db:/app/nas_media_agent.db
+    restart: unless-stopped
