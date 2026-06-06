@@ -18,6 +18,7 @@ from app.api.schemas import (
     ChatResponse,
     DownloadRequest,
     DownloadResponse,
+    SessionUpdateRequest,
 )
 from app.config import get_settings
 from app.tools import MTeamSearchTool, QBAddTorrentTool
@@ -167,6 +168,36 @@ def build_router() -> APIRouter:
         checkpoint = _agent_checkpoint_store().load(session_id)
         if checkpoint is None:
             raise HTTPException(status_code=404, detail="Agent session not found")
+
+        return AgentSessionDetailResponse(
+            session_id=checkpoint.session_id,
+            created_at=checkpoint.created_at,
+            saved_at=checkpoint.saved_at,
+            messages=checkpoint.history,
+            archives=checkpoint.archives,
+            metadata=checkpoint.metadata,
+        )
+
+    @router.delete("/chat/agent/sessions/{session_id}", status_code=204)
+    def delete_agent_session(session_id: str):
+        """Delete one persisted Agent conversation checkpoint."""
+
+        store = _agent_checkpoint_store()
+        if not store.delete(session_id):
+            raise HTTPException(status_code=404, detail="Agent session not found")
+
+    @router.patch("/chat/agent/sessions/{session_id}", response_model=AgentSessionDetailResponse)
+    def update_agent_session(session_id: str, body: SessionUpdateRequest) -> AgentSessionDetailResponse:
+        """Rename an Agent session by updating metadata.title."""
+
+        store = _agent_checkpoint_store()
+        checkpoint = store.load(session_id)
+        if checkpoint is None:
+            raise HTTPException(status_code=404, detail="Agent session not found")
+
+        if body.title is not None:
+            checkpoint.metadata["title"] = body.title.strip() or None
+        store.save(checkpoint)
 
         return AgentSessionDetailResponse(
             session_id=checkpoint.session_id,

@@ -65,6 +65,12 @@ class AgentApprovalResponse(BaseModel):
     error: str | None = None
 
 
+class SessionUpdateRequest(BaseModel):
+    """Fields accepted for a PATCH /chat/agent/sessions/{session_id} update."""
+
+    title: str | None = None
+
+
 class DownloadRequest(BaseModel):
     """Explicit user action to add a torrent to qBittorrent."""
 
