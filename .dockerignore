@@ -1,0 +1,35 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Git
+.git/
+.gitignore
+
+# Secrets (passed at runtime via env_file)
+.env
+
+# Tests
+tests/
+tests_runtime/
+tool-output/
+probes/
+
+# Docs
+docs/
+ref/
+resources/
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.md
+skills-lock.json
