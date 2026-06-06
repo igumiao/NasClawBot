@@ -93,6 +93,23 @@ export type AgentSessionDetailResponse = {
   metadata: Record<string, unknown>;
 };
 
+export type AgentSessionSummary = {
+  session_id: string;
+  created_at: string;
+  saved_at: string;
+  message_count: number;
+  archive_count: number;
+  metadata: Record<string, unknown>;
+};
+
+export type AgentSessionListResponse = {
+  sessions: AgentSessionSummary[];
+};
+
+export type SessionUpdateRequest = {
+  title?: string | null;
+};
+
 export type DownloadResponse = {
   status: string;
   receipt: Record<string, unknown> | null;
