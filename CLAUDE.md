@@ -92,13 +92,38 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 
 `ContextWindowManager` performs preflight context checks before LLM calls. NasClawBot currently uses a conservative 64K configured context window, enables smart compression at 70% context pressure, keeps the latest 4 rounds active, writes a `summary` message into active history, and preserves compressed-away originals in checkpoint `archives`.
 
-`frontend/src/components/chat/ChatPanel.tsx` renders the active Agent experience. It calls `/chat/agent`, displays `ToolActivityCard` before `SearchResultCard`, sends a selected torrent id back through the Agent to request `qb_add_torrent`, and renders `ApprovalCard` for approve/deny. Assistant messages are rendered as Markdown through `MarkdownContent` (react-markdown + remark-gfm). The active Agent session id is stored in browser session storage and restored from `GET /chat/agent/sessions/{session_id}` after refresh.
+`frontend/src/app/AppShell.tsx` is the root layout controller. It owns:
+- `activeAgentSessionId` (lifted from ChatPanel for cross-component switching).
+- Sidebar collapse state persisted to `localStorage` (`nasclawbot-sidebar-collapsed`).
+- Session list fetched from `GET /chat/agent/sessions` via `chatApi.listAgentSessions()`.
+- `handleRenameSession` → `PATCH /chat/agent/sessions/{id}`.
+- `handleDeleteSession` → `DELETE /chat/agent/sessions/{id}` (deletes current → switches to the blank new-conversation state).
+- Backend health polling every 30s (green/red dot + label).
+- `display: none` keeps inactive tab panels mounted.
 
-`frontend/src/app/AppShell.tsx` owns the outer layout. It polls `GET /health` every 30s for live backend status (green/red dot + label), and uses `display: none` to keep inactive tab panels mounted.
+`frontend/src/components/layout/ConversationSidebar.tsx` is a full multi-session sidebar:
+- Collapsible: narrows to 64px icon-only mode with 240ms CSS grid-animated transition, persisted in `localStorage`.
+- In collapsed mode, the original brand mark remains the only top control; hover/focus turns it into the expand-sidebar button.
+- Session list from `GET /chat/agent/sessions`, sorted by `saved_at` descending (most recent active first).
+- Click a session → lifts `activeAgentSessionId` in AppShell → `useAgentChatSession` resets local state and restores that checkpoint.
+- "+ 新对话" button switches to a blank new-conversation state; the first send generates the session id and writes the checkpoint.
+- Hover reveals `⋯` menu button per session row.
+- Menu: 重命名 (inline text input, Enter to save, Esc to cancel, PATCH to backend) + 删除 (confirm dialog, DELETE to backend).
+- Empty state when no sessions exist.
+- Long titles truncated with `text-overflow: ellipsis`, full title on `title` attribute.
 
-`frontend/src/app/theme.css` enforces a fixed viewport layout (`.app-shell` locked to `100vh`, `.workspace-shell` with sticky topbar, `.chat-panel` fills remaining height, `.chat-thread` scrolls independently, `.composer-shell` pinned at bottom with acrylic backdrop-filter). `.conversation-sidebar` has its own `overflow-y: auto` scrollbar.
+`frontend/src/components/chat/ChatPanel.tsx` accepts `activeSessionId` from AppShell and delegates session behavior to `useAgentChatSession`. The hook wraps checkpoint restore, message sending, approval lifecycle, approval expiry, stale async-response guards, and the first-send transition from blank conversation to active session. Assistant messages render as Markdown through `MarkdownContent` (react-markdown + remark-gfm).
 
-The `ConversationSidebar` is currently a placeholder. The next frontend milestone is a real multi-session sidebar with collapsible layout, session list from `GET /chat/agent/sessions`, rename via `PATCH`, delete via `DELETE`, and session switching.
+`frontend/src/state/agentSessionStorage.ts` extracts sessionStorage read/write for the active session id (browser-session scoped, survives refresh within the same tab).
+
+`frontend/src/app/theme.css` provides:
+- Fixed viewport layout: `.app-shell` locked to `100vh`, `.workspace-shell` with sticky topbar.
+- Collapsible sidebar: `data-sidebar-collapsed` attribute on `.app-shell` transitions `grid-template-columns` between `268px` and `64px` over 240ms.
+- Session list with `overflow-y: auto`, active row highlight (`data-active="true"`), hover menu button reveal, and in-flow context menu so short lists do not require scrolling to reach actions.
+- Collapsed brand mark hover/focus behavior: the `N` mark remains fixed-size and reveals the expand icon on interaction.
+- Inline rename input, confirm dialog backdrop, conversation context menu (重命名 / 删除 with `.danger`).
+- `.chat-panel` fills remaining height, `.chat-thread` scrolls independently.
+- `.composer-shell` pinned at bottom with acrylic `backdrop-filter: blur(16px)`. 
 
 `ref/mteam-api-reference.md` is the local source of truth for M-Team endpoints.
 
@@ -152,6 +177,6 @@ Continue evolving the gated Agent loop while keeping `/chat` stable.
 
 - Keep `qb_add_torrent` behind approval gating.
 - Keep `/download` as the stable explicit user action.
-- Session management: `PATCH` for rename (metadata.title), `DELETE` for removal.
-- Next frontend milestone: multi-session sidebar with collapsible layout, session list from `GET /chat/agent/sessions`, rename via `PATCH`, delete via `DELETE`, and session switching.
+- Session management is now implemented in the frontend sidebar: list/switch/new, localStorage-persisted collapse, rename via `PATCH`, and delete via `DELETE`.
+- Remaining frontend improvement: automatic title generation after the first meaningful Agent turn; do not overwrite manually renamed titles.
 - Keep future loop ideas in `docs/design/agent-loop-improvement-notes.md`; do not prematurely hard-code them into the framework.

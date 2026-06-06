@@ -29,6 +29,7 @@ export type ChatState = {
 };
 
 export type ChatAction =
+  | { type: "session_selected"; sessionId: string }
   | { type: "user_submitted"; text: string }
   | { type: "chat_response_received"; response: ChatResponse }
   | { type: "approval_started" }
@@ -260,6 +261,8 @@ function pendingApprovalFromSession(response: AgentSessionDetailResponse): Pendi
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
+    case "session_selected":
+      return chatInitialState(action.sessionId);
     case "user_submitted":
       return {
         ...state,

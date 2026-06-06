@@ -1,8 +1,10 @@
 import type {
   AgentApprovalResponse,
   AgentSessionDetailResponse,
+  AgentSessionListResponse,
   ChatResponse,
-  DownloadResponse
+  DownloadResponse,
+  SessionUpdateRequest
 } from "../types/api";
 import { postJson, readJson } from "./http";
 
@@ -44,6 +46,34 @@ export const chatApi = {
   ): Promise<AgentSessionDetailResponse> {
     const response = await fetch(`/chat/agent/sessions/${encodeURIComponent(sessionId)}`, { signal });
     return readJson<AgentSessionDetailResponse>(response);
+  },
+
+  async listAgentSessions(signal?: AbortSignal): Promise<AgentSessionListResponse> {
+    const response = await fetch("/chat/agent/sessions", { signal });
+    return readJson<AgentSessionListResponse>(response);
+  },
+
+  async updateAgentSession(
+    sessionId: string,
+    body: SessionUpdateRequest,
+    signal?: AbortSignal,
+  ): Promise<AgentSessionDetailResponse> {
+    const response = await fetch(`/chat/agent/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal
+    });
+    return readJson<AgentSessionDetailResponse>(response);
+  },
+
+  async deleteAgentSession(sessionId: string, signal?: AbortSignal): Promise<void> {
+    const response = await fetch(`/chat/agent/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+      signal
+    });
+    if (response.ok) return;
+    await readJson<unknown>(response);
   },
 
   addDownload(

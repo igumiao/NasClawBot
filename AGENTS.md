@@ -43,7 +43,14 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `app/adapters/mteam.py`: M-Team API boundary for search, detail, download token generation, and member profile.
 - `app/adapters/qbittorrent.py`: qBittorrent API boundary for paused add, listing, detail, and control.
 - `app/domain/models.py`: shared search result models.
-- `frontend/`: React + Vite workspace with Chat, Downloads, and Settings tabs. Chat uses `/chat/agent`, renders Assistant messages as Markdown (`react-markdown` + `remark-gfm`), Agent tool activity, and gated approval cards. The layout is locked to `100vh` with sticky topbar, independently scrollable message area, and acrylic pinned composer. `AppShell` polls `GET /health` every 30s for live backend status. The active Agent session id is stored in browser session storage and restored after refresh. The `ConversationSidebar` is currently a placeholder; the next milestone is a multi-session sidebar with collapsible layout, session list, rename, delete, and session switching.
+- `frontend/`: React + Vite workspace with Chat, Downloads, and Settings tabs. Key architectural choices:
+  - `AppShell` owns `activeAgentSessionId`, drives session switching, refreshes the session list, and routes rename/delete/new-session actions.
+  - `ConversationSidebar` is a functional multi-session sidebar: collapsible (64px icon-only, localStorage-persisted), live session list from `GET /chat/agent/sessions` sorted by recent activity, inline rename via `PATCH`, delete with confirm dialog via `DELETE`, "+ 新对话" button, empty state, active-row highlight, hover/focus action menu, and collapsed brand mark that turns into the expand button on hover/focus.
+  - `ChatPanel` receives `activeSessionId` from `AppShell` and delegates session lifecycle to `useAgentChatSession`; the hook restores checkpoints, resets state on external session changes, sends Agent messages, handles approvals, guards stale async responses, and emits session activity for sidebar refresh.
+  - Chat renders Assistant messages as Markdown (`react-markdown` + `remark-gfm`), `ToolActivityCard`, `SearchResultCard`, `ApprovalCard`, `ReceiptCard`, and `ErrorCard`.
+  - Layout locked to `100vh` with CSS Grid: sticky topbar, independently scrollable message area, pinned composer, sidebar transition animation (240ms), and context menu/confirm-dialog styles.
+  - `AppShell` polls `GET /health` every 30s for live green/red backend status indicator.
+  - Session id stored in `sessionStorage` via `agentSessionStorage.ts` for tab-scoped persistence.
 - `ref/mteam-api-reference.md`: authoritative local M-Team API reference.
 
 ### M-Team Search Contract
