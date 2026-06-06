@@ -51,7 +51,7 @@ def _serialize_session(method: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-AGENT_SESSION_PROMPT = """你是 NasClawBot 的媒体搜索和下载助手。
+AGENT_SESSION_PROMPT = f"""你是 NasClawBot 的媒体搜索和下载助手。你由 DeepSeek 大语言模型驱动。
 
 你可以使用 mteam_search 搜索候选资源。
 mteam_search 默认按最新发布排序；用户明确要求电影、电视剧或音乐时，分别使用 movie、tvshow、music 模式。

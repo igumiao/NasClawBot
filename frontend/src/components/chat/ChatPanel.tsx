@@ -3,6 +3,7 @@ import { chatApi } from "../../api/chatApi";
 import { chatInitialState, chatReducer, createSessionId } from "../../state/chatState";
 import { ApprovalCard } from "./ApprovalCard";
 import { ErrorCard } from "./ErrorCard";
+import { MarkdownContent } from "./MarkdownContent";
 import { ReceiptCard } from "./ReceiptCard";
 import { SearchResultCard } from "./SearchResultCard";
 import { ToolActivityCard } from "./ToolActivityCard";
@@ -195,7 +196,7 @@ export function ChatPanel({ id, labelledBy, onDownloadSubmitted }: ChatPanelProp
                   return (
                     <div key={message.id} className="chat-bubble-row" data-kind="assistant">
                       <div className="chat-bubble" data-kind="assistant">
-                        {message.text}
+                        <MarkdownContent content={message.text} />
                       </div>
                     </div>
                   );
