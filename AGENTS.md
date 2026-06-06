@@ -30,6 +30,8 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `GET /chat/agent/sessions/{session_id}`: returns one persisted Agent conversation checkpoint with renderable message history. It does not call an LLM or tools.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve`: approves a pending `qb_add_torrent` call. For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, resumes the LLM with `tool_choice="none"`, and clears the pending approval. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny`: denies a pending Agent tool call without executing the tool. For checkpoints with `paused_loop`, the runner resumes the provider tool-call protocol with a `USER_DENIED` tool error and a no-tools final LLM pass.
+- `PATCH /chat/agent/sessions/{session_id}`: updates a session checkpoint. Currently supports `title` in `metadata.title` for session renaming.
+- `DELETE /chat/agent/sessions/{session_id}`: deletes a persisted session checkpoint (HTTP 204 on success).
 - `app/agent/runner.py`: application-level Agent runner that loads/saves conversation checkpoints, builds the current `ToolCallingAgent`, restores history, and extracts route-facing search results/tool calls.
 - `NasClawAgentRunner.run/approve/deny` are serialized per session inside the current server process so concurrent approval decisions cannot execute the same side effect twice. Cross-process coordination remains a future durable-store concern.
 - `ToolCallingLoop`: applies `Filter` before sending tool schemas to the LLM, applies `Gate` before `tool.run()`, returns `awaiting_approval` with `pending_approvals` for confirm-gated calls, and performs one forced final LLM pass with `tool_choice="none"` when `max_steps` is reached.
@@ -41,7 +43,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `app/adapters/mteam.py`: M-Team API boundary for search, detail, download token generation, and member profile.
 - `app/adapters/qbittorrent.py`: qBittorrent API boundary for paused add, listing, detail, and control.
 - `app/domain/models.py`: shared search result models.
-- `frontend/`: React + Vite workspace with Chat, Downloads, and Settings tabs. Chat uses `/chat/agent`, renders Agent tool activity and gated approval cards, stores the active Agent session id in browser session storage, and restores it through `GET /chat/agent/sessions/{session_id}` after refresh.
+- `frontend/`: React + Vite workspace with Chat, Downloads, and Settings tabs. Chat uses `/chat/agent`, renders Assistant messages as Markdown (`react-markdown` + `remark-gfm`), Agent tool activity, and gated approval cards. The layout is locked to `100vh` with sticky topbar, independently scrollable message area, and acrylic pinned composer. `AppShell` polls `GET /health` every 30s for live backend status. The active Agent session id is stored in browser session storage and restored after refresh. The `ConversationSidebar` is currently a placeholder; the next milestone is a multi-session sidebar with collapsible layout, session list, rename, delete, and session switching.
 - `ref/mteam-api-reference.md`: authoritative local M-Team API reference.
 
 ### M-Team Search Contract
@@ -119,10 +121,12 @@ npm run dev
 Continue evolving the gated Agent loop without replacing the stable baseline too early:
 
 ```text
-POST /chat          # stable direct search baseline
-POST /chat/agent    # experimental Agent loop with readonly tools and gated download
-GET  /chat/agent/sessions
-GET  /chat/agent/sessions/{session_id}
+POST   /chat          # stable direct search baseline
+POST   /chat/agent    # experimental Agent loop with readonly tools and gated download
+GET    /chat/agent/sessions
+GET    /chat/agent/sessions/{session_id}
+PATCH  /chat/agent/sessions/{session_id}       # rename (metadata.title)
+DELETE /chat/agent/sessions/{session_id}       # delete checkpoint
 ```
 
 The current Agent loop exposes `qb_add_torrent` only behind approval gating. Keep `/download` as the stable explicit side-effect path, and keep qB submissions paused by default.

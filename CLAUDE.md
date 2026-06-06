@@ -28,6 +28,8 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - `GET /chat/agent/sessions/{session_id}` returns one persisted Agent checkpoint with renderable message history, also without calling an LLM or tools.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` approves a pending `qb_add_torrent` call. For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, resumes the LLM with `tool_choice="none"`, and clears the pending approval. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny` denies a pending Agent tool call without executing the tool. For checkpoints with `paused_loop`, the runner resumes the provider tool-call protocol with a `USER_DENIED` tool error and a no-tools final LLM pass.
+- `PATCH /chat/agent/sessions/{session_id}`: updates a session checkpoint. Currently supports `title` in `metadata.title` for session renaming.
+- `DELETE /chat/agent/sessions/{session_id}`: deletes a persisted session checkpoint (HTTP 204 on success).
 - The browser Chat tab now uses `/chat/agent` as its active experience path. It renders Agent tool-call summaries, search candidates, and gated download approval cards; `/download` remains available as the stable explicit API but is not called by the Chat result button.
 - `hello_agents/checkpoints/` defines the thin `ConversationCheckpointStore` boundary and the current JSON implementation.
 - Tool wrappers live in `app/tools/` (per-tool modules, re-exported via `__init__.py`).
@@ -70,6 +72,8 @@ There is no formal Python formatter configured yet.
 - `POST /download`: accepts a torrent id, calls `QBAddTorrentTool`, submits to qB paused, and returns a receipt.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve`: approves and executes a pending Agent download request. With `paused_loop`, the runner appends the real provider `tool` result and resumes the LLM with `tool_choice="none"`; legacy checkpoints fall back to the deterministic summary path.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny`: cancels a pending Agent download request. With `paused_loop`, the runner resumes the provider protocol with a `USER_DENIED` tool error and a no-tools final LLM pass.
+- `PATCH /chat/agent/sessions/{session_id}`: updates session metadata (currently `title` in `metadata.title`).
+- `DELETE /chat/agent/sessions/{session_id}`: deletes a persisted checkpoint, returns 204 on success.
 - qB management routes are included from `app/api/qb_routes.py`.
 
 `app/agent/runner.py` owns the experimental Agent conversation lifecycle: load checkpoint, build the current tool-calling agent, restore history, run one turn, save checkpoint, and extract route-facing search results/tool calls.
@@ -88,7 +92,13 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 
 `ContextWindowManager` performs preflight context checks before LLM calls. NasClawBot currently uses a conservative 64K configured context window, enables smart compression at 70% context pressure, keeps the latest 4 rounds active, writes a `summary` message into active history, and preserves compressed-away originals in checkpoint `archives`.
 
-`frontend/src/components/chat/ChatPanel.tsx` renders the active Agent experience. It calls `/chat/agent`, displays `ToolActivityCard` before `SearchResultCard`, sends a selected torrent id back through the Agent to request `qb_add_torrent`, and renders `ApprovalCard` for approve/deny. The active Agent session id is stored in browser session storage and restored from `GET /chat/agent/sessions/{session_id}` after refresh.
+`frontend/src/components/chat/ChatPanel.tsx` renders the active Agent experience. It calls `/chat/agent`, displays `ToolActivityCard` before `SearchResultCard`, sends a selected torrent id back through the Agent to request `qb_add_torrent`, and renders `ApprovalCard` for approve/deny. Assistant messages are rendered as Markdown through `MarkdownContent` (react-markdown + remark-gfm). The active Agent session id is stored in browser session storage and restored from `GET /chat/agent/sessions/{session_id}` after refresh.
+
+`frontend/src/app/AppShell.tsx` owns the outer layout. It polls `GET /health` every 30s for live backend status (green/red dot + label), and uses `display: none` to keep inactive tab panels mounted.
+
+`frontend/src/app/theme.css` enforces a fixed viewport layout (`.app-shell` locked to `100vh`, `.workspace-shell` with sticky topbar, `.chat-panel` fills remaining height, `.chat-thread` scrolls independently, `.composer-shell` pinned at bottom with acrylic backdrop-filter). `.conversation-sidebar` has its own `overflow-y: auto` scrollbar.
+
+The `ConversationSidebar` is currently a placeholder. The next frontend milestone is a real multi-session sidebar with collapsible layout, session list from `GET /chat/agent/sessions`, rename via `PATCH`, delete via `DELETE`, and session switching.
 
 `ref/mteam-api-reference.md` is the local source of truth for M-Team endpoints.
 
@@ -142,4 +152,6 @@ Continue evolving the gated Agent loop while keeping `/chat` stable.
 
 - Keep `qb_add_torrent` behind approval gating.
 - Keep `/download` as the stable explicit user action.
+- Session management: `PATCH` for rename (metadata.title), `DELETE` for removal.
+- Next frontend milestone: multi-session sidebar with collapsible layout, session list from `GET /chat/agent/sessions`, rename via `PATCH`, delete via `DELETE`, and session switching.
 - Keep future loop ideas in `docs/design/agent-loop-improvement-notes.md`; do not prematurely hard-code them into the framework.
