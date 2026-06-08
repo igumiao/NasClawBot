@@ -192,11 +192,32 @@ def mark_expired(
     return record
 
 
-def risk_for_tool(tool_name: str) -> ApprovalRisk:
+def risk_for_tool(tool_name: str, arguments: dict[str, Any] | None = None) -> ApprovalRisk:
     if tool_name == "qb_add_torrent":
         return ApprovalRisk(
             level=ApprovalRiskLevel.SIDE_EFFECT,
             summary="Submit torrent to qBittorrent in paused state",
+        )
+    if tool_name == "qb_control_torrent":
+        action = (arguments or {}).get("action", "")
+        if action == "delete":
+            return ApprovalRisk(
+                level=ApprovalRiskLevel.DESTRUCTIVE,
+                summary="Delete torrent and optionally its files from qBittorrent",
+            )
+        return ApprovalRisk(
+            level=ApprovalRiskLevel.SIDE_EFFECT,
+            summary=f"Control torrent: {action or 'unknown'}",
+        )
+    if tool_name == "qb_set_global_speed":
+        return ApprovalRisk(
+            level=ApprovalRiskLevel.SIDE_EFFECT,
+            summary="Modify global transfer speed limits",
+        )
+    if tool_name == "qb_set_torrent_speed":
+        return ApprovalRisk(
+            level=ApprovalRiskLevel.SIDE_EFFECT,
+            summary="Modify per-torrent speed limits",
         )
     return ApprovalRisk(
         level=ApprovalRiskLevel.SIDE_EFFECT,
