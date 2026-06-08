@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.tools.qb_control_torrent import QBControlTorrentTool
 from app.tools.qb_get_torrent import QBGetTorrentTool
 from app.tools.qb_list_categories import QBListCategoriesTool
 from app.tools.qb_list_torrents import QBListTorrentsTool
@@ -176,3 +177,45 @@ def test_qb_list_categories_empty():
 
     assert response.status.value == "success"
     assert response.data["categories"] == {}
+
+
+def test_qb_control_torrent_pause():
+    qb = MagicMock()
+    qb.control_torrent.return_value = {"ok": True, "status": "pause", "qb_hash": "abc123"}
+
+    tool = QBControlTorrentTool(qb)
+    response = tool.run({"torrent_hash": "abc123", "action": "pause"})
+
+    assert response.status.value == "success"
+    qb.control_torrent.assert_called_once_with("abc123", action="pause", delete_files=False)
+
+
+def test_qb_control_torrent_delete_with_files():
+    qb = MagicMock()
+    qb.control_torrent.return_value = {"ok": True, "status": "delete", "qb_hash": "abc123"}
+
+    tool = QBControlTorrentTool(qb)
+    response = tool.run({"torrent_hash": "abc123", "action": "delete", "delete_files": True})
+
+    assert response.status.value == "success"
+    qb.control_torrent.assert_called_once_with("abc123", action="delete", delete_files=True)
+
+
+def test_qb_control_torrent_invalid_action():
+    qb = MagicMock()
+    qb.control_torrent.side_effect = ValueError("Unsupported torrent action: invalid")
+
+    tool = QBControlTorrentTool(qb)
+    response = tool.run({"torrent_hash": "abc123", "action": "invalid"})
+
+    assert response.status.value == "error"
+    assert response.error_info["code"] == "INVALID_PARAM"
+
+
+def test_qb_control_torrent_empty_hash():
+    qb = MagicMock()
+    tool = QBControlTorrentTool(qb)
+    response = tool.run({"torrent_hash": "  ", "action": "pause"})
+
+    assert response.status.value == "error"
+    assert response.error_info["code"] == "INVALID_PARAM"
