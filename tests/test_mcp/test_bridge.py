@@ -208,3 +208,5 @@ def test_register_mcp_tools_with_tool_filter():
 
     assert count == 1
     assert tool_filter.apply(["mcp_tmdb_search"]) == ["mcp_tmdb_search"]
+    # Verify original filter allow list is preserved
+    assert tool_filter.apply(["mteam_search"]) == ["mteam_search"]
