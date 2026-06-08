@@ -55,19 +55,33 @@ class QBListTorrentsTool(Tool):
         ]
 
     def run(self, parameters: dict[str, Any]) -> ToolResponse:
-        kwargs: dict[str, Any] = {}
-        if parameters.get("category"):
-            kwargs["category"] = parameters["category"]
-        if parameters.get("tag"):
-            kwargs["tag"] = parameters["tag"]
-        if parameters.get("status_filter"):
-            kwargs["status_filter"] = parameters["status_filter"]
-        if parameters.get("sort"):
-            kwargs["sort"] = parameters["sort"]
-        if parameters.get("limit") is not None:
-            kwargs["limit"] = parameters["limit"]
+        limit = parameters.get("limit")
+        if limit is not None:
+            try:
+                limit = int(limit)
+            except (TypeError, ValueError):
+                return ToolResponse.error(
+                    code="INVALID_PARAM",
+                    message="limit must be a positive integer.",
+                )
+            if limit <= 0:
+                return ToolResponse.error(
+                    code="INVALID_PARAM",
+                    message="limit must be a positive integer.",
+                )
 
-        torrents = self._qb.list_torrents(**kwargs)
+        category = str(parameters.get("category", "")).strip() or None
+        tag = str(parameters.get("tag", "")).strip() or None
+        status_filter = str(parameters.get("status_filter", "")).strip() or None
+        sort = str(parameters.get("sort", "")).strip() or None
+
+        torrents = self._qb.list_torrents(
+            category=category,
+            tag=tag,
+            status_filter=status_filter,
+            sort=sort,
+            limit=limit,
+        )
 
         if not torrents:
             return ToolResponse.success(
