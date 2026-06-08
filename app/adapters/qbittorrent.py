@@ -307,6 +307,45 @@ class QBittorrentAdapter:
         )
         return {"ok": True, "upload_limit": upload_limit, "download_limit": download_limit}
 
+    def set_torrent_speed_limits(
+        self,
+        torrent_hash: str,
+        upload_limit: int | None = None,
+        download_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Set per-torrent speed limits in bytes/s. None means no change."""
+        clean_hash = torrent_hash.strip()
+        if not clean_hash:
+            raise ValueError("torrent_hash must not be empty")
+
+        client = self.login()
+        if client is None:
+            return {
+                "ok": False,
+                "status": "not_configured",
+                "torrent_hash": clean_hash,
+                "upload_limit": upload_limit,
+                "download_limit": download_limit,
+            }
+
+        if upload_limit is not None:
+            client.torrents_set_upload_limit(torrent_hashes=clean_hash, limit=upload_limit)
+        if download_limit is not None:
+            client.torrents_set_download_limit(torrent_hashes=clean_hash, limit=download_limit)
+
+        logger.info(
+            "qB torrent speed limits set hash=%s upload_limit=%s download_limit=%s",
+            clean_hash,
+            upload_limit,
+            download_limit,
+        )
+        return {
+            "ok": True,
+            "torrent_hash": clean_hash,
+            "upload_limit": upload_limit,
+            "download_limit": download_limit,
+        }
+
     @staticmethod
     def generate_mteam_torrent_name(mteam_id: str, detail: dict[str, Any], qb_category: str) -> str:
         """Generate stable qB name anchored on M-Team torrent id."""

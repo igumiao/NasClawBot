@@ -435,3 +435,78 @@ def test_qb_control_torrent_rejects_unknown_action():
 
     with pytest.raises(ValueError, match="Unsupported torrent action"):
         adapter.control_torrent("abc123", action="start-now")
+
+
+def test_qb_set_torrent_speed_limits_sets_per_torrent_limits(monkeypatch: pytest.MonkeyPatch):
+    adapter = QBittorrentAdapter(
+        base_url="http://qb.local",
+        username="user",
+        password="pass",
+    )
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            _ = kwargs
+
+        def auth_log_in(self):
+            return None
+
+        def torrents_set_upload_limit(self, **kwargs):
+            captured["upload"] = kwargs
+
+        def torrents_set_download_limit(self, **kwargs):
+            captured["download"] = kwargs
+
+    monkeypatch.setattr(qb_module, "qbittorrentapi", SimpleNamespace(Client=FakeClient), raising=False)
+
+    result = adapter.set_torrent_speed_limits(
+        torrent_hash="abc123",
+        upload_limit=5242880,
+        download_limit=20971520,
+    )
+
+    assert captured["upload"] == {"torrent_hashes": "abc123", "limit": 5242880}
+    assert captured["download"] == {"torrent_hashes": "abc123", "limit": 20971520}
+    assert result == {"ok": True, "torrent_hash": "abc123", "upload_limit": 5242880, "download_limit": 20971520}
+
+
+def test_qb_set_torrent_speed_limits_partial(monkeypatch: pytest.MonkeyPatch):
+    adapter = QBittorrentAdapter(
+        base_url="http://qb.local",
+        username="user",
+        password="pass",
+    )
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            _ = kwargs
+
+        def auth_log_in(self):
+            return None
+
+        def torrents_set_upload_limit(self, **kwargs):
+            captured["upload"] = kwargs
+
+        def torrents_set_download_limit(self, **kwargs):
+            captured["download"] = kwargs
+
+    monkeypatch.setattr(qb_module, "qbittorrentapi", SimpleNamespace(Client=FakeClient), raising=False)
+
+    result = adapter.set_torrent_speed_limits(torrent_hash="abc123", download_limit=10485760)
+
+    assert "upload" not in captured
+    assert captured["download"] == {"torrent_hashes": "abc123", "limit": 10485760}
+    assert result == {"ok": True, "torrent_hash": "abc123", "upload_limit": None, "download_limit": 10485760}
+
+
+def test_qb_set_torrent_speed_limits_rejects_empty_hash():
+    adapter = QBittorrentAdapter(
+        base_url="http://qb.local",
+        username="user",
+        password="pass",
+    )
+
+    with pytest.raises(ValueError, match="torrent_hash must not be empty"):
+        adapter.set_torrent_speed_limits(torrent_hash="  ", upload_limit=1024)
