@@ -126,8 +126,39 @@ class TMDBDetailsTool(Tool):
         else:
             detail["title"] = raw.get("name") or "未知标题"
             detail["original_title"] = raw.get("original_name")
-            detail["release_date"] = raw.get("first_air_date")
-            detail["seasons"] = raw.get("number_of_seasons")
-            detail["episodes"] = raw.get("number_of_episodes")
+            detail["first_air_date"] = raw.get("first_air_date")
+            detail["last_air_date"] = raw.get("last_air_date")
+            detail["in_production"] = raw.get("in_production")
+            detail["number_of_seasons"] = raw.get("number_of_seasons")
+            detail["number_of_episodes"] = raw.get("number_of_episodes")
+            # Per-season breakdown so the LLM can identify the latest season
+            raw_seasons: list[dict[str, Any]] = raw.get("seasons") or []
+            detail["seasons"] = [
+                {
+                    "season_number": s.get("season_number"),
+                    "name": s.get("name"),
+                    "episode_count": s.get("episode_count"),
+                    "air_date": s.get("air_date"),
+                }
+                for s in raw_seasons
+                if isinstance(s, dict) and s.get("season_number", 0) > 0
+            ]
+            # Latest / next episode summary
+            last_ep = raw.get("last_episode_to_air")
+            if isinstance(last_ep, dict):
+                detail["last_episode_to_air"] = {
+                    "season_number": last_ep.get("season_number"),
+                    "episode_number": last_ep.get("episode_number"),
+                    "name": last_ep.get("name"),
+                    "air_date": last_ep.get("air_date"),
+                }
+            next_ep = raw.get("next_episode_to_air")
+            if isinstance(next_ep, dict):
+                detail["next_episode_to_air"] = {
+                    "season_number": next_ep.get("season_number"),
+                    "episode_number": next_ep.get("episode_number"),
+                    "name": next_ep.get("name"),
+                    "air_date": next_ep.get("air_date"),
+                }
 
         return detail
