@@ -45,7 +45,51 @@ def test_qb_list_torrents_forwards_filters():
     tool.run({"category": "movie", "status_filter": "downloading", "limit": 10})
 
     qb.list_torrents.assert_called_once_with(
-        category="movie", status_filter="downloading", limit=10
+        category="movie", tag=None, status_filter="downloading", sort=None, limit=10
+    )
+
+
+def test_qb_list_torrents_empty_result():
+    qb = MagicMock()
+    qb.list_torrents.return_value = []
+
+    tool = QBListTorrentsTool(qb)
+    response = tool.run({})
+
+    assert response.status.value == "success"
+    assert response.data["torrents"] == []
+    assert response.data["count"] == 0
+
+
+def test_qb_list_torrents_rejects_invalid_limit():
+    qb = MagicMock()
+
+    tool = QBListTorrentsTool(qb)
+    response = tool.run({"limit": 0})
+
+    assert response.status.value == "error"
+    assert response.error_info["code"] == "INVALID_PARAM"
+
+
+def test_qb_list_torrents_rejects_negative_limit():
+    qb = MagicMock()
+
+    tool = QBListTorrentsTool(qb)
+    response = tool.run({"limit": -1})
+
+    assert response.status.value == "error"
+    assert response.error_info["code"] == "INVALID_PARAM"
+
+
+def test_qb_list_torrents_strips_empty_string_filters():
+    qb = MagicMock()
+    qb.list_torrents.return_value = []
+
+    tool = QBListTorrentsTool(qb)
+    tool.run({"category": "", "tag": "  "})
+
+    qb.list_torrents.assert_called_once_with(
+        category=None, tag=None, status_filter=None, sort=None, limit=None
     )
 
 
