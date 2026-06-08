@@ -21,7 +21,17 @@ from app.agent.approvals import (
 )
 from app.config import get_settings
 from app.domain.models import ResourceCandidate
-from app.tools import MemberProfileTool, MTeamSearchTool, QBAddTorrentTool
+from app.tools import (
+    MemberProfileTool,
+    MTeamSearchTool,
+    QBAddTorrentTool,
+    QBListTorrentsTool,
+    QBGetTorrentTool,
+    QBListCategoriesTool,
+    QBControlTorrentTool,
+    QBSetGlobalSpeedTool,
+    QBSetTorrentSpeedTool,
+)
 from hello_agents.agents import ToolCallingAgent
 from hello_agents.checkpoints import ConversationCheckpoint, ConversationCheckpointStore
 from hello_agents.core.config import Config
@@ -61,8 +71,18 @@ mteam_search 默认按最新发布排序；用户明确要求电影、电视剧�
 当用户明确要求下载某个 M-Team torrent id 或上一轮候选资源时，可以调用 qb_add_torrent 提出下载请求。
 qb_add_torrent 会先等待用户确认；在用户确认前，不要声称已经下载或已经提交到 qBittorrent。
 只有后端审批执行返回成功结果后，才能说下载任务已经提交。
+
+你也可以管理 qBittorrent 中的下载任务：
+- 查询种子列表: qb_list_torrents（支持按分类、标签、状态筛选）
+- 查看种子详情: qb_get_torrent
+- 查看分类: qb_list_categories
+- 控制种子: qb_control_torrent（暂停、恢复、重新校验、重新汇报 tracker、删除）
+- 全局限速: qb_set_global_speed
+- 单种子限速: qb_set_torrent_speed
+操作类工具（控制、限速、删除）会等待用户确认后才执行。
+
 如果用户追问上一轮搜索结果，可以结合当前会话历史回答。
-当需要搜索时，调用 mteam_search；当需要查询数据时，调用 member_profile；当用户明确要求下载时，调用 qb_add_torrent；当已有信息足够时，直接回答。
+当需要搜索时，调用 mteam_search；当需要查询数据时，调用 member_profile；当用户明确要求下载时，调用 qb_add_torrent；当需要管理 qB 任务时，调用对应的 qb_* 工具；当已有信息足够时，直接回答。
 回答要简洁，并优先列出标题、分辨率、做种数、大小、优惠状态和 M-Team torrent id。
 """
 
@@ -119,8 +139,23 @@ class NasClawAgentRunner:
         self.qb_adapter_factory = qb_adapter_factory or QBittorrentAdapter
         self.max_steps = max_steps
         self.agent_config_overrides = agent_config_overrides or {}
-        self.tool_filter = tool_filter or Filter(allow=["mteam_search", "member_profile", "qb_add_torrent"])
-        self.tool_gate = tool_gate or Gate(confirm=[lambda call: call.tool_name == "qb_add_torrent"])
+        self.tool_filter = tool_filter or Filter(allow=[
+            "mteam_search",
+            "member_profile",
+            "qb_add_torrent",
+            "qb_list_torrents",
+            "qb_get_torrent",
+            "qb_list_categories",
+            "qb_control_torrent",
+            "qb_set_global_speed",
+            "qb_set_torrent_speed",
+        ])
+        self.tool_gate = tool_gate or Gate(confirm=[
+            lambda call: call.tool_name == "qb_add_torrent",
+            lambda call: call.tool_name == "qb_control_torrent",
+            lambda call: call.tool_name == "qb_set_global_speed",
+            lambda call: call.tool_name == "qb_set_torrent_speed",
+        ])
         self.approval_summary_enabled = approval_summary_enabled
 
     @_serialize_session
@@ -175,19 +210,21 @@ class NasClawAgentRunner:
             base_url=settings.mteam_base_url,
             api_key=settings.mteam_api_key,
         )
+        qb_adapter = self.qb_adapter_factory(
+            base_url=settings.qb_base_url,
+            username=settings.qb_username,
+            password=settings.qb_password,
+        )
         registry = ToolRegistry()
         registry.register_tool(MTeamSearchTool(mteam_adapter))
         registry.register_tool(MemberProfileTool(mteam_adapter))
-        registry.register_tool(
-            QBAddTorrentTool(
-                mteam_adapter,
-                self.qb_adapter_factory(
-                    base_url=settings.qb_base_url,
-                    username=settings.qb_username,
-                    password=settings.qb_password,
-                ),
-            )
-        )
+        registry.register_tool(QBAddTorrentTool(mteam_adapter, qb_adapter))
+        registry.register_tool(QBListTorrentsTool(qb_adapter))
+        registry.register_tool(QBGetTorrentTool(qb_adapter))
+        registry.register_tool(QBListCategoriesTool(qb_adapter))
+        registry.register_tool(QBControlTorrentTool(qb_adapter))
+        registry.register_tool(QBSetGlobalSpeedTool(qb_adapter))
+        registry.register_tool(QBSetTorrentSpeedTool(qb_adapter))
         config_values = {
             "trace_enabled": False,
             "session_enabled": False,
@@ -232,8 +269,9 @@ class NasClawAgentRunner:
             )
             self.checkpoint_store.save(saved_checkpoint)
             raise ValueError("Approval has expired")
-        if approval.tool_name != "qb_add_torrent":
-            raise ValueError("Only qb_add_torrent approvals can be executed")
+        _EXECUTABLE_TOOLS = {"qb_add_torrent", "qb_control_torrent", "qb_set_global_speed", "qb_set_torrent_speed"}
+        if approval.tool_name not in _EXECUTABLE_TOOLS:
+            raise ValueError(f"Tool '{approval.tool_name}' cannot be executed via approval")
 
         paused_loop = self._find_paused_loop(checkpoint, approval_id)
         if not paused_loop:
@@ -401,17 +439,30 @@ class NasClawAgentRunner:
 
     def _execute_approved_tool(self, approval: ApprovalRecord) -> ToolResponse:
         settings = get_settings()
-        tool = QBAddTorrentTool(
-            self.mteam_adapter_factory(
-                base_url=settings.mteam_base_url,
-                api_key=settings.mteam_api_key,
-            ),
-            self.qb_adapter_factory(
-                base_url=settings.qb_base_url,
-                username=settings.qb_username,
-                password=settings.qb_password,
-            ),
+        qb_adapter = self.qb_adapter_factory(
+            base_url=settings.qb_base_url,
+            username=settings.qb_username,
+            password=settings.qb_password,
         )
+
+        tool_name = approval.tool_name
+        if tool_name == "qb_add_torrent":
+            tool = QBAddTorrentTool(
+                self.mteam_adapter_factory(
+                    base_url=settings.mteam_base_url,
+                    api_key=settings.mteam_api_key,
+                ),
+                qb_adapter,
+            )
+        elif tool_name == "qb_control_torrent":
+            tool = QBControlTorrentTool(qb_adapter)
+        elif tool_name == "qb_set_global_speed":
+            tool = QBSetGlobalSpeedTool(qb_adapter)
+        elif tool_name == "qb_set_torrent_speed":
+            tool = QBSetTorrentSpeedTool(qb_adapter)
+        else:
+            raise ValueError(f"Cannot execute tool: {tool_name}")
+
         return tool.run_with_timing(dict(approval.arguments))
 
     @staticmethod
