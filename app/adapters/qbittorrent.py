@@ -285,6 +285,28 @@ class QBittorrentAdapter:
         logger.info("qB torrent action finished qb_hash=%s action=%s", clean_hash, normalized_action)
         return {"ok": True, "status": normalized_action, "qb_hash": clean_hash}
 
+    def set_global_speed_limits(
+        self,
+        upload_limit: int | None = None,
+        download_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Set global transfer speed limits in bytes/s. None means no change."""
+        client = self.login()
+        if client is None:
+            return {"ok": False, "status": "not_configured", "upload_limit": upload_limit, "download_limit": download_limit}
+
+        if upload_limit is not None:
+            client.transfer.upload_limit = upload_limit
+        if download_limit is not None:
+            client.transfer.download_limit = download_limit
+
+        logger.info(
+            "qB global speed limits set upload_limit=%s download_limit=%s",
+            upload_limit,
+            download_limit,
+        )
+        return {"ok": True, "upload_limit": upload_limit, "download_limit": download_limit}
+
     @staticmethod
     def generate_mteam_torrent_name(mteam_id: str, detail: dict[str, Any], qb_category: str) -> str:
         """Generate stable qB name anchored on M-Team torrent id."""
