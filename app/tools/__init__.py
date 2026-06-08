@@ -9,6 +9,7 @@ from app.tools.qb_add_torrent import QBAddTorrentTool
 from app.tools.qb_control_torrent import QBControlTorrentTool
 from app.tools.qb_get_torrent import QBGetTorrentTool
 from app.tools.qb_list_categories import QBListCategoriesTool
+from app.tools.qb_set_global_speed import QBSetGlobalSpeedTool
 
 __all__ = [
     "MemberProfileTool",
@@ -17,4 +18,5 @@ __all__ = [
     "QBControlTorrentTool",
     "QBGetTorrentTool",
     "QBListCategoriesTool",
+    "QBSetGlobalSpeedTool",
 ]
