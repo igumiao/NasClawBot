@@ -501,6 +501,22 @@ def test_qb_set_torrent_speed_limits_partial(monkeypatch: pytest.MonkeyPatch):
     assert result == {"ok": True, "torrent_hash": "abc123", "upload_limit": None, "download_limit": 10485760}
 
 
+def test_qb_add_payload_allows_empty_category():
+    adapter = QBittorrentAdapter(
+        base_url="http://qb.local",
+        username="user",
+        password="pass",
+    )
+    payload = adapter.build_add_payload(
+        url="https://download.local/token",
+        category="",
+        rename="[123] Dune",
+    )
+
+    assert "category" not in payload, "empty category should be omitted from payload"
+    assert payload["urls"] == "https://download.local/token"
+
+
 def test_qb_set_torrent_speed_limits_rejects_empty_hash():
     adapter = QBittorrentAdapter(
         base_url="http://qb.local",
