@@ -65,6 +65,12 @@ class McpBridgeTool(Tool):
                 code="MCP_CONNECTION_ERROR",
                 message=f"MCP server '{self._server}' 不可用: {e}",
             )
+        except Exception as e:
+            logger.exception("Unexpected error calling MCP tool '%s/%s'", self._server, self._tool_info.name)
+            return ToolResponse.error(
+                code="MCP_TOOL_ERROR",
+                message=f"MCP tool call failed: {e}",
+            )
         return self._to_response(result)
 
     def run(self, parameters: dict) -> ToolResponse:
@@ -127,12 +133,10 @@ def register_mcp_tools(
         count += 1
 
     if tool_filter is not None and mcp_tool_names:
-        # 将 MCP 工具名加入现有 filter 白名单
-        all_names = set(
-            tool_filter.apply(list(getattr(registry, "_tools", {}).keys()))
-        )
-        all_names.update(mcp_tool_names)
-        tool_filter._predicate = lambda name, s=all_names: name in s
+        # Compose with existing predicate — preserve original allow list
+        old_pred = tool_filter._predicate
+        names_set = set(mcp_tool_names)
+        tool_filter._predicate = lambda name, op=old_pred, ns=names_set: op(name) or name in ns
 
     logger.info("Registered %d MCP tools", count)
     return count
