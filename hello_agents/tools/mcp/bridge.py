@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import concurrent.futures
 import json
 import logging
 
@@ -74,14 +72,27 @@ class McpBridgeTool(Tool):
         return self._to_response(result)
 
     def run(self, parameters: dict) -> ToolResponse:
-        """同步回退路径 — 测试或非 async 上下文。"""
+        """同步回退路径 — 通过 call_tool_sync 桥接到主 event loop。
+
+        FastAPI 在线程池中运行同步路由，MCP transport streams 绑定在主 loop。
+        call_tool_sync 使用 run_coroutine_threadsafe 跨越线程边界。
+        """
         try:
-            return asyncio.run(self.arun(parameters))
-        except RuntimeError:
-            # 已有 running event loop（不应在生产中发生，防御性处理）
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self.arun(parameters))
-                return future.result()
+            result = self._pool.call_tool_sync(
+                self._server, self._tool_info.name, parameters
+            )
+        except McpConnectionError as e:
+            return ToolResponse.error(
+                code="MCP_CONNECTION_ERROR",
+                message=f"MCP server '{self._server}' 不可用: {e}",
+            )
+        except Exception as e:
+            logger.exception("Unexpected error calling MCP tool '%s/%s'", self._server, self._tool_info.name)
+            return ToolResponse.error(
+                code="MCP_TOOL_ERROR",
+                message=f"MCP tool call failed: {e}",
+            )
+        return self._to_response(result)
 
     @staticmethod
     def _to_response(result: object) -> ToolResponse:

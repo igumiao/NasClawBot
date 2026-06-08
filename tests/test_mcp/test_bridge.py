@@ -88,16 +88,13 @@ def test_bridge_tool_naming_convention():
     assert tool.description == "d"
 
 
-# ── McpBridgeTool.run (sync bridge) ───────────
+# ── McpBridgeTool.run (sync bridge via call_tool_sync) ─
 
 def test_bridge_tool_run_success():
     pool = MagicMock(spec=McpPool)
     mock_result = MagicMock()
     mock_result.content = [MagicMock(text="movie data here", type="text")]
-
-    async def async_call_tool(*args, **kwargs):
-        return mock_result
-    pool.call_tool = async_call_tool
+    pool.call_tool_sync.return_value = mock_result
 
     tool_info = McpToolInfo(name="search_movies", description="d", input_schema={
         "type": "object", "properties": {}, "required": [],
@@ -111,10 +108,7 @@ def test_bridge_tool_run_success():
 
 def test_bridge_tool_run_connection_error():
     pool = MagicMock(spec=McpPool)
-
-    async def raise_error(*args, **kwargs):
-        raise McpConnectionError("not connected")
-    pool.call_tool = raise_error
+    pool.call_tool_sync.side_effect = McpConnectionError("not connected")
 
     tool_info = McpToolInfo(name="search_movies", description="d", input_schema={
         "type": "object", "properties": {}, "required": [],
@@ -133,10 +127,7 @@ def test_bridge_tool_run_structured_content_fallback():
     mock_result = MagicMock()
     mock_result.content = []  # no text content
     mock_result.structuredContent = {"results": [1, 2, 3]}
-
-    async def async_call_tool(*args, **kwargs):
-        return mock_result
-    pool.call_tool = async_call_tool
+    pool.call_tool_sync.return_value = mock_result
 
     tool_info = McpToolInfo(name="search", description="d", input_schema={
         "type": "object", "properties": {}, "required": [],

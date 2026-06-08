@@ -264,6 +264,45 @@ async def test_pool_call_tool_unknown_server_raises():
         await pool.call_tool("unknown", "search", {})
 
 
+# ── McpPool.call_tool_sync ───────────────────
+
+def test_pool_call_tool_sync_no_loop_fallback():
+    """call_tool_sync 在 _loop=None 时降级为 asyncio.run。"""
+    conn = McpConnection(McpServerConfig(name="s1", command="echo", args=[]))
+    pool = McpPool([])
+    pool._connections = {"s1": conn}
+    pool._loop = None  # 非 async 上下文（测试路径）
+
+    mock_result = MagicMock()
+    with patch.object(conn, "call_tool", AsyncMock(return_value=mock_result)):
+        result = pool.call_tool_sync("s1", "search", {"q": "test"})
+        assert result is mock_result
+
+
+def test_pool_call_tool_sync_unknown_server():
+    """call_tool_sync 对未知 server raise。"""
+    pool = McpPool([])
+    pool._loop = None
+    with pytest.raises(McpConnectionError, match="not connected"):
+        pool.call_tool_sync("unknown", "search", {})
+
+
+def test_mcp_pool_captures_loop_in_async_context():
+    """在 async 上下文中构造时 McpPool 捕获 running loop。"""
+    import asyncio as _asyncio
+
+    async def _create():
+        pool = McpPool([])
+        return pool._loop
+
+    loop = _asyncio.new_event_loop()
+    try:
+        captured = loop.run_until_complete(_create())
+        assert captured is loop
+    finally:
+        loop.close()
+
+
 # ── McpPool.stop_all ─────────────────────────
 
 @pytest.mark.asyncio
