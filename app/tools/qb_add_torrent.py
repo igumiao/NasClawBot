@@ -34,8 +34,15 @@ class QBAddTorrentTool(Tool):
             ToolParameter(
                 name="qb_category",
                 type="string",
-                description="qBittorrent 分类名称",
-                required=True,
+                description="qBittorrent 分类名称。从预设中选择最适合的分类",
+                required=False,
+                enum=["电影", "电视剧", "综艺", "动漫", "纪录片"],
+            ),
+            ToolParameter(
+                name="save_path",
+                type="string",
+                description="自定义保存路径（可选）。不传则使用 qBittorrent 默认路径",
+                required=False,
             ),
         ]
 
@@ -69,13 +76,18 @@ class QBAddTorrentTool(Tool):
             )
 
         rename = self._qb.generate_mteam_torrent_name(torrent_id, detail, qb_category)
-        add_result = self._qb.add_torrent_url(
-            url=download_url,
-            category=qb_category,
-            rename=rename,
-            tags=["mteam"],
-            paused=True,
-        )
+        add_kwargs: dict[str, Any] = {
+            "url": download_url,
+            "category": qb_category,
+            "rename": rename,
+            "tags": ["mteam"],
+            "paused": True,
+        }
+        save_path = str(parameters.get("save_path", "")).strip()
+        if save_path:
+            add_kwargs["save_path"] = save_path
+
+        add_result = self._qb.add_torrent_url(**add_kwargs)
 
         if add_result.get("ok"):
             title = str(detail.get("title") or torrent_id)

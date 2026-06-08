@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.tools.qb_add_torrent import QBAddTorrentTool
 from app.tools.qb_control_torrent import QBControlTorrentTool
 from app.tools.qb_get_torrent import QBGetTorrentTool
 from app.tools.qb_list_categories import QBListCategoriesTool
@@ -281,3 +282,62 @@ def test_qb_set_torrent_speed_empty_hash():
 
     assert response.status.value == "error"
     assert response.error_info["code"] == "INVALID_PARAM"
+
+
+def test_qb_add_torrent_category_optional_with_presets():
+    """qb_category should be optional with preset enum values."""
+    tool = QBAddTorrentTool(MagicMock(), MagicMock())
+    params = {p.name: p for p in tool.get_parameters()}
+
+    assert params["qb_category"].required is False
+    assert params["qb_category"].enum == ["电影", "电视剧", "综艺", "动漫", "纪录片"]
+
+
+def test_qb_add_torrent_has_save_path_param():
+    """save_path should be an optional new parameter."""
+    tool = QBAddTorrentTool(MagicMock(), MagicMock())
+    params = {p.name: p for p in tool.get_parameters()}
+
+    assert "save_path" in params
+    assert params["save_path"].required is False
+    assert params["save_path"].type == "string"
+
+
+def test_qb_add_torrent_passes_save_path_to_adapter():
+    """save_path should be forwarded to the adapter's add_torrent_url."""
+    mteam = MagicMock()
+    mteam.get_torrent_details.return_value = {"title": "Test Movie", "smallDescr": "1080p"}
+    mteam.get_torrent_download_url.return_value = "https://example.com/dl/token"
+    mteam.is_download_url_torrent.return_value = True
+
+    qb = MagicMock()
+    qb.generate_mteam_torrent_name.return_value = "[123][电影][Test.Movie]"
+    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
+
+    tool = QBAddTorrentTool(mteam, qb)
+    response = tool.run({
+        "torrent_id": "123",
+        "qb_category": "电影",
+        "save_path": "/downloads/movies",
+    })
+
+    assert response.status.value == "success"
+    call_kwargs = qb.add_torrent_url.call_args.kwargs
+    assert call_kwargs.get("save_path") == "/downloads/movies"
+
+
+def test_qb_add_torrent_default_category_when_omitted():
+    """When category is omitted, should still proceed."""
+    mteam = MagicMock()
+    mteam.get_torrent_details.return_value = {"title": "Test"}
+    mteam.get_torrent_download_url.return_value = "https://example.com/dl/token"
+    mteam.is_download_url_torrent.return_value = True
+
+    qb = MagicMock()
+    qb.generate_mteam_torrent_name.return_value = "[123][other][Test]"
+    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
+
+    tool = QBAddTorrentTool(mteam, qb)
+    response = tool.run({"torrent_id": "123"})
+
+    assert response.status.value == "success"

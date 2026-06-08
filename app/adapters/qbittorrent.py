@@ -82,17 +82,16 @@ class QBittorrentAdapter:
         clean_tags = [tag.strip() for tag in (tags or []) if tag.strip()]
         if not clean_url:
             raise ValueError("url must not be empty")
-        if not clean_category:
-            raise ValueError("category must not be empty")
         if not clean_rename:
             raise ValueError("rename must not be empty")
 
         payload: dict[str, Any] = {
             "urls": clean_url,
-            "category": clean_category,
             "rename": clean_rename,
             "is_paused": paused,
         }
+        if clean_category:
+            payload["category"] = clean_category
         if clean_tags:
             payload["tags"] = clean_tags
         return payload
@@ -116,6 +115,7 @@ class QBittorrentAdapter:
         rename: str,
         paused: bool = False,
         tags: list[str] | None = None,
+        **extra_kwargs: Any,
     ) -> dict[str, Any]:
         """Submit tokenized URL to qB and return structured result."""
         client = self.login()
@@ -128,6 +128,7 @@ class QBittorrentAdapter:
             paused=paused,
             tags=tags,
         )
+        payload.update(extra_kwargs)
         logger.info(
             "qB add torrent started category=%s paused=%s tag_count=%s rename_chars=%s",
             payload["category"],
