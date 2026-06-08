@@ -146,6 +146,35 @@ Two independent layers, no `ToolPermission` enum:
 
 Factory functions for common deny rules: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
 
+### MCP Framework (`hello_agents/tools/mcp/`)
+
+Generic MCP (Model Context Protocol) client bridge — JSON-RPC 2.0 over STDIO transport, built on `mcp` Python SDK (`modelcontextprotocol/python-sdk`). Framework is ready; currently no MCP servers are configured.
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `hello_agents/tools/mcp/client.py` | `McpConnection` (single subprocess lifecycle via `stdio_client` + `ClientSession`), `McpPool` (multi-server, tools aggregation, `call_tool`/`call_tool_sync`) |
+| `hello_agents/tools/mcp/bridge.py` | `McpBridgeTool` (MCP tool → HelloAgents `Tool` instance, schema conversion), `register_mcp_tools()` (batch register into `ToolRegistry`) |
+| `app/mcp_pool.py` | Module-level `McpPool` singleton, `init_mcp_pool()` / `shutdown_mcp_pool()` / `get_mcp_pool()` |
+
+**Design decisions:**
+
+- **Tool naming:** `mcp_{server_name}_{tool_name}` (e.g. `mcp_myserver_search`).
+- **Schema conversion:** MCP `inputSchema` (JSON Schema) → `ToolParameter` list in `McpBridgeTool._parse_schema()`.
+- **Filter integration:** `register_mcp_tools()` composes MCP tool names into the existing `Filter` predicate — preserves the original allow list.
+- **Gate:** MCP tools default to `ALLOW` (read-only). Gate can be overridden per tool.
+- **Sync/async bridge:** `McpPool.call_tool_sync()` → `asyncio.run_coroutine_threadsafe()` bridges from FastAPI thread pool to the main event loop that owns MCP transport streams. `McpBridgeTool.run()` delegates to `call_tool_sync()`.
+- **Timeout:** `call_tool_sync()` enforces 30s timeout per call via `future.result(timeout=30.0)`.
+- **Graceful degradation:** `get_mcp_pool()` returns `None` when no servers are configured. The runner skips MCP registration when pool is `None`.
+
+**Adding a new MCP server (future):**
+
+1. Create `McpServerConfig` with `command`, `args`, and `env` (API keys, proxy vars).
+2. Add to `app/mcp_pool.py` → `init_mcp_pool()` — create `McpConnection`, call `connect()`, add to pool.
+3. Optionally define an `allow` list to curate which tools the LLM sees.
+4. MCP tools appear in the Agent toolbox alongside built-in tools, with the same Filter/Gate safety.
+
 ### Current Experimental Agent Loop
 
 ```text

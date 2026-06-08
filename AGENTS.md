@@ -74,6 +74,25 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - Factory functions: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
 - `ToolPermission` and `ToolFilter` have been removed.
 
+### MCP Framework (`hello_agents/tools/mcp/`)
+
+Generic MCP (Model Context Protocol) client bridge — JSON-RPC 2.0 over STDIO, built on `mcp` Python SDK. Framework code is ready and tested; currently no MCP servers are configured.
+
+| File | Purpose |
+|------|---------|
+| `hello_agents/tools/mcp/client.py` | `McpServerConfig`, `McpToolInfo`, `McpConnection` (subprocess lifecycle via `stdio_client` + `ClientSession`), `McpPool` (multi-server, `call_tool`/`call_tool_sync`) |
+| `hello_agents/tools/mcp/bridge.py` | `McpBridgeTool` (MCP tool → `Tool` with schema conversion), `register_mcp_tools()` (batch register + Filter integration) |
+| `app/mcp_pool.py` | Module-level `McpPool` singleton — `init_mcp_pool()`, `shutdown_mcp_pool()`, `get_mcp_pool()` |
+
+Key design points:
+
+- **Naming:** `mcp_{server_name}_{tool_name}`.
+- **Schema:** MCP `inputSchema` → `ToolParameter` list.
+- **Filter:** `register_mcp_tools()` composes MCP tool names into the existing `Filter` predicate, preserving the original allow list.
+- **Gate:** MCP tools default to `ALLOW` (read-only); overridable per tool.
+- **Sync bridge:** `McpPool.call_tool_sync()` → `asyncio.run_coroutine_threadsafe()` — bridges from FastAPI thread pool to the main event loop that owns MCP transport streams. 30s timeout per call.
+- **Graceful degradation:** `get_mcp_pool()` returns `None` when no servers are configured; runner skips MCP registration.
+
 ## Removed Architecture
 
 The following are intentionally not part of the active implementation:

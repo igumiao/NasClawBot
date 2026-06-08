@@ -142,12 +142,21 @@ class McpConnection:
 
 
 class McpPool:
-    """管理多个 McpConnection。"""
+    """管理多个 McpConnection。
+
+    所有 MCP I/O 必须在主 event loop 上执行 — call_tool_sync()
+    通过 run_coroutine_threadsafe 从线程池桥接到主 loop。
+    """
 
     def __init__(self, connections: list[McpConnection]) -> None:
         self._connections: dict[str, McpConnection] = {
             c.config.name: c for c in connections
         }
+        self._loop: asyncio.AbstractEventLoop | None = None
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass  # 不在 async 上下文中构造（测试路径）
 
     async def start_all(self) -> dict[str, bool]:
         """顺序连接所有 server，返回每 server 成功/失败状态。"""
@@ -187,10 +196,27 @@ class McpPool:
     async def call_tool(
         self, server_name: str, tool_name: str, arguments: dict
     ) -> object:
-        """找到对应 connection，调用 tool。"""
+        """找到对应 connection，调用 tool（主 event loop 路径）。"""
         conn = self._connections.get(server_name)
         if conn is None:
             raise McpConnectionError(
                 f"MCP server '{server_name}' is not connected"
             )
         return await conn.call_tool(tool_name, arguments)
+
+    def call_tool_sync(
+        self, server_name: str, tool_name: str, arguments: dict, timeout: float = 30.0
+    ) -> object:
+        """同步桥接 — 从线程池安全调度到主 event loop。
+
+        FastAPI 在 threadpool 中运行同步路由，但 MCP transport streams
+        绑定在主 event loop 上。通过 run_coroutine_threadsafe 跨越线程边界。
+        """
+        loop = self._loop
+        if loop is None:
+            # 测试路径或无 loop — 降级为 asyncio.run
+            return asyncio.run(self.call_tool(server_name, tool_name, arguments))
+
+        coro = self.call_tool(server_name, tool_name, arguments)
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result(timeout=timeout)
