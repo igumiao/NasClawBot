@@ -10,6 +10,7 @@ import pytest
 from app.tools.qb_control_torrent import QBControlTorrentTool
 from app.tools.qb_get_torrent import QBGetTorrentTool
 from app.tools.qb_list_categories import QBListCategoriesTool
+from app.tools.qb_set_global_speed import QBSetGlobalSpeedTool
 from app.tools.qb_list_torrents import QBListTorrentsTool
 
 
@@ -216,6 +217,27 @@ def test_qb_control_torrent_empty_hash():
     qb = MagicMock()
     tool = QBControlTorrentTool(qb)
     response = tool.run({"torrent_hash": "  ", "action": "pause"})
+
+    assert response.status.value == "error"
+    assert response.error_info["code"] == "INVALID_PARAM"
+
+
+def test_qb_set_global_speed_both_limits():
+    qb = MagicMock()
+    qb.set_global_speed_limits.return_value = {"ok": True, "upload_limit": 10485760, "download_limit": 52428800}
+
+    tool = QBSetGlobalSpeedTool(qb)
+    response = tool.run({"upload_limit": 10485760, "download_limit": 52428800})
+
+    assert response.status.value == "success"
+    qb.set_global_speed_limits.assert_called_once_with(upload_limit=10485760, download_limit=52428800)
+
+
+def test_qb_set_global_speed_no_params():
+    qb = MagicMock()
+
+    tool = QBSetGlobalSpeedTool(qb)
+    response = tool.run({})
 
     assert response.status.value == "error"
     assert response.error_info["code"] == "INVALID_PARAM"
