@@ -198,3 +198,85 @@ class TestTMDBDetailsTool:
         tool = TMDBDetailsTool(mock_adapter)
         response = tool.run({"tmdb_id": 999, "media_type": "movie"})
         assert response.status.value == "error"
+
+
+from app.tools.tmdb_discover import TMDBDiscoverTool
+
+
+class TestTMDBDiscoverTool:
+    def test_requires_media_type(self):
+        tool = TMDBDiscoverTool(MagicMock())
+        params = {p.name: p for p in tool.get_parameters()}
+        assert params["media_type"].required is True
+        assert set(params["media_type"].enum) == {"movie", "tv"}
+
+    def test_optional_filters_have_defaults(self):
+        tool = TMDBDiscoverTool(MagicMock())
+        params = {p.name: p for p in tool.get_parameters()}
+        for name in ("sort_by", "with_genres", "year", "vote_average_gte", "vote_count_gte"):
+            assert params[name].required is False, f"{name} should be optional"
+
+    def test_run_discover_movie_uses_correct_adapter_method(self):
+        mock_adapter = MagicMock()
+        mock_adapter.discover_movie.return_value = {
+            "page": 1,
+            "results": [
+                {"id": 693134, "title": "沙丘2", "overview": "...",
+                 "release_date": "2024-03-01", "vote_average": 8.2, "vote_count": 3500},
+            ],
+            "total_results": 1,
+        }
+        tool = TMDBDiscoverTool(mock_adapter)
+        response = tool.run({
+            "media_type": "movie",
+            "sort_by": "vote_average.desc",
+            "with_genres": "878",
+            "year": 2024,
+            "vote_count_gte": 200,
+        })
+        mock_adapter.discover_movie.assert_called_once()
+        call_kwargs = mock_adapter.discover_movie.call_args[1]
+        assert call_kwargs["sort_by"] == "vote_average.desc"
+        assert call_kwargs["with_genres"] == "878"
+        assert call_kwargs["primary_release_year"] == 2024
+        assert call_kwargs["vote_count.gte"] == 200
+        assert response.status.value == "success"
+
+    def test_run_discover_tv_uses_correct_adapter_method(self):
+        mock_adapter = MagicMock()
+        mock_adapter.discover_tv.return_value = {
+            "page": 1,
+            "results": [
+                {"id": 1399, "name": "权力的游戏", "overview": "...",
+                 "first_air_date": "2011-04-17", "vote_average": 8.5, "vote_count": 15000},
+            ],
+            "total_results": 1,
+        }
+        tool = TMDBDiscoverTool(mock_adapter)
+        response = tool.run({
+            "media_type": "tv",
+            "sort_by": "popularity.desc",
+            "year": 2011,
+        })
+        mock_adapter.discover_tv.assert_called_once()
+        call_kwargs = mock_adapter.discover_tv.call_args[1]
+        assert call_kwargs["first_air_date_year"] == 2011
+        assert response.status.value == "success"
+
+    def test_limits_results_to_5(self):
+        mock_adapter = MagicMock()
+        mock_adapter.discover_movie.return_value = {
+            "page": 1,
+            "results": [{"id": i, "title": f"Movie {i}"} for i in range(10)],
+            "total_results": 10,
+        }
+        tool = TMDBDiscoverTool(mock_adapter)
+        response = tool.run({"media_type": "movie"})
+        assert len(response.data["candidates"]) == 5
+
+    def test_handles_adapter_error(self):
+        mock_adapter = MagicMock()
+        mock_adapter.discover_movie.side_effect = Exception("Fail")
+        tool = TMDBDiscoverTool(mock_adapter)
+        response = tool.run({"media_type": "movie"})
+        assert response.status.value == "error"
