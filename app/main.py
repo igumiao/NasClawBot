@@ -3,6 +3,7 @@
 This module wires routes and static frontend assets into a single app instance.
 """
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,17 +12,26 @@ from fastapi.staticfiles import StaticFiles
 from app.api.chat_routes import build_router
 from app.config import get_settings
 from app.logging_config import configure_logging
+from app.mcp_pool import init_mcp_pool, shutdown_mcp_pool
 
 
 def _frontend_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "frontend"
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Application lifespan — startup MCP connections, shutdown cleanly."""
+    await init_mcp_pool()
+    yield
+    await shutdown_mcp_pool()
+
+
 def create_app() -> FastAPI:
     """Create and configure the application object."""
     settings = get_settings()
     configure_logging(settings.log_level)
-    app = FastAPI(title=settings.app_name)
+    app = FastAPI(title=settings.app_name, lifespan=_lifespan)
     app.include_router(build_router())
 
     frontend_dir = _frontend_dir()

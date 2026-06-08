@@ -21,6 +21,7 @@ from app.api.schemas import (
     SessionUpdateRequest,
 )
 from app.config import get_settings
+from app.mcp_pool import get_mcp_pool
 from app.tools import MTeamSearchTool, QBAddTorrentTool
 from hello_agents.checkpoints import JSONConversationCheckpointStore
 
@@ -123,6 +124,7 @@ def build_router() -> APIRouter:
 
         runner = NasClawAgentRunner(
             checkpoint_store=_agent_checkpoint_store(),
+            mcp_pool=get_mcp_pool(),
         )
 
         try:
