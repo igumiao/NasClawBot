@@ -52,25 +52,25 @@ class McpConnection:
     def __init__(self, config: McpServerConfig) -> None:
         self.config = config
         self._session: ClientSession | None = None
-        self._context_stack: object | None = None
+        self._stdio_cm: object | None = None
+        self._context_stack: tuple[object, object, ClientSession] | None = None
         self._tools: list[McpToolInfo] = []
 
     async def connect(self) -> None:
         """启动子进程，建立 STDIO 连接，初始化 session，发现工具。"""
         try:
             if self._session is None:
-                # 生产路径：启动子进程，建立 STDIO 连接
                 server_params = StdioServerParameters(
                     command=self.config.command,
                     args=self.config.args,
                     env=self.config.env,
                 )
-                read, write = await stdio_client(server_params).__aenter__()
+                self._stdio_cm = stdio_client(server_params)
+                read, write = await self._stdio_cm.__aenter__()
                 session = ClientSession(read, write)
                 await session.__aenter__()
                 self._session = session
                 self._context_stack = (read, write, session)
-            # 测试路径：self._session 已由 mock 设定，直接使用
 
             await self._session.initialize()
 
@@ -90,6 +90,7 @@ class McpConnection:
                 len(self._tools),
             )
         except Exception as exc:
+            await self.disconnect()
             raise McpConnectionError(
                 f"Failed to connect to MCP server '{self.config.name}': {exc}"
             ) from exc
@@ -111,7 +112,7 @@ class McpConnection:
         return self._session is not None
 
     async def disconnect(self) -> None:
-        """关闭 ClientSession 和底层 transport。"""
+        """关闭 ClientSession 和底层 transport，回收子进程。"""
         if self._context_stack is not None:
             read, write, session = self._context_stack
             try:
@@ -126,7 +127,13 @@ class McpConnection:
                 await write.aclose()
             except Exception:
                 pass
+        if self._stdio_cm is not None:
+            try:
+                await self._stdio_cm.__aexit__(None, None, None)
+            except Exception:
+                pass
         self._session = None
+        self._stdio_cm = None
         self._context_stack = None
         self._tools = []
 
@@ -143,7 +150,7 @@ class McpPool:
         }
 
     async def start_all(self) -> dict[str, bool]:
-        """并发连接所有 server，返回每 server 成功/失败状态。"""
+        """顺序连接所有 server，返回每 server 成功/失败状态。"""
         results: dict[str, bool] = {}
         for name, conn in self._connections.items():
             try:

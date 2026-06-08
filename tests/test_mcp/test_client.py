@@ -137,18 +137,44 @@ async def test_health_false_when_not_connected():
 # ── McpConnection.disconnect ─────────────────
 
 @pytest.mark.asyncio
-async def test_disconnect_clears_state():
+async def test_disconnect_cleans_up_context_stack_and_stdio_cm():
+    """disconnect 会正确关闭 session、stream 和 stdio context manager。"""
     conn = McpConnection(
         McpServerConfig(name="tmdb", command="npx", args=[])
     )
-    # Set up a simple session — disconnect should clear it
-    mock_session = MagicMock()
+    mock_read = AsyncMock()
+    mock_write = AsyncMock()
+    mock_session = AsyncMock()
+    mock_stdio_cm = AsyncMock()
+
+    conn._context_stack = (mock_read, mock_write, mock_session)
+    conn._stdio_cm = mock_stdio_cm
     conn._session = mock_session
     conn._tools = [McpToolInfo(name="t1", description="d", input_schema={})]
 
     await conn.disconnect()
 
+    mock_session.__aexit__.assert_awaited_once()
+    mock_read.aclose.assert_awaited_once()
+    mock_write.aclose.assert_awaited_once()
+    mock_stdio_cm.__aexit__.assert_awaited_once()
     assert conn._session is None
+    assert conn._stdio_cm is None
+    assert conn._context_stack is None
+    assert conn._tools == []
+
+
+@pytest.mark.asyncio
+async def test_disconnect_when_not_connected_is_noop():
+    """从未连接时 disconnect 应该是安全的空操作。"""
+    conn = McpConnection(
+        McpServerConfig(name="tmdb", command="npx", args=[])
+    )
+    await conn.disconnect()  # Should not raise
+
+    assert conn._session is None
+    assert conn._stdio_cm is None
+    assert conn._context_stack is None
     assert conn._tools == []
 
 
@@ -236,3 +262,30 @@ async def test_pool_call_tool_unknown_server_raises():
     pool = McpPool([])
     with pytest.raises(McpConnectionError, match="not connected"):
         await pool.call_tool("unknown", "search", {})
+
+
+# ── McpPool.stop_all ─────────────────────────
+
+@pytest.mark.asyncio
+async def test_pool_stop_all_disconnects_all_servers():
+    conn1 = McpConnection(McpServerConfig(name="a", command="echo", args=[]))
+    conn2 = McpConnection(McpServerConfig(name="b", command="echo", args=[]))
+    pool = McpPool([conn1, conn2])
+
+    with patch.object(conn1, "disconnect", AsyncMock()) as d1:
+        with patch.object(conn2, "disconnect", AsyncMock()) as d2:
+            await pool.stop_all()
+            d1.assert_awaited_once()
+            d2.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pool_stop_all_one_failure_does_not_block_others():
+    conn1 = McpConnection(McpServerConfig(name="a", command="echo", args=[]))
+    conn2 = McpConnection(McpServerConfig(name="b", command="echo", args=[]))
+    pool = McpPool([conn1, conn2])
+
+    with patch.object(conn1, "disconnect", AsyncMock(side_effect=Exception("fail"))):
+        with patch.object(conn2, "disconnect", AsyncMock()) as d2:
+            await pool.stop_all()
+            d2.assert_awaited_once()  # conn2 still gets disconnected
