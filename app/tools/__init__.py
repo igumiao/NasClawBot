@@ -12,6 +12,10 @@ from app.tools.qb_list_categories import QBListCategoriesTool
 from app.tools.qb_control_torrent import QBControlTorrentTool
 from app.tools.qb_set_global_speed import QBSetGlobalSpeedTool
 from app.tools.qb_set_torrent_speed import QBSetTorrentSpeedTool
+from app.tools.tmdb_search import TMDBSearchTool
+from app.tools.tmdb_details import TMDBDetailsTool
+from app.tools.tmdb_discover import TMDBDiscoverTool
+from app.tools.tmdb_trending import TMDBTrendingTool
 
 __all__ = [
     "MemberProfileTool",
@@ -23,4 +27,8 @@ __all__ = [
     "QBControlTorrentTool",
     "QBSetGlobalSpeedTool",
     "QBSetTorrentSpeedTool",
+    "TMDBSearchTool",
+    "TMDBDetailsTool",
+    "TMDBDiscoverTool",
+    "TMDBTrendingTool",
 ]
