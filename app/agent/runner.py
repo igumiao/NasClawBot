@@ -81,6 +81,14 @@ qb_add_torrent 会先等待用户确认；在用户确认前，不要声称已�
 - 单种子限速: qb_set_torrent_speed
 操作类工具（控制、限速、删除）会等待用户确认后才执行。
 
+你也可以查询外部影视数据源（通过 MCP 连接 TMDB）:
+- 搜索电影/剧集: mcp_tmdb_search_movies, mcp_tmdb_search_tv_shows
+- 查看详情: mcp_tmdb_get_movie_details
+- 搜索演员/导演: mcp_tmdb_search_person
+- 获取推荐: mcp_tmdb_get_recommendations
+- 热门趋势: mcp_tmdb_get_trending
+这些工具均为只读，直接执行，结果可能包含 IMDb ID，可用于后续 mteam_search 精准搜索。
+
 如果用户追问上一轮搜索结果，可以结合当前会话历史回答。
 当需要搜索时，调用 mteam_search；当需要查询数据时，调用 member_profile；当用户明确要求下载时，调用 qb_add_torrent；当需要管理 qB 任务时，调用对应的 qb_* 工具；当已有信息足够时，直接回答。
 回答要简洁，并优先列出标题、分辨率、做种数、大小、优惠状态和 M-Team torrent id。
@@ -132,8 +140,10 @@ class NasClawAgentRunner:
         tool_filter: Filter | None = None,
         tool_gate: Gate | None = None,
         approval_summary_enabled: bool = True,
+        mcp_pool: Any | None = None,
     ):
         self.checkpoint_store = checkpoint_store
+        self.mcp_pool = mcp_pool
         self.llm_factory = llm_factory or HelloAgentsLLM
         self.mteam_adapter_factory = mteam_adapter_factory or MTeamAdapter
         self.qb_adapter_factory = qb_adapter_factory or QBittorrentAdapter
@@ -225,6 +235,18 @@ class NasClawAgentRunner:
         registry.register_tool(QBControlTorrentTool(qb_adapter))
         registry.register_tool(QBSetGlobalSpeedTool(qb_adapter))
         registry.register_tool(QBSetTorrentSpeedTool(qb_adapter))
+
+        # Register MCP tools
+        if self.mcp_pool:
+            from hello_agents.tools.mcp.bridge import register_mcp_tools
+            from app.mcp_config import TMDB_TOOLS_ALLOW
+            register_mcp_tools(
+                self.mcp_pool,
+                registry,
+                tool_filter=self.tool_filter,
+                tool_gate=self.tool_gate,
+                allow=TMDB_TOOLS_ALLOW,
+            )
         config_values = {
             "trace_enabled": False,
             "session_enabled": False,
