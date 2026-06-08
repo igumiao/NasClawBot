@@ -111,3 +111,90 @@ class TestTMDBSearchTool:
         tool = TMDBSearchTool(mock_adapter)
         response = tool.run({"query": "test"})
         assert response.status.value == "error"
+
+
+from app.tools.tmdb_details import TMDBDetailsTool
+
+
+class TestTMDBDetailsTool:
+    def test_requires_tmdb_id_and_media_type(self):
+        tool = TMDBDetailsTool(MagicMock())
+        params = {p.name: p for p in tool.get_parameters()}
+        assert params["tmdb_id"].required is True
+        assert params["media_type"].required is True
+        assert set(params["media_type"].enum) == {"movie", "tv"}
+
+    def test_run_movie_details(self):
+        mock_adapter = MagicMock()
+        mock_adapter.movie_details.return_value = {
+            "id": 693134,
+            "title": "沙丘2",
+            "original_title": "Dune: Part Two",
+            "overview": "保罗·厄崔迪的传奇故事继续上演。",
+            "release_date": "2024-03-01",
+            "runtime": 166,
+            "genres": [
+                {"id": 878, "name": "科幻"},
+                {"id": 12, "name": "冒险"},
+            ],
+            "vote_average": 8.2,
+            "vote_count": 3500,
+            "external_ids": {"imdb_id": "tt15239678"},
+        }
+        tool = TMDBDetailsTool(mock_adapter)
+        response = tool.run({"tmdb_id": 693134, "media_type": "movie"})
+
+        mock_adapter.movie_details.assert_called_once_with(693134)
+        assert response.status.value == "success"
+        detail = response.data["detail"]
+        assert detail["title"] == "沙丘2"
+        assert detail["imdb_id"] == "tt15239678"
+        assert detail["media_type"] == "movie"
+        assert detail["runtime"] == 166
+        assert len(detail["genres"]) == 2
+
+    def test_run_tv_details(self):
+        mock_adapter = MagicMock()
+        mock_adapter.tv_details.return_value = {
+            "id": 1399,
+            "name": "权力的游戏",
+            "original_name": "Game of Thrones",
+            "overview": "维斯特洛大陆的权力斗争。",
+            "first_air_date": "2011-04-17",
+            "number_of_seasons": 8,
+            "number_of_episodes": 73,
+            "genres": [
+                {"id": 10765, "name": "Sci-Fi & Fantasy"},
+                {"id": 18, "name": "剧情"},
+            ],
+            "vote_average": 8.5,
+            "vote_count": 15000,
+            "external_ids": {"imdb_id": "tt0944947"},
+        }
+        tool = TMDBDetailsTool(mock_adapter)
+        response = tool.run({"tmdb_id": 1399, "media_type": "tv"})
+
+        mock_adapter.tv_details.assert_called_once_with(1399)
+        detail = response.data["detail"]
+        assert detail["title"] == "权力的游戏"
+        assert detail["imdb_id"] == "tt0944947"
+        assert detail["media_type"] == "tv"
+        assert detail["seasons"] == 8
+        assert detail["episodes"] == 73
+
+    def test_rejects_invalid_media_type(self):
+        tool = TMDBDetailsTool(MagicMock())
+        response = tool.run({"tmdb_id": 123, "media_type": "person"})
+        assert response.status.value == "error"
+
+    def test_rejects_invalid_tmdb_id(self):
+        tool = TMDBDetailsTool(MagicMock())
+        response = tool.run({"tmdb_id": 0, "media_type": "movie"})
+        assert response.status.value == "error"
+
+    def test_handles_adapter_error(self):
+        mock_adapter = MagicMock()
+        mock_adapter.movie_details.side_effect = Exception("Boom")
+        tool = TMDBDetailsTool(mock_adapter)
+        response = tool.run({"tmdb_id": 999, "media_type": "movie"})
+        assert response.status.value == "error"
