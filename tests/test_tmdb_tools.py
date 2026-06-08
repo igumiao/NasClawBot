@@ -280,3 +280,74 @@ class TestTMDBDiscoverTool:
         tool = TMDBDiscoverTool(mock_adapter)
         response = tool.run({"media_type": "movie"})
         assert response.status.value == "error"
+
+
+from app.tools.tmdb_trending import TMDBTrendingTool
+
+
+class TestTMDBTrendingTool:
+    def test_optional_parameters(self):
+        tool = TMDBTrendingTool(MagicMock())
+        params = {p.name: p for p in tool.get_parameters()}
+        assert params["media_type"].required is False
+        assert params["time_window"].required is False
+        assert set(params["media_type"].enum) == {"all", "movie", "tv", "person"}
+        assert set(params["time_window"].enum) == {"day", "week"}
+
+    def test_run_with_defaults(self):
+        mock_adapter = MagicMock()
+        mock_adapter.trending_all.return_value = {
+            "page": 1,
+            "results": [
+                {"id": 693134, "title": "沙丘2", "media_type": "movie",
+                 "overview": "...", "popularity": 100.5, "vote_average": 8.2},
+            ],
+            "total_results": 20,
+        }
+        tool = TMDBTrendingTool(mock_adapter)
+        response = tool.run({})
+        mock_adapter.trending_all.assert_called_once_with("day")
+        assert response.status.value == "success"
+        candidates = response.data["candidates"]
+        assert len(candidates) == 1
+        assert candidates[0]["tmdb_id"] == 693134
+
+    def test_filters_by_media_type(self):
+        mock_adapter = MagicMock()
+        mock_adapter.trending_all.return_value = {
+            "page": 1,
+            "results": [
+                {"id": 1, "title": "Movie", "media_type": "movie"},
+                {"id": 2, "name": "TV Show", "media_type": "tv"},
+                {"id": 3, "title": "Another Movie", "media_type": "movie"},
+            ],
+            "total_results": 3,
+        }
+        tool = TMDBTrendingTool(mock_adapter)
+        response = tool.run({"media_type": "tv"})
+        candidates = response.data["candidates"]
+        assert len(candidates) == 1
+        assert candidates[0]["media_type"] == "tv"
+
+    def test_limits_results_to_5(self):
+        mock_adapter = MagicMock()
+        mock_adapter.trending_all.return_value = {
+            "page": 1,
+            "results": [{"id": i, "media_type": "movie"} for i in range(10)],
+            "total_results": 10,
+        }
+        tool = TMDBTrendingTool(mock_adapter)
+        response = tool.run({})
+        assert len(response.data["candidates"]) == 5
+
+    def test_rejects_invalid_time_window(self):
+        tool = TMDBTrendingTool(MagicMock())
+        response = tool.run({"time_window": "month"})
+        assert response.status.value == "error"
+
+    def test_handles_adapter_error(self):
+        mock_adapter = MagicMock()
+        mock_adapter.trending_all.side_effect = Exception("Boom")
+        tool = TMDBTrendingTool(mock_adapter)
+        response = tool.run({})
+        assert response.status.value == "error"
