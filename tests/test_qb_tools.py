@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.tools.qb_get_torrent import QBGetTorrentTool
 from app.tools.qb_list_torrents import QBListTorrentsTool
 
 
@@ -103,3 +104,48 @@ def test_qb_list_torrents_parameters():
     assert "limit" in params
     assert params["limit"].type == "integer"
     assert params["limit"].required is False
+
+
+def test_qb_get_torrent_returns_detail():
+    qb = MagicMock()
+    qb.get_torrent.return_value = {
+        "hash": "abc123",
+        "name": "Dune Part Two",
+        "category": "movie",
+        "state": "downloading",
+        "progress": 0.75,
+        "download_speed": 10485760,
+        "upload_speed": 524288,
+        "save_path": "/downloads/movie",
+        "size": 123456,
+        "total_size": 654321,
+        "comment": "from mteam",
+        "share_ratio": 1.5,
+    }
+
+    tool = QBGetTorrentTool(qb)
+    response = tool.run({"torrent_hash": "abc123"})
+
+    assert response.status.value == "success"
+    assert response.data["torrent"]["hash"] == "abc123"
+    qb.get_torrent.assert_called_once_with("abc123")
+
+
+def test_qb_get_torrent_not_found():
+    qb = MagicMock()
+    qb.get_torrent.return_value = None
+
+    tool = QBGetTorrentTool(qb)
+    response = tool.run({"torrent_hash": "missing"})
+
+    assert response.status.value == "error"
+    assert response.error_info["code"] == "NOT_FOUND"
+
+
+def test_qb_get_torrent_empty_hash():
+    qb = MagicMock()
+    tool = QBGetTorrentTool(qb)
+    response = tool.run({"torrent_hash": "  "})
+
+    assert response.status.value == "error"
+    assert response.error_info["code"] == "INVALID_PARAM"
