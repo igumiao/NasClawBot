@@ -23,10 +23,10 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - There is no `SequentialWorkflow`.
 - There is no active workflow runtime.
 - `/chat` still calls `MTeamSearchTool` directly and does not use LLM/session history.
-- `/chat/agent` is the experimental Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with `mteam_search`, read-only `member_profile`, and confirm-gated `qb_add_torrent`, supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
+- `/chat/agent` is the experimental Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with 9 tools: `mteam_search`, `member_profile`, and 7 qB tools (`qb_add_torrent`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`). Read-only tools (`qb_list_*`, `mteam_search`, `member_profile`) execute immediately; action tools (`qb_add_torrent`, `qb_control_torrent`, `qb_set_*_speed`) require user approval. Supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
 - `GET /chat/agent/sessions` lists persisted Agent checkpoint summaries without calling an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}` returns one persisted Agent checkpoint with renderable message history, also without calling an LLM or tools.
-- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` approves a pending `qb_add_torrent` call. For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, resumes the LLM with `tool_choice="none"`, and clears the pending approval. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
+- `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` approves a pending Agent tool call (`qb_add_torrent`, `qb_control_torrent`, `qb_set_global_speed`, or `qb_set_torrent_speed`). For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, resumes the LLM with `tool_choice="none"`, and clears the pending approval. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny` denies a pending Agent tool call without executing the tool. For checkpoints with `paused_loop`, the runner resumes the provider tool-call protocol with a `USER_DENIED` tool error and a no-tools final LLM pass.
 - `PATCH /chat/agent/sessions/{session_id}`: updates a session checkpoint. Currently supports `title` in `metadata.title` for session renaming.
 - `DELETE /chat/agent/sessions/{session_id}`: deletes a persisted session checkpoint (HTTP 204 on success).
@@ -45,7 +45,7 @@ Backend, from repo root:
 
 ```bash
 .venv/bin/python -m pytest -q
-.venv/bin/python -m pytest tests/test_chat_api.py tests/test_mteam_adapter.py tests/test_mteam_search_tool.py tests/test_qb_adapter.py -q
+.venv/bin/python -m pytest tests/test_chat_api.py tests/test_mteam_adapter.py tests/test_mteam_search_tool.py tests/test_qb_adapter.py tests/test_qb_tools.py -q
 .venv/bin/python -m compileall app hello_agents -q
 .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
@@ -141,21 +141,22 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 
 Two independent layers, no `ToolPermission` enum:
 
-- **Filter** (`hello_agents/tools/filter.py`): runs **before** tools are sent to the LLM. Narrows the tool list to control context window usage and sub-agent capability scope. Currently allows `["mteam_search", "member_profile", "qb_add_torrent"]`. `Filter(allow=lambda name: ...)` also supported.
+- **Filter** (`hello_agents/tools/filter.py`): runs **before** tools are sent to the LLM. Narrows the tool list to control context window usage and sub-agent capability scope. Currently allows 9 tools: `mteam_search`, `member_profile`, `qb_add_torrent`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`. `Filter(allow=lambda name: ...)` also supported.
 - **Gate** (`hello_agents/tools/gate.py`): runs **after** LLM returns a tool call, **before** `tool.run()`. Three gates: deny_rules → confirm_rules → default allow. Works on `ToolCall` (tool_name + params), so decisions can be parameter-aware (`bash("ls")` passes, `bash("sudo rm -rf /")` denied).
 
 Factory functions for common deny rules: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
 
 ### Current Experimental Agent Loop
 
-The first loop is intentionally narrow:
-
 ```text
 POST /chat/agent
   -> NasClawAgentRunner
   -> load JSON checkpoint
   -> ToolCallingAgent
-  -> mteam_search, member_profile, and confirm-gated qb_add_torrent
+  -> 9 tools: mteam_search, member_profile, qb_add_torrent, qb_list_torrents,
+     qb_get_torrent, qb_list_categories, qb_control_torrent, qb_set_global_speed,
+     qb_set_torrent_speed
+  -> Filter selects allowed tools; Gate requires approval for action tools
   -> tool result back to LLM
   -> save JSON checkpoint
 ```
@@ -177,6 +178,8 @@ Continue evolving the gated Agent loop while keeping `/chat` stable.
 
 - Keep `qb_add_torrent` behind approval gating.
 - Keep `/download` as the stable explicit user action.
+- qB Agent tools now cover search (read-only) + download + control + speed management. Read-only tools (`qb_list_*`) execute freely; action tools (`qb_control_torrent`, `qb_set_*_speed`) require user approval. `qb_control_torrent` with `action=delete` is classified as `DESTRUCTIVE` risk.
+- `qb_add_torrent` now supports preset categories (电影/电视剧/综艺/动漫/纪录片) and optional `save_path` for custom download directories.
 - Session management is now implemented in the frontend sidebar: list/switch/new, localStorage-persisted collapse, rename via `PATCH`, and delete via `DELETE`.
 - Remaining frontend improvement: automatic title generation after the first meaningful Agent turn; do not overwrite manually renamed titles.
 - Keep future loop ideas in `docs/design/agent-loop-improvement-notes.md`; do not prematurely hard-code them into the framework.
