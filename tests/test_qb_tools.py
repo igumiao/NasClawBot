@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.tools.qb_get_torrent import QBGetTorrentTool
+from app.tools.qb_list_categories import QBListCategoriesTool
 from app.tools.qb_list_torrents import QBListTorrentsTool
 
 
@@ -149,3 +150,29 @@ def test_qb_get_torrent_empty_hash():
 
     assert response.status.value == "error"
     assert response.error_info["code"] == "INVALID_PARAM"
+
+
+def test_qb_list_categories_returns_categories():
+    qb = MagicMock()
+    qb.list_categories.return_value = {
+        "movie": {"savePath": "/downloads/movie"},
+        "tvshow": {"savePath": "/downloads/tvshow"},
+    }
+
+    tool = QBListCategoriesTool(qb)
+    response = tool.run({})
+
+    assert response.status.value == "success"
+    assert len(response.data["categories"]) == 2
+    assert "movie" in response.data["categories"]
+
+
+def test_qb_list_categories_empty():
+    qb = MagicMock()
+    qb.list_categories.return_value = {}
+
+    tool = QBListCategoriesTool(qb)
+    response = tool.run({})
+
+    assert response.status.value == "success"
+    assert response.data["categories"] == {}
