@@ -73,6 +73,7 @@ class Settings(BaseModel):
     llm_log_raw_output: bool = Field(default_factory=lambda: _get_bool_env("LLM_LOG_RAW_OUTPUT", False))
     log_level: str = Field(default_factory=lambda: _get_log_level_env("LOG_LEVEL", "INFO"))
     database_path: str = Field(default_factory=lambda: _get_env("DATABASE_PATH", "nas_media_agent.db"))
+    tmdb_api_key: str = Field(default_factory=lambda: _get_env("TMDB_API_KEY", ""))
 
 
 @lru_cache(maxsize=1)
