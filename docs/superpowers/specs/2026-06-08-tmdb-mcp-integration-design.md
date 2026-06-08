@@ -209,9 +209,29 @@ def register_mcp_tools(
     registry: ToolRegistry,
     tool_filter: Filter | None = None,
     tool_gate: Gate | None = None,
+    allow: list[str] | None = None,      # 按 tool name 筛选，None = 全部注册
 ) -> int:
     """从 pool 所有健康连接中收集工具，包装为 McpBridgeTool 并注册。返回注册数量。"""
 ```
+
+- `allow` 不传时默认注册全部 MCP 工具
+- 传了则只注册 `tool_info.name` 在 `allow` 列表中的工具
+- 控制上下文窗口开销：20+ 个工具 schema 可能占 ~10000 tokens，精选 6 个只需 ~3000
+
+**本期 `allow` 精选（`app/mcp_config.py`）：**
+
+```python
+TMDB_TOOLS_ALLOW = [
+    "search_movies",        # 按名称搜索电影
+    "get_movie_details",    # 电影详情（含 imdb_id）
+    "search_tv_shows",      # 搜索剧集
+    "search_person",        # 搜索演员/导演
+    "get_recommendations",  # 基于电影的推荐
+    "get_trending",         # 热门趋势
+]
+```
+
+这 6 个覆盖了核心查询场景。`get_movie_details` 返回的 IMDB ID 桥接到 `mteam_search(imdb=...)`，形成完整搜索链。
 
 ### 同步/异步桥接
 
@@ -269,16 +289,25 @@ MCP 工具都是远程查询，天然只读。不需要在 Gate 里加确认规�
 ```python
 from hello_agents.tools.mcp.client import McpServerConfig
 
+TMDB_SERVER_CONFIG = McpServerConfig(
+    name="tmdb",
+    command="npx",
+    args=["-y", "mcp-server-tmdb"],
+    env={"TMDB_API_KEY": ...},  # 来自 settings.tmdb_api_key
+)
+
+TMDB_TOOLS_ALLOW = [
+    "search_movies",
+    "get_movie_details",
+    "search_tv_shows",
+    "search_person",
+    "get_recommendations",
+    "get_trending",
+]
+
 def load_mcp_servers() -> list[McpServerConfig]:
     """从 settings 读取 MCP server 配置列表"""
-
-# 本期硬编码 TMDB 一个 server:
-#   name: "tmdb"
-#   command: "npx"
-#   args: ["-y", "mcp-server-tmdb"]
-#   env: {"TMDB_API_KEY": settings.tmdb_api_key}
-#
-# 后续可扩展到读取 .mcp.json（类似 Claude Code 格式）
+    return [TMDB_SERVER_CONFIG]
 ```
 
 `.env` 新增：
@@ -364,3 +393,5 @@ await mcp_pool.stop_all()
 安装: `npx -y mcp-server-tmdb`，环境变量 `TMDB_API_KEY=xxx`
 
 选型理由：工具数量多（~20+），支持电影、剧集、演员、推荐、流媒体信息，活跃维护。
+
+**版本说明：** GitHub README 只列了 3 个基础工具（search_movies、get_recommendations、get_trending），但 glama.ai 等 MCP 目录上列了 ~20+ 个扩展工具。`npx -y mcp-server-tmdb` 安装的实际版本需在实现时通过 `list_tools()` 确认。工具数不确定不影响设计 — `McpConnection.connect()` 自动发现并缓存，`allow` 筛选确保只注册需要的工具。如果实际版本缺少 `get_movie_details` 等工具，TMDB 的 resource 端点 (`tmdb:///movie/{id}`) 也可以获取包含 IMDb ID 的详情。
