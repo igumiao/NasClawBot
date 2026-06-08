@@ -358,6 +358,74 @@ def test_qb_control_torrent_dispatches_actions(
     assert result == {"ok": True, "status": action, "qb_hash": "abc123"}, "control_torrent should report success for supported actions"
 
 
+def test_qb_set_global_speed_limits_sets_transfer_properties(monkeypatch: pytest.MonkeyPatch):
+    adapter = QBittorrentAdapter(
+        base_url="http://qb.local",
+        username="user",
+        password="pass",
+    )
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            _ = kwargs
+
+        def auth_log_in(self):
+            return None
+
+        @property
+        def transfer(self):
+            return self
+
+        def __setattr__(self, name, value):
+            if name in ("upload_limit", "download_limit"):
+                captured[name] = value
+            else:
+                super().__setattr__(name, value)
+
+    monkeypatch.setattr(qb_module, "qbittorrentapi", SimpleNamespace(Client=FakeClient), raising=False)
+
+    result = adapter.set_global_speed_limits(upload_limit=10485760, download_limit=52428800)
+
+    assert captured.get("upload_limit") == 10485760, "upload_limit should be set on transfer"
+    assert captured.get("download_limit") == 52428800, "download_limit should be set on transfer"
+    assert result == {"ok": True, "upload_limit": 10485760, "download_limit": 52428800}
+
+
+def test_qb_set_global_speed_limits_partial_update(monkeypatch: pytest.MonkeyPatch):
+    adapter = QBittorrentAdapter(
+        base_url="http://qb.local",
+        username="user",
+        password="pass",
+    )
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            _ = kwargs
+
+        def auth_log_in(self):
+            return None
+
+        @property
+        def transfer(self):
+            return self
+
+        def __setattr__(self, name, value):
+            if name in ("upload_limit", "download_limit"):
+                captured[name] = value
+            else:
+                super().__setattr__(name, value)
+
+    monkeypatch.setattr(qb_module, "qbittorrentapi", SimpleNamespace(Client=FakeClient), raising=False)
+
+    result = adapter.set_global_speed_limits(upload_limit=20971520)
+
+    assert captured.get("upload_limit") == 20971520, "upload_limit should be set"
+    assert "download_limit" not in captured, "download_limit should not be set when None"
+    assert result == {"ok": True, "upload_limit": 20971520, "download_limit": None}
+
+
 def test_qb_control_torrent_rejects_unknown_action():
     adapter = QBittorrentAdapter(
         base_url="http://qb.local",
