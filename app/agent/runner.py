@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
+from app.adapters.tmdb import TMDBAdapter
 from app.agent.approvals import (
     ApprovalRecord,
     ApprovalStatus,
@@ -31,6 +32,10 @@ from app.tools import (
     QBControlTorrentTool,
     QBSetGlobalSpeedTool,
     QBSetTorrentSpeedTool,
+    TMDBSearchTool,
+    TMDBDetailsTool,
+    TMDBDiscoverTool,
+    TMDBTrendingTool,
 )
 from hello_agents.agents import ToolCallingAgent
 from hello_agents.checkpoints import ConversationCheckpoint, ConversationCheckpointStore
@@ -84,6 +89,15 @@ qb_add_torrent 会先等待用户确认；在用户确认前，不要声称已�
 这些工具均为只读，直接执行，结果可能包含 IMDb ID，可用于后续 mteam_search 精准搜索。
 
 如果用户追问上一轮搜索结果，可以结合当前会话历史回答。
+你也可以搜索 TMDB 影视数据库来辅助查找资源：
+- tmdb_search: 搜索电影/电视剧/人物，可按 media_type 筛选。当用户输入的片名存在歧义时（如"星球大战"可能指多部作品），结果会展示所有可能，此时应向用户追问澄清具体是哪一部。
+- tmdb_details: 获取影视详情（标题、概述、评分、类型、IMDb ID 等）。IMDb ID 可用于后续 mteam_search 的 imdb 参数进行精准搜索。
+- tmdb_discover: 按类型、评分、年份等条件发现影视作品。适合用户要求推荐或浏览某一类别时使用。
+- tmdb_trending: 查看当前热门电影/电视剧/人物趋势（今日或本周）。
+
+使用 TMDB 工具找到准确的影视中文名称和 IMDb ID 后，用 mteam_search 的 imdb 参数精准搜索 M-Team 资源能获得更好的匹配结果。
+这些工具均为只读，直接执行。
+
 当需要搜索时，调用 mteam_search；当需要查询数据时，调用 member_profile；当用户明确要求下载时，调用 qb_add_torrent；当需要管理 qB 任务时，调用对应的 qb_* 工具；当已有信息足够时，直接回答。
 回答要简洁，并优先列出标题、分辨率、做种数、大小、优惠状态和 M-Team torrent id。
 """
@@ -151,6 +165,10 @@ class NasClawAgentRunner:
             "qb_control_torrent",
             "qb_set_global_speed",
             "qb_set_torrent_speed",
+            "tmdb_search",
+            "tmdb_details",
+            "tmdb_discover",
+            "tmdb_trending",
         ])
         self.tool_gate = tool_gate or Gate(confirm=[
             lambda call: call.tool_name == "qb_add_torrent",
@@ -227,6 +245,11 @@ class NasClawAgentRunner:
         registry.register_tool(QBControlTorrentTool(qb_adapter))
         registry.register_tool(QBSetGlobalSpeedTool(qb_adapter))
         registry.register_tool(QBSetTorrentSpeedTool(qb_adapter))
+        tmdb_adapter = TMDBAdapter(api_key=settings.tmdb_api_key)
+        registry.register_tool(TMDBSearchTool(tmdb_adapter))
+        registry.register_tool(TMDBDetailsTool(tmdb_adapter))
+        registry.register_tool(TMDBDiscoverTool(tmdb_adapter))
+        registry.register_tool(TMDBTrendingTool(tmdb_adapter))
         config_values = {
             "trace_enabled": False,
             "session_enabled": False,

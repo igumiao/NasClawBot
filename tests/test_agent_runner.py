@@ -22,6 +22,7 @@ class FakeSettings:
     llm_model = "fake-model"
     llm_api_key = "fake-key"
     llm_base_url = "https://llm.local"
+    tmdb_api_key = ""
 
 
 class FakeMTeamAdapter:
@@ -170,6 +171,10 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
         "qb_list_torrents",
         "qb_set_global_speed",
         "qb_set_torrent_speed",
+        "tmdb_details",
+        "tmdb_discover",
+        "tmdb_search",
+        "tmdb_trending",
     ])
 
 
