@@ -12,6 +12,7 @@ from app.tools.qb_get_torrent import QBGetTorrentTool
 from app.tools.qb_list_categories import QBListCategoriesTool
 from app.tools.qb_set_global_speed import QBSetGlobalSpeedTool
 from app.tools.qb_list_torrents import QBListTorrentsTool
+from app.tools.qb_set_torrent_speed import QBSetTorrentSpeedTool
 
 
 def test_qb_list_torrents_returns_serialized_rows():
@@ -238,6 +239,45 @@ def test_qb_set_global_speed_no_params():
 
     tool = QBSetGlobalSpeedTool(qb)
     response = tool.run({})
+
+    assert response.status.value == "error"
+    assert response.error_info["code"] == "INVALID_PARAM"
+
+
+def test_qb_set_torrent_speed_both_limits():
+    qb = MagicMock()
+    qb.set_torrent_speed_limits.return_value = {
+        "ok": True,
+        "torrent_hash": "abc123",
+        "upload_limit": 5242880,
+        "download_limit": 20971520,
+    }
+
+    tool = QBSetTorrentSpeedTool(qb)
+    response = tool.run({"torrent_hash": "abc123", "upload_limit": 5242880, "download_limit": 20971520})
+
+    assert response.status.value == "success"
+    qb.set_torrent_speed_limits.assert_called_once_with(
+        torrent_hash="abc123", upload_limit=5242880, download_limit=20971520
+    )
+
+
+def test_qb_set_torrent_speed_no_limits():
+    qb = MagicMock()
+
+    tool = QBSetTorrentSpeedTool(qb)
+    response = tool.run({"torrent_hash": "abc123"})
+
+    assert response.status.value == "error"
+    assert response.error_info["code"] == "INVALID_PARAM"
+
+
+def test_qb_set_torrent_speed_empty_hash():
+    qb = MagicMock()
+    qb.set_torrent_speed_limits.side_effect = ValueError("torrent_hash must not be empty")
+
+    tool = QBSetTorrentSpeedTool(qb)
+    response = tool.run({"torrent_hash": "  ", "upload_limit": 1024})
 
     assert response.status.value == "error"
     assert response.error_info["code"] == "INVALID_PARAM"
