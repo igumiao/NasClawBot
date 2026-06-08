@@ -161,8 +161,19 @@ class TestTMDBDetailsTool:
             "original_name": "Game of Thrones",
             "overview": "维斯特洛大陆的权力斗争。",
             "first_air_date": "2011-04-17",
+            "last_air_date": "2019-05-19",
+            "in_production": False,
             "number_of_seasons": 8,
             "number_of_episodes": 73,
+            "seasons": [
+                {"season_number": 1, "name": "第 1 季", "episode_count": 10, "air_date": "2011-04-17"},
+                {"season_number": 8, "name": "第 8 季", "episode_count": 6, "air_date": "2019-04-14"},
+            ],
+            "last_episode_to_air": {
+                "season_number": 8, "episode_number": 6, "name": "铁王座",
+                "air_date": "2019-05-19",
+            },
+            "next_episode_to_air": None,
             "genres": [
                 {"id": 10765, "name": "Sci-Fi & Fantasy"},
                 {"id": 18, "name": "剧情"},
@@ -179,8 +190,98 @@ class TestTMDBDetailsTool:
         assert detail["title"] == "权力的游戏"
         assert detail["imdb_id"] == "tt0944947"
         assert detail["media_type"] == "tv"
-        assert detail["seasons"] == 8
-        assert detail["episodes"] == 73
+        assert detail["number_of_seasons"] == 8
+        assert detail["number_of_episodes"] == 73
+        assert detail["first_air_date"] == "2011-04-17"
+        assert detail["last_air_date"] == "2019-05-19"
+        assert detail["in_production"] is False
+        assert len(detail["seasons"]) == 2
+        assert detail["seasons"][0]["season_number"] == 1
+        assert detail["seasons"][0]["air_date"] == "2011-04-17"
+        assert detail["seasons"][1]["season_number"] == 8
+        assert detail["last_episode_to_air"]["season_number"] == 8
+        assert detail["last_episode_to_air"]["name"] == "铁王座"
+        assert "next_episode_to_air" not in detail  # None → omitted
+
+    def test_tv_details_includes_seasons_array_with_dates(self):
+        """Per-season dates let the LLM identify which season is the latest."""
+        mock_adapter = MagicMock()
+        mock_adapter.tv_details.return_value = {
+            "id": 117648,
+            "name": "克拉克森的农场",
+            "original_name": "Clarkson's Farm",
+            "overview": "...",
+            "first_air_date": "2021-06-11",
+            "last_air_date": "2026-06-03",
+            "in_production": True,
+            "number_of_seasons": 5,
+            "number_of_episodes": 40,
+            "seasons": [
+                {"season_number": 1, "name": "第 1 季", "episode_count": 8, "air_date": "2021-06-11"},
+                {"season_number": 2, "name": "第 2 季", "episode_count": 8, "air_date": "2023-02-10"},
+                {"season_number": 3, "name": "第 3 季", "episode_count": 8, "air_date": "2024-05-03"},
+                {"season_number": 4, "name": "第 4 季", "episode_count": 8, "air_date": "2025-05-23"},
+                {"season_number": 5, "name": "第 5 季", "episode_count": 8, "air_date": "2026-06-03"},
+            ],
+            "last_episode_to_air": {
+                "season_number": 5, "episode_number": 4, "name": "更新",
+                "air_date": "2026-06-03",
+            },
+            "next_episode_to_air": {
+                "season_number": 5, "episode_number": 5, "name": "斩首",
+                "air_date": "2026-06-10",
+            },
+            "genres": [],
+            "vote_average": 8.6,
+            "vote_count": 300,
+            "external_ids": {"imdb_id": "tt10541088"},
+        }
+        tool = TMDBDetailsTool(mock_adapter)
+        response = tool.run({"tmdb_id": 117648, "media_type": "tv"})
+
+        detail = response.data["detail"]
+        # Key fields for LLM to determine latest season
+        assert detail["last_air_date"] == "2026-06-03"
+        assert detail["in_production"] is True
+        assert len(detail["seasons"]) == 5
+        # Latest season
+        latest = detail["seasons"][-1]
+        assert latest["season_number"] == 5
+        assert latest["air_date"] == "2026-06-03"
+        # Latest episode
+        assert detail["last_episode_to_air"]["season_number"] == 5
+        # Next episode
+        assert detail["next_episode_to_air"]["air_date"] == "2026-06-10"
+
+    def test_tv_details_excludes_season_zero_specials(self):
+        """Season 0 (specials) should be filtered out of the seasons array."""
+        mock_adapter = MagicMock()
+        mock_adapter.tv_details.return_value = {
+            "id": 1399,
+            "name": "权力的游戏",
+            "overview": "...",
+            "first_air_date": "2011-04-17",
+            "last_air_date": "2019-05-19",
+            "in_production": False,
+            "number_of_seasons": 8,
+            "number_of_episodes": 73,
+            "seasons": [
+                {"season_number": 0, "name": "特别篇", "episode_count": 10, "air_date": "2010-12-05"},
+                {"season_number": 1, "name": "第 1 季", "episode_count": 10, "air_date": "2011-04-17"},
+            ],
+            "last_episode_to_air": None,
+            "next_episode_to_air": None,
+            "genres": [],
+            "vote_average": 8.5,
+            "vote_count": 15000,
+            "external_ids": {},
+        }
+        tool = TMDBDetailsTool(mock_adapter)
+        response = tool.run({"tmdb_id": 1399, "media_type": "tv"})
+
+        seasons = response.data["detail"]["seasons"]
+        assert len(seasons) == 1
+        assert seasons[0]["season_number"] == 1
 
     def test_rejects_invalid_media_type(self):
         tool = TMDBDetailsTool(MagicMock())
