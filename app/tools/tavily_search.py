@@ -24,6 +24,7 @@ class TavilySearchTool(Tool):
             description=(
                 "搜索互联网以澄清影视实体、别名、年份、最新资讯或角色相关作品。"
                 "适合在用户描述模糊、提到最近新出、角色、剧情、演员或不确定标题时使用。"
+                "可使用中文、英文或中英混合查询；同一问题可多次搜索不同语言线索。"
                 "返回网页标题、URL、摘要和相关性分数；不要用它直接查找下载资源。"
             ),
         )
@@ -34,7 +35,7 @@ class TavilySearchTool(Tool):
             ToolParameter(
                 name="query",
                 type="string",
-                description="网络搜索关键词。应包含影视标题、角色、年份、'official title' 等澄清线索。",
+                description="网络搜索关键词。可使用中文、英文或中英混合；同一问题可分别搜索不同语言版本以交叉验证。",
                 required=True,
             ),
             ToolParameter(

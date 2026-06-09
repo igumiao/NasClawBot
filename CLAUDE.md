@@ -34,7 +34,7 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - `hello_agents/checkpoints/` defines the thin `ConversationCheckpointStore` boundary and the current JSON implementation.
 - Tool wrappers live in `app/tools/` (per-tool modules, re-exported via `__init__.py`).
 - M-Team and qB integration lives behind adapters in `app/adapters/`.
-- `mteam_search` exposes only optional `keyword`, `mode`, `sort_by`, `imdb`, and `douban` to the LLM. It requests 20 rows from M-Team and returns at most 10 candidates. Agent policy defaults searches to `normal`; names/aliases/years/season info are preferred, with IMDb as an auxiliary signal rather than the default hard filter for TV/variety/anime resources.
+- `mteam_search` exposes only optional `keyword`, `sort_by`, `imdb`, and `douban` to the LLM. It always uses M-Team `normal` mode, requests 20 rows, and returns at most 10 candidates. Names/aliases/years/season info are preferred, with IMDb as an auxiliary signal rather than the default hard filter for TV/variety/anime resources.
 - `hello_agents/tools/` provides `Filter` (pre-LLM tool selection) and `Gate` (pre-execution deny/confirm).
 - `ToolPermission` and `ToolFilter` have been removed in favor of `Filter` + `Gate`.
 - Historical LangGraph and HelloAgents runtime docs are archived under `docs/archive/`.
@@ -77,6 +77,8 @@ There is no formal Python formatter configured yet.
 - qB management routes are included from `app/api/qb_routes.py`.
 
 `app/agent/runner.py` owns the experimental Agent conversation lifecycle: load checkpoint, build the current tool-calling agent, restore history, run one turn, save checkpoint, and extract route-facing search results/tool calls.
+
+The Agent system prompt is intentionally compact: cross-tool search strategy, side-effect safety, and output shape stay in the prompt, while tool-specific usage belongs in tool descriptions. The runner appends a dynamic current-date/timezone line from `APP_TIMEZONE` so release/latest judgments have a fresh date anchor.
 
 `NasClawAgentRunner.run/approve/deny` are serialized per session within the current server process. This prevents concurrent approval decisions from executing the same download twice; multi-process coordination still requires a future transactional durable store.
 
@@ -129,7 +131,6 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 
 ### M-Team Search Contract
 
-- `mode`: `normal`, `movie`, `tvshow`, or `music`.
 - `sort_by`: `smallest`, `largest`, or `most_seeded`. Omit it for M-Team's default newest-first ordering.
 - Do not expose `discount`, pagination, raw sort fields, categories, or local hard filters to the LLM in the current phase.
 - Keep the adapter reusable: it returns the full first-page pool of 20 rows. `MTeamSearchTool` applies the product-facing limit of 10.

@@ -27,6 +27,10 @@ class FakeSettings:
     tavily_api_key = ""
 
 
+class UTCFakeSettings(FakeSettings):
+    app_timezone = "UTC"
+
+
 class FakeMTeamAdapter:
     def __init__(self, base_url: str = "", api_key: str = "") -> None:
         self.base_url = base_url
@@ -180,6 +184,33 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
         "tmdb_search",
         "tmdb_trending",
     ])
+
+
+def test_nasclaw_agent_runner_injects_current_date_into_system_prompt(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: UTCFakeSettings())
+    monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
+    monkeypatch.setattr(agent_runner, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
+    FakeLLM.calls = []
+    FakeLLM.tool_choices = []
+    FakeLLM.invoke_calls = []
+    FakeLLM.responses = [
+        LLMToolResponse(
+            content="ok",
+            tool_calls=[],
+            model="fake-model",
+        ),
+    ]
+
+    runner = NasClawAgentRunner(checkpoint_store=JSONConversationCheckpointStore(tmp_path))
+    result = runner.run("session-date-prompt", "今天是几号？")
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    assert result.answer == "ok"
+    system_message = FakeLLM.calls[0][0]
+    assert system_message["role"] == "system"
+    assert f"当前日期：{today}" in system_message["content"]
+    assert "时区：UTC" in system_message["content"]
 
 
 def test_nasclaw_agent_runner_persists_preflight_compression_archives(tmp_path, monkeypatch: pytest.MonkeyPatch):

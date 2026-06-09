@@ -21,10 +21,8 @@ class TMDBDiscoverTool(Tool):
         super().__init__(
             name="tmdb_discover",
             description=(
-                "按条件发现 TMDB 影视作品。"
-                "可按类型（电影/电视剧）、评分、年份、流派等筛选，"
-                "按人气、评分或日期排序。"
-                "适合用户要求推荐或浏览某一类别影视时使用。"
+                "按结构化条件发现 TMDB 电影或电视剧，例如年份、评分、人气和 TMDB 类型 ID。"
+                "适合泛化推荐或浏览类别；不适合查某个系列、角色、剧情描述或最新新闻。"
             ),
         )
         self._adapter = adapter
@@ -34,7 +32,7 @@ class TMDBDiscoverTool(Tool):
             ToolParameter(
                 name="media_type",
                 type="string",
-                description="媒体类型",
+                description="媒体类型：movie（电影）或 tv（电视剧）",
                 required=True,
                 enum=sorted(_VALID_MEDIA_TYPES),
             ),
@@ -47,7 +45,7 @@ class TMDBDiscoverTool(Tool):
             ToolParameter(
                 name="with_genres",
                 type="string",
-                description="TMDB 类型 ID，逗号分隔",
+                description="TMDB 类型 ID，逗号分隔；如果不知道类型 ID，不要猜测。",
                 required=False,
             ),
             ToolParameter(
