@@ -3,6 +3,7 @@
 Each tool wraps an existing adapter operation behind the Tool protocol.
 """
 
+from app.tools.current_time import CurrentTimeTool
 from app.tools.member_profile import MemberProfileTool
 from app.tools.mteam_search import MTeamSearchTool
 from app.tools.qb_add_torrent import QBAddTorrentTool
@@ -19,6 +20,7 @@ from app.tools.tmdb_discover import TMDBDiscoverTool
 from app.tools.tmdb_trending import TMDBTrendingTool
 
 __all__ = [
+    "CurrentTimeTool",
     "MemberProfileTool",
     "MTeamSearchTool",
     "QBAddTorrentTool",

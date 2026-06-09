@@ -24,6 +24,7 @@ from app.agent.approvals import (
 from app.config import get_settings
 from app.domain.models import ResourceCandidate
 from app.tools import (
+    CurrentTimeTool,
     MemberProfileTool,
     MTeamSearchTool,
     QBAddTorrentTool,
@@ -70,6 +71,7 @@ def _serialize_session(method: Callable[..., Any]) -> Callable[..., Any]:
 
 AGENT_SESSION_PROMPT = f"""你是 NasClawBot 的媒体搜索和下载助手。你由 DeepSeek 大语言模型驱动。
 
+你可以使用 current_time 获取当前日期、年份、月份、星期和时区。
 你可以使用 mteam_search 搜索候选资源。
 mteam_search 默认使用 normal 模式并按最新发布排序；除非用户明确要求音乐，否则优先保持 normal，不要在 movie/tvshow 之间猜测。
 用户偏好较小或较大的资源时，分别使用 smallest、largest 排序；用户偏好做种人数多时，使用 most_seeded 排序。
@@ -164,6 +166,7 @@ class NasClawAgentRunner:
         self.max_steps = max_steps
         self.agent_config_overrides = agent_config_overrides or {}
         self.tool_filter = tool_filter or Filter(allow=[
+            "current_time",
             "mteam_search",
             "member_profile",
             "qb_add_torrent",
@@ -245,6 +248,7 @@ class NasClawAgentRunner:
             password=settings.qb_password,
         )
         registry = ToolRegistry()
+        registry.register_tool(CurrentTimeTool(timezone_name=settings.app_timezone))
         registry.register_tool(MTeamSearchTool(mteam_adapter))
         registry.register_tool(MemberProfileTool(mteam_adapter))
         registry.register_tool(QBAddTorrentTool(mteam_adapter, qb_adapter))
