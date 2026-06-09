@@ -52,3 +52,4 @@ probes/mteam/output_*
 report
 
 .claude/settings.local.json
+ref/user-experience.md
