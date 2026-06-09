@@ -32,6 +32,7 @@ class FakeSettings:
     llm_model = "fake-model"
     llm_api_key = "fake-key"
     llm_base_url = "https://llm.local"
+    app_timezone = "Asia/Shanghai"
     tmdb_api_key = ""
     tavily_api_key = ""
 

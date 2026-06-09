@@ -16,7 +16,7 @@ There is no active workflow runtime, no `/confirm` route, and no `confirmation_p
 An experimental gated Agent loop now exists alongside the stable baseline:
 
 ```text
-/chat/agent -> NasClawAgentRunner -> ToolCallingAgent + 14 tools (mteam_search, tavily_search, 4 TMDB tools, member_profile, 7 qB tools) -> JSON checkpoint persistence
+/chat/agent -> NasClawAgentRunner -> ToolCallingAgent + 15 tools (current_time, mteam_search, tavily_search, 4 TMDB tools, member_profile, 7 qB tools) -> JSON checkpoint persistence
 ```
 
 This path is for learning and iteration. `/chat` remains the stable no-LLM baseline.
@@ -25,7 +25,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 
 - `app/api/chat_routes.py`: FastAPI routes for `/chat`, `/download`, `/health`, `/`, and qB router inclusion.
 - `/chat`: performs a direct `MTeamSearchTool` call and returns `results`. It does not call an LLM and does not persist Agent history.
-- `/chat/agent`: experimental Agent route. It delegates conversation lifecycle to `NasClawAgentRunner`, registers 14 tools: read-only `mteam_search`, `tavily_search`, 4 TMDB tools (`tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`), `member_profile`, and 7 qB tools (`qb_add_torrent`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`). Read-only tools execute immediately; action tools require user approval. Supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
+- `/chat/agent`: experimental Agent route. It delegates conversation lifecycle to `NasClawAgentRunner`, registers 15 tools: read-only `current_time`, `mteam_search`, `tavily_search`, 4 TMDB tools (`tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`), `member_profile`, and 7 qB tools (`qb_add_torrent`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`). Read-only tools execute immediately; action tools require user approval. Supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
 - `GET /chat/agent/sessions`: lists persisted Agent conversation checkpoint summaries. It does not call an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}`: returns one persisted Agent conversation checkpoint with renderable message history. It does not call an LLM or tools.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve`: approves a pending Agent tool call (`qb_add_torrent`, `qb_control_torrent`, `qb_set_global_speed`, or `qb_set_torrent_speed`). For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, resumes the LLM with `tool_choice="none"`, and clears the pending approval. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
@@ -39,7 +39,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `ContextWindowManager`: runs preflight context checks before LLM calls. NasClawBot currently uses a conservative 64K configured context window, enables smart compression at 70% context pressure, keeps the latest 4 rounds active, stores a `summary` message for the model, and preserves compressed-away originals in checkpoint `archives`.
 - `hello_agents/checkpoints/`: framework-level `ConversationCheckpointStore` protocol plus the current JSON implementation.
 - `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused.
-- `app/tools/`: per-tool modules (`mteam_search.py`, `tavily_search.py`, `member_profile.py`, `qb_add_torrent.py`, `qb_list_torrents.py`, `qb_get_torrent.py`, `qb_list_categories.py`, `qb_control_torrent.py`, `qb_set_global_speed.py`, `qb_set_torrent_speed.py`, and TMDB tools), re-exported via `__init__.py`.
+- `app/tools/`: per-tool modules (`current_time.py`, `mteam_search.py`, `tavily_search.py`, `member_profile.py`, `qb_add_torrent.py`, `qb_list_torrents.py`, `qb_get_torrent.py`, `qb_list_categories.py`, `qb_control_torrent.py`, `qb_set_global_speed.py`, `qb_set_torrent_speed.py`, and TMDB tools), re-exported via `__init__.py`.
 - `app/adapters/mteam.py`: M-Team API boundary for search, detail, download token generation, and member profile.
 - `app/adapters/qbittorrent.py`: qBittorrent API boundary for paused add, listing, detail, control, and speed limits (global + per-torrent).
 - `app/domain/models.py`: shared search result models.
@@ -156,6 +156,6 @@ PATCH  /chat/agent/sessions/{session_id}       # rename (metadata.title)
 DELETE /chat/agent/sessions/{session_id}       # delete checkpoint
 ```
 
-The current Agent loop exposes 14 tools: read-only tools (`mteam_search`, `tavily_search`, `tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`, `member_profile`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`) execute freely; action tools (`qb_add_torrent`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`) require user approval. `tavily_search` uses Tavily for web entity clarification when titles are fuzzy, recent, character-based, or alias-heavy; it is not used to find download resources directly. `qb_control_torrent` with `action=delete` is classified as `DESTRUCTIVE` risk. `qb_add_torrent` supports preset categories (电影/电视剧/综艺/动漫/纪录片) and optional `save_path`. Keep `/download` as the stable explicit side-effect path, and keep qB submissions paused by default.
+The current Agent loop exposes 15 tools: read-only tools (`current_time`, `mteam_search`, `tavily_search`, `tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`, `member_profile`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`) execute freely; action tools (`qb_add_torrent`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`) require user approval. `current_time` exposes the server date/time for time-sensitive requests. `tavily_search` uses Tavily for web entity clarification when titles are fuzzy, recent, character-based, or alias-heavy; it is not used to find download resources directly. `qb_control_torrent` with `action=delete` is classified as `DESTRUCTIVE` risk. `qb_add_torrent` supports preset categories (电影/电视剧/综艺/动漫/纪录片) and optional `save_path`. Keep `/download` as the stable explicit side-effect path, and keep qB submissions paused by default.
 
 Future improvement ideas are intentionally not finalized. Preserve them in `docs/design/agent-loop-improvement-notes.md` rather than overfitting the first loop implementation.

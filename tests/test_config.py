@@ -48,3 +48,14 @@ def test_settings_reads_tavily_api_key_from_env(monkeypatch):
     assert settings.tavily_api_key == "tvly-test-key"
 
     config_module.get_settings.cache_clear()
+
+
+def test_settings_reads_app_timezone_from_env(monkeypatch):
+    monkeypatch.setenv("APP_TIMEZONE", "UTC")
+    config_module.get_settings.cache_clear()
+
+    settings = config_module.get_settings()
+
+    assert settings.app_timezone == "UTC"
+
+    config_module.get_settings.cache_clear()

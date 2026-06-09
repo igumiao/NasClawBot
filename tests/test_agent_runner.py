@@ -22,6 +22,7 @@ class FakeSettings:
     llm_model = "fake-model"
     llm_api_key = "fake-key"
     llm_base_url = "https://llm.local"
+    app_timezone = "Asia/Shanghai"
     tmdb_api_key = ""
     tavily_api_key = ""
 
@@ -163,6 +164,7 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
     assert any(message["role"] == "tool" for message in FakeLLM.calls[-1])
     assert second.checkpoint.metadata["turn_count"] == 2
     assert second.checkpoint.metadata["tool_names"] == sorted([
+        "current_time",
         "member_profile",
         "mteam_search",
         "qb_add_torrent",

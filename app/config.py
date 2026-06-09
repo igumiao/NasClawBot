@@ -72,6 +72,7 @@ class Settings(BaseModel):
     llm_reasoning_split: bool = Field(default_factory=lambda: _get_bool_env("LLM_REASONING_SPLIT", True))
     llm_log_raw_output: bool = Field(default_factory=lambda: _get_bool_env("LLM_LOG_RAW_OUTPUT", False))
     log_level: str = Field(default_factory=lambda: _get_log_level_env("LOG_LEVEL", "INFO"))
+    app_timezone: str = Field(default_factory=lambda: _get_env("APP_TIMEZONE", "Asia/Shanghai"))
     tmdb_api_key: str = Field(default_factory=lambda: _get_env("TMDB_API_KEY"))
     tavily_api_key: str = Field(default_factory=lambda: _get_env("TAVILY_API_KEY"))
     database_path: str = Field(default_factory=lambda: _get_env("DATABASE_PATH", "nas_media_agent.db"))
