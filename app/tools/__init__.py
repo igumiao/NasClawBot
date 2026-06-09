@@ -12,6 +12,7 @@ from app.tools.qb_list_categories import QBListCategoriesTool
 from app.tools.qb_control_torrent import QBControlTorrentTool
 from app.tools.qb_set_global_speed import QBSetGlobalSpeedTool
 from app.tools.qb_set_torrent_speed import QBSetTorrentSpeedTool
+from app.tools.tavily_search import TavilySearchTool
 from app.tools.tmdb_search import TMDBSearchTool
 from app.tools.tmdb_details import TMDBDetailsTool
 from app.tools.tmdb_discover import TMDBDiscoverTool
@@ -27,6 +28,7 @@ __all__ = [
     "QBControlTorrentTool",
     "QBSetGlobalSpeedTool",
     "QBSetTorrentSpeedTool",
+    "TavilySearchTool",
     "TMDBSearchTool",
     "TMDBDetailsTool",
     "TMDBDiscoverTool",

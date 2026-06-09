@@ -64,7 +64,7 @@ def test_mteam_search_uses_default_query_without_sort_fields():
     assert response.data["applied_query"] == {"mode": "normal"}
 
 
-def test_mteam_search_returns_at_most_five_candidates_with_extra_status_fields():
+def test_mteam_search_returns_at_most_ten_candidates_with_extra_status_fields():
     rows = [
         {
             "id": str(index),
@@ -77,15 +77,15 @@ def test_mteam_search_returns_at_most_five_candidates_with_extra_status_fields()
             "size": "1.00 GB",
             "size_bytes": 1073741824,
         }
-        for index in range(7)
+        for index in range(12)
     ]
     tool = MTeamSearchTool(FakeMTeamAdapter(rows))
 
     response = tool.run({"mode": "movie"})
 
-    assert response.data["pool_count"] == 7
-    assert response.data["returned_count"] == 5
-    assert len(response.data["candidates"]) == 5
+    assert response.data["pool_count"] == 12
+    assert response.data["returned_count"] == 10
+    assert len(response.data["candidates"]) == 10
     assert response.data["candidates"][0]["media_type"] == "movie"
     assert response.data["candidates"][0]["resolution"] is None
     assert response.data["candidates"][0]["leechers"] == 1
