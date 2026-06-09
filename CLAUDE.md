@@ -11,11 +11,15 @@ NasClawBot is a single-user NAS/PT media assistant. The active implementation is
 /chat/agent -> experimental NasClawAgentRunner + ToolCallingAgent + gated download approvals + JSON checkpoints
 /download -> explicit user action -> qB add paused
 /qb/*     -> qB task management
+/mteam/free-topped -> topped free torrent browser for ratio boosting
 ```
 
 The project is building a minimal context-aware Agent loop from this baseline. Do not assume the older workflow/runtime design is still active.
 
 ## Important Current Facts
+
+- There is a `GET /mteam/free-topped` endpoint that returns topped (置顶) free torrents for ratio boosting. Uses two-pass M-Team search (discount=FREE + mallSingleFree community-funded free), grouped by toppingLevel 2/1. Frontend tab "刷流" at `frontend/src/components/free-torrents/FreeTorrentsPanel.tsx` renders results with manual refresh, download buttons with configurable save_path.
+- The `/download` endpoint now supports optional `save_path` in the request body for custom download directories.
 
 - There is no `/confirm` route.
 - There is no `confirmation_payload`.

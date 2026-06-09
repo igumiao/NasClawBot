@@ -5,6 +5,7 @@ import { DownloadsPanel } from "../components/downloads/DownloadsPanel";
 import { ConversationSidebar } from "../components/layout/ConversationSidebar";
 import { WorkspaceTabs } from "../components/layout/WorkspaceTabs";
 import { SettingsPanel } from "../components/settings/SettingsPanel";
+import { FreeTorrentsPanel } from "../components/free-torrents/FreeTorrentsPanel";
 import { persistAgentSessionId, readStoredAgentSessionId } from "../state/agentSessionStorage";
 import type { AgentSessionSummary } from "../types/api";
 import type { WorkspaceTab } from "../state/uiState";
@@ -168,6 +169,12 @@ export function AppShell() {
           <SettingsPanel
             id="workspace-panel-settings"
             labelledBy="workspace-tab-settings"
+          />
+        </div>
+        <div style={panelStyle(activeTab === "free-torrents")}>
+          <FreeTorrentsPanel
+            id="workspace-panel-free-torrents"
+            labelledBy="workspace-tab-free-torrents"
           />
         </div>
       </main>

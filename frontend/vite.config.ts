@@ -9,6 +9,7 @@ export default defineConfig({
       "/chat": "http://127.0.0.1:8000",
       "/download": "http://127.0.0.1:8000",
       "/health": "http://127.0.0.1:8000",
+      "/mteam": "http://127.0.0.1:8000",
       "/qb": "http://127.0.0.1:8000"
     }
   },

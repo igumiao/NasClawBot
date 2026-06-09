@@ -255,12 +255,13 @@ def build_router() -> APIRouter:
         """Explicitly add one M-Team torrent to qBittorrent in paused mode."""
 
         download_tool = QBAddTorrentTool(_build_mteam_adapter(), _build_qb_adapter())
-        response = download_tool.run(
-            {
-                "torrent_id": request.torrent_id,
-                "qb_category": request.qb_category,
-            }
-        )
+        tool_params = {
+            "torrent_id": request.torrent_id,
+            "qb_category": request.qb_category,
+        }
+        if request.save_path:
+            tool_params["save_path"] = request.save_path
+        response = download_tool.run(tool_params)
         if response.status.value == "error":
             return DownloadResponse(status="error", error=response.text)
         return DownloadResponse(

@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api.chat_routes import build_router
+from app.api.mteam_routes import build_mteam_router
 from app.config import get_settings
 from app.logging_config import configure_logging
 
@@ -22,6 +23,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.log_level)
     app = FastAPI(title=settings.app_name)
+    app.include_router(build_mteam_router())
     app.include_router(build_router())
 
     frontend_dir = _frontend_dir()

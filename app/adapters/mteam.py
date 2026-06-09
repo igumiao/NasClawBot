@@ -61,6 +61,8 @@ class MTeamAdapter:
         sort_direction: str | None = None,
         imdb: str | None = None,
         douban: str | None = None,
+        discount: str | None = None,
+        hot: bool | None = None,
     ) -> dict:
         """Validate and build search payload in one place."""
         clean_keyword = str(keyword or "").strip()
@@ -104,6 +106,10 @@ class MTeamAdapter:
             payload["imdb"] = clean_imdb
         if clean_douban:
             payload["douban"] = clean_douban
+        if discount is not None:
+            payload["discount"] = discount
+        if hot is not None:
+            payload["hot"] = hot
         return payload
 
     def build_detail_payload(self, torrent_id: str) -> dict[str, str]:
@@ -238,6 +244,47 @@ class MTeamAdapter:
             len(normalized),
         )
         return normalized
+
+    def search_raw(
+        self,
+        keyword: str = "",
+        page: int = 1,
+        page_size: int = 20,
+        *,
+        mode: str = "normal",
+        discount: str | None = None,
+        hot: bool | None = None,
+        sort_field: str | None = None,
+        sort_direction: str | None = None,
+        imdb: str | None = None,
+        douban: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return raw M-Team search items without normalization.
+
+        Used by the free-topped service which needs access to toppingLevel,
+        mallSingleFree, and other raw status fields.
+        """
+        if not self._is_configured():
+            logger.warning("M-Team search_raw skipped: adapter is not configured")
+            return []
+        payload = self.build_search_payload(
+            keyword=keyword, page=page, page_size=page_size,
+            mode=mode, sort_field=sort_field, sort_direction=sort_direction,
+            imdb=imdb, douban=douban, discount=discount, hot=hot,
+        )
+        raw = self._post(self.search_endpoint(), json_payload=payload)
+        data = self._response_data_or_none(raw)
+        if not isinstance(data, dict):
+            return []
+        items = data.get("data", [])
+        if not isinstance(items, list):
+            return []
+        filtered: list[dict[str, Any]] = []
+        for item in items:
+            if isinstance(item, dict) and str(item.get("id", "")).strip():
+                filtered.append(item)
+        logger.info("M-Team search_raw finished result_count=%s", len(filtered))
+        return filtered
 
     def get_torrent_details(self, torrent_id: str) -> dict[str, Any] | None:
         """Fetch full detail for a stable M-Team torrent id."""
