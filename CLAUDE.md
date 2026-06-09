@@ -23,7 +23,7 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - There is no `SequentialWorkflow`.
 - There is no active workflow runtime.
 - `/chat` still calls `MTeamSearchTool` directly and does not use LLM/session history.
-- `/chat/agent` is the experimental Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with 9 tools: `mteam_search`, `member_profile`, and 7 qB tools (`qb_add_torrent`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`). Read-only tools (`qb_list_*`, `mteam_search`, `member_profile`) execute immediately; action tools (`qb_add_torrent`, `qb_control_torrent`, `qb_set_*_speed`) require user approval. Supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
+- `/chat/agent` is the experimental Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with 14 tools: `mteam_search`, `tavily_search`, 4 TMDB tools (`tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`), `member_profile`, and 7 qB tools (`qb_add_torrent`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`). Read-only tools execute immediately; action tools (`qb_add_torrent`, `qb_control_torrent`, `qb_set_*_speed`) require user approval. Supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
 - `GET /chat/agent/sessions` lists persisted Agent checkpoint summaries without calling an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}` returns one persisted Agent checkpoint with renderable message history, also without calling an LLM or tools.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` approves a pending Agent tool call (`qb_add_torrent`, `qb_control_torrent`, `qb_set_global_speed`, or `qb_set_torrent_speed`). For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, resumes the LLM with `tool_choice="none"`, and clears the pending approval. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
@@ -34,7 +34,7 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - `hello_agents/checkpoints/` defines the thin `ConversationCheckpointStore` boundary and the current JSON implementation.
 - Tool wrappers live in `app/tools/` (per-tool modules, re-exported via `__init__.py`).
 - M-Team and qB integration lives behind adapters in `app/adapters/`.
-- `mteam_search` exposes only optional `keyword`, `mode`, `sort_by`, `imdb`, and `douban` to the LLM. It requests 20 rows from M-Team and returns at most 5 candidates.
+- `mteam_search` exposes only optional `keyword`, `mode`, `sort_by`, `imdb`, and `douban` to the LLM. It requests 20 rows from M-Team and returns at most 10 candidates. Agent policy defaults searches to `normal`; names/aliases/years/season info are preferred, with IMDb as an auxiliary signal rather than the default hard filter for TV/variety/anime resources.
 - `hello_agents/tools/` provides `Filter` (pre-LLM tool selection) and `Gate` (pre-execution deny/confirm).
 - `ToolPermission` and `ToolFilter` have been removed in favor of `Filter` + `Gate`.
 - Historical LangGraph and HelloAgents runtime docs are archived under `docs/archive/`.
@@ -132,7 +132,7 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 - `mode`: `normal`, `movie`, `tvshow`, or `music`.
 - `sort_by`: `smallest`, `largest`, or `most_seeded`. Omit it for M-Team's default newest-first ordering.
 - Do not expose `discount`, pagination, raw sort fields, categories, or local hard filters to the LLM in the current phase.
-- Keep the adapter reusable: it returns the full first-page pool of 20 rows. `MTeamSearchTool` applies the product-facing limit of 5.
+- Keep the adapter reusable: it returns the full first-page pool of 20 rows. `MTeamSearchTool` applies the product-facing limit of 10.
 - Read `seeders`, `leechers`, and `discount` only from each result's `status` object.
 - Use release `name` as the candidate display title. Detect resolution from `smallDescr` first, falling back to `name` only when `smallDescr` is absent or empty. Current normalized values include `4320p`, `2160p`, `1080p`, and `720p`.
 - Return `discount` as informational candidate metadata; do not use it as a search input.
@@ -141,7 +141,7 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 
 Two independent layers, no `ToolPermission` enum:
 
-- **Filter** (`hello_agents/tools/filter.py`): runs **before** tools are sent to the LLM. Narrows the tool list to control context window usage and sub-agent capability scope. Currently allows 9 tools: `mteam_search`, `member_profile`, `qb_add_torrent`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`. `Filter(allow=lambda name: ...)` also supported.
+- **Filter** (`hello_agents/tools/filter.py`): runs **before** tools are sent to the LLM. Narrows the tool list to control context window usage and sub-agent capability scope. Currently allows 14 tools: `mteam_search`, `tavily_search`, `tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`, `member_profile`, `qb_add_torrent`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`. `Filter(allow=lambda name: ...)` also supported.
 - **Gate** (`hello_agents/tools/gate.py`): runs **after** LLM returns a tool call, **before** `tool.run()`. Three gates: deny_rules → confirm_rules → default allow. Works on `ToolCall` (tool_name + params), so decisions can be parameter-aware (`bash("ls")` passes, `bash("sudo rm -rf /")` denied).
 
 Factory functions for common deny rules: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
@@ -182,9 +182,10 @@ POST /chat/agent
   -> NasClawAgentRunner
   -> load JSON checkpoint
   -> ToolCallingAgent
-  -> 9 tools: mteam_search, member_profile, qb_add_torrent, qb_list_torrents,
-     qb_get_torrent, qb_list_categories, qb_control_torrent, qb_set_global_speed,
-     qb_set_torrent_speed
+  -> 14 tools: mteam_search, tavily_search, tmdb_search, tmdb_details,
+     tmdb_discover, tmdb_trending, member_profile, qb_add_torrent,
+     qb_list_torrents, qb_get_torrent, qb_list_categories, qb_control_torrent,
+     qb_set_global_speed, qb_set_torrent_speed
   -> Filter selects allowed tools; Gate requires approval for action tools
   -> tool result back to LLM
   -> save JSON checkpoint

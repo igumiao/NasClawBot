@@ -37,3 +37,14 @@ def test_settings_parse_logging_options_from_env(monkeypatch):
     assert settings.llm_log_raw_output is True, "LLM_LOG_RAW_OUTPUT=true should enable raw output logging"
 
     config_module.get_settings.cache_clear()
+
+
+def test_settings_reads_tavily_api_key_from_env(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
+    config_module.get_settings.cache_clear()
+
+    settings = config_module.get_settings()
+
+    assert settings.tavily_api_key == "tvly-test-key"
+
+    config_module.get_settings.cache_clear()

@@ -189,13 +189,13 @@ keyword?   mode?   sort_by?   imdb?   douban?
 It intentionally does not expose M-Team pagination, categories, discounts,
 raw sort fields, or local hard filters. The app adapter maps the semantic sort
 presets to M-Team fields, returns the full first-page pool, and the tool returns
-at most 5 normalized candidates.
+at most 10 normalized candidates.
 
 This is an app-level boundary:
 
 - provider request/response semantics and normalization belong in
   `app/adapters/mteam.py`
-- Agent-facing parameters, runtime validation, and the 5-result product limit
+- Agent-facing parameters, runtime validation, and the 10-result product limit
   belong in `app/tools/mteam_search.py`
 - reusable JSON Schema enum support belongs in `hello_agents/tools/base.py`
 

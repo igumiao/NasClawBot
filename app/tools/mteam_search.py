@@ -21,12 +21,12 @@ class MTeamSearchTool(Tool):
         "largest": ("SIZE", "DESC"),
         "most_seeded": ("SEEDERS", "DESC"),
     }
-    _RESULT_LIMIT = 5
+    _RESULT_LIMIT = 10
 
     def __init__(self, adapter: MTeamAdapter) -> None:
         super().__init__(
             name="mteam_search",
-            description="搜索 M-Team 资源站。可按媒体类型缩小范围，或按大小、做种数排序；最多返回 5 个候选。",
+            description="搜索 M-Team 资源站。默认使用 normal 模式按最新发布排序；最多返回 10 个候选。",
         )
         self._adapter = adapter
 
@@ -41,7 +41,7 @@ class MTeamSearchTool(Tool):
             ToolParameter(
                 name="mode",
                 type="string",
-                description="搜索范围。用户明确要求电影、电视剧或音乐时使用对应模式；否则省略。",
+                description="搜索范围。默认 normal；当前优先使用 normal，除非用户明确要求音乐。",
                 required=False,
                 enum=self._MODES,
             ),

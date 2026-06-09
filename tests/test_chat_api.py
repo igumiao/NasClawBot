@@ -33,6 +33,7 @@ class FakeSettings:
     llm_api_key = "fake-key"
     llm_base_url = "https://llm.local"
     tmdb_api_key = ""
+    tavily_api_key = ""
 
 
 class FakeMTeamAdapter:

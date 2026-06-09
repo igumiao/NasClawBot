@@ -77,7 +77,7 @@ Important current decisions:
 - Pagination, categories, raw sort fields, and local hard filters are not
   exposed to the Agent in this phase.
 - The adapter requests page 1 with 20 rows. `MTeamSearchTool` returns the first
-  5 normalized candidates to keep the model and UI result set compact.
+  10 normalized candidates so the model can judge more M-Team title variants.
 - Dynamic state comes from `status.seeders`, `status.leechers`, and
   `status.discount`; top-level fields with the same names are not authoritative.
 - Display titles prefer release `name`. Resolution detection prefers

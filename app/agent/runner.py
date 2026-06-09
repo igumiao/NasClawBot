@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
+from app.adapters.tavily import TavilyAdapter
 from app.adapters.tmdb import TMDBAdapter
 from app.agent.approvals import (
     ApprovalRecord,
@@ -32,6 +33,7 @@ from app.tools import (
     QBControlTorrentTool,
     QBSetGlobalSpeedTool,
     QBSetTorrentSpeedTool,
+    TavilySearchTool,
     TMDBSearchTool,
     TMDBDetailsTool,
     TMDBDiscoverTool,
@@ -69,9 +71,10 @@ def _serialize_session(method: Callable[..., Any]) -> Callable[..., Any]:
 AGENT_SESSION_PROMPT = f"""你是 NasClawBot 的媒体搜索和下载助手。你由 DeepSeek 大语言模型驱动。
 
 你可以使用 mteam_search 搜索候选资源。
-mteam_search 默认按最新发布排序；用户明确要求电影、电视剧或音乐时，分别使用 movie、tvshow、music 模式。
+mteam_search 默认使用 normal 模式并按最新发布排序；除非用户明确要求音乐，否则优先保持 normal，不要在 movie/tvshow 之间猜测。
 用户偏好较小或较大的资源时，分别使用 smallest、largest 排序；用户偏好做种人数多时，使用 most_seeded 排序。
-如果已经知道准确的 IMDb 或豆瓣 ID，可以用它缩小搜索范围。优惠状态由搜索结果返回，仅作为候选信息，不作为搜索条件。
+搜索电视剧、综艺、动画、季集资源时，优先用中文名、英文名、别名、年份、季号和集号判断种子标题；IMDb ID 只作为辅助线索，不要默认作为硬过滤条件。
+搜索电影且已经知道准确 IMDb 或豆瓣 ID 时，可以把它作为辅助缩小范围。优惠状态由搜索结果返回，仅作为候选信息，不作为搜索条件。
 当用户询问上传量、下载量、分享率、最近登录时间等个人数据时，可以调用 member_profile 查询。
 当用户明确要求下载某个 M-Team torrent id 或上一轮候选资源时，可以调用 qb_add_torrent 提出下载请求。
 qb_add_torrent 会先等待用户确认；在用户确认前，不要声称已经下载或已经提交到 qBittorrent。
@@ -86,19 +89,24 @@ qb_add_torrent 会先等待用户确认；在用户确认前，不要声称已�
 - 单种子限速: qb_set_torrent_speed
 操作类工具（控制、限速、删除）会等待用户确认后才执行。
 
-这些工具均为只读，直接执行，结果可能包含 IMDb ID，可用于后续 mteam_search 精准搜索。
+这些工具均为只读，直接执行。
 
 如果用户追问上一轮搜索结果，可以结合当前会话历史回答。
+你也可以使用 tavily_search 搜索互联网来澄清影视实体：
+- 当用户提到"最近新出的"、角色、剧情、演员、别名，或片名不确定时，先用 tavily_search 找官方标题、中文名、英文名、年份、媒体类型和别名线索。
+- tavily_search 只用于实体澄清和最新信息查询，不用于直接查找下载资源。
+- 拿到实体线索后，再用名称优先调用 mteam_search；对电视剧、综艺、动画剧集，不要默认用 IMDb 作为硬过滤。
+
 你也可以搜索 TMDB 影视数据库来辅助查找资源：
 - tmdb_search: 搜索电影/电视剧/人物，可按 media_type 筛选。当用户输入的片名存在歧义时（如"星球大战"可能指多部作品），结果会展示所有可能，此时应向用户追问澄清具体是哪一部。
-- tmdb_details: 获取影视详情（标题、概述、评分、类型、IMDb ID 等）。IMDb ID 可用于后续 mteam_search 的 imdb 参数进行精准搜索。
+- tmdb_details: 获取影视详情（标题、概述、评分、类型、IMDb ID 等）。IMDb ID 可作为辅助线索；电视剧、综艺、动画剧集仍优先用名称搜索。
 - tmdb_discover: 按类型、评分、年份等条件发现影视作品。适合用户要求推荐或浏览某一类别时使用。
 - tmdb_trending: 查看当前热门电影/电视剧/人物趋势（今日或本周）。
 
-使用 TMDB 工具找到准确的影视中文名称和 IMDb ID 后，用 mteam_search 的 imdb 参数精准搜索 M-Team 资源能获得更好的匹配结果。
+使用网络搜索或 TMDB 工具找到准确的影视中文名称、英文名称、别名、年份和 IMDb ID 后，优先用名称调用 mteam_search；IMDb 只在电影或高度确定的单一资源场景中作为加分和缩小范围的线索。
 这些工具均为只读，直接执行。
 
-当需要搜索时，调用 mteam_search；当需要查询数据时，调用 member_profile；当用户明确要求下载时，调用 qb_add_torrent；当需要管理 qB 任务时，调用对应的 qb_* 工具；当已有信息足够时，直接回答。
+当用户给出明确片名时，先调用 mteam_search；当用户描述模糊或需要最新网络信息时，先调用 tavily_search；当需要查询数据时，调用 member_profile；当用户明确要求下载时，调用 qb_add_torrent；当需要管理 qB 任务时，调用对应的 qb_* 工具；当已有信息足够时，直接回答。
 回答要简洁，并优先列出标题、分辨率、做种数、大小、优惠状态和 M-Team torrent id。
 """
 
@@ -165,6 +173,7 @@ class NasClawAgentRunner:
             "qb_control_torrent",
             "qb_set_global_speed",
             "qb_set_torrent_speed",
+            "tavily_search",
             "tmdb_search",
             "tmdb_details",
             "tmdb_discover",
@@ -245,6 +254,8 @@ class NasClawAgentRunner:
         registry.register_tool(QBControlTorrentTool(qb_adapter))
         registry.register_tool(QBSetGlobalSpeedTool(qb_adapter))
         registry.register_tool(QBSetTorrentSpeedTool(qb_adapter))
+        tavily_adapter = TavilyAdapter(api_key=settings.tavily_api_key)
+        registry.register_tool(TavilySearchTool(tavily_adapter))
         tmdb_adapter = TMDBAdapter(api_key=settings.tmdb_api_key)
         registry.register_tool(TMDBSearchTool(tmdb_adapter))
         registry.register_tool(TMDBDetailsTool(tmdb_adapter))
