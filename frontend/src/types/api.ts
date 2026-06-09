@@ -153,3 +153,24 @@ export type TorrentActionResponse = {
 export type HealthResponse = {
   status: string;
 };
+
+export type FreeToppedTorrent = {
+  id: string;
+  name: string;
+  size_bytes: number;
+  size_display: string;
+  seeders: number;
+  leechers: number;
+  discount: string | null;
+  topping_level: number;
+  free_until: string | null;
+  category: string;
+  imdb: string | null;
+  douban: string | null;
+};
+
+export type FreeToppedResponse = {
+  level2: FreeToppedTorrent[];
+  level1: FreeToppedTorrent[];
+  total_count: number;
+};

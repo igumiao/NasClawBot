@@ -79,15 +79,11 @@ export const chatApi = {
   addDownload(
     torrentId: string,
     qbCategory = "mteam",
+    savePath?: string,
     signal?: AbortSignal,
   ): Promise<DownloadResponse> {
-    return postJson<DownloadResponse>(
-      "/download",
-      {
-        torrent_id: torrentId,
-        qb_category: qbCategory
-      },
-      signal,
-    );
+    const body: Record<string, unknown> = { torrent_id: torrentId, qb_category: qbCategory };
+    if (savePath) body.save_path = savePath;
+    return postJson<DownloadResponse>("/download", body, signal);
   }
 };

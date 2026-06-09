@@ -17,6 +17,7 @@ An experimental gated Agent loop now exists alongside the stable baseline:
 
 ```text
 /chat/agent -> NasClawAgentRunner -> ToolCallingAgent + 15 tools (current_time, mteam_search, tavily_search, 4 TMDB tools, member_profile, 7 qB tools) -> JSON checkpoint persistence
+/mteam/free-topped -> topped free torrent browser for ratio boosting
 ```
 
 This path is for learning and iteration. `/chat` remains the stable no-LLM baseline.
@@ -41,10 +42,14 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `hello_agents/checkpoints/`: framework-level `ConversationCheckpointStore` protocol plus the current JSON implementation.
 - `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused.
 - `app/tools/`: per-tool modules (`current_time.py`, `mteam_search.py`, `tavily_search.py`, `member_profile.py`, `qb_add_torrent.py`, `qb_list_torrents.py`, `qb_get_torrent.py`, `qb_list_categories.py`, `qb_control_torrent.py`, `qb_set_global_speed.py`, `qb_set_torrent_speed.py`, and TMDB tools), re-exported via `__init__.py`.
-- `app/adapters/mteam.py`: M-Team API boundary for search, detail, download token generation, and member profile.
+- `app/adapters/mteam.py`: M-Team API boundary for search, detail, download token generation, and member profile. `build_search_payload` supports optional `discount` and `hot` parameters; `search_raw()` returns unnormalized items for services that need raw `status` fields.
+- `app/services/mteam_free_service.py`: two-pass service for finding ratio-boosting torrents. Pass 1 fetches `discount=FREE`; Pass 2 scans without discount filter to catch `mallSingleFree` (community-funded free). Filters by minimum size and groups results by topping level 1/2.
+- `app/api/mteam_routes.py`: `GET /mteam/free-topped?min_size_gb=10&topping_only=true` — returns topped free torrents split by level2/level1 for the ratio-boosting UI tab.
+- `/download` now supports optional `save_path` in the request body for custom download directories.
+- `probes/mteam/free_topped_finder.py`: standalone CLI script for testing the two-pass search logic outside the server.
 - `app/adapters/qbittorrent.py`: qBittorrent API boundary for paused add, listing, detail, control, and speed limits (global + per-torrent).
 - `app/domain/models.py`: shared search result models.
-- `frontend/`: React + Vite workspace with Chat, Downloads, and Settings tabs. Key architectural choices:
+- `frontend/`: React + Vite workspace with Chat, Downloads, 刷流 (ratio boosting), and Settings tabs. Key architectural choices:
   - `AppShell` owns `activeAgentSessionId`, drives session switching, refreshes the session list, and routes rename/delete/new-session actions.
   - `ConversationSidebar` is a functional multi-session sidebar: collapsible (64px icon-only, localStorage-persisted), live session list from `GET /chat/agent/sessions` sorted by recent activity, inline rename via `PATCH`, delete with confirm dialog via `DELETE`, "+ 新对话" button, empty state, active-row highlight, hover/focus action menu, and collapsed brand mark that turns into the expand button on hover/focus.
   - `ChatPanel` receives `activeSessionId` from `AppShell` and delegates session lifecycle to `useAgentChatSession`; the hook restores checkpoints, resets state on external session changes, sends Agent messages, handles approvals, guards stale async responses, and emits session activity for sidebar refresh.

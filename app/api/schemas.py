@@ -76,6 +76,7 @@ class DownloadRequest(BaseModel):
 
     torrent_id: str
     qb_category: str = "mteam"
+    save_path: str | None = None
 
 
 class DownloadResponse(BaseModel):
@@ -131,3 +132,28 @@ class QBTorrentActionResponse(BaseModel):
     ok: bool
     status: str
     qb_hash: str | None = None
+
+
+class FreeToppedTorrentSchema(BaseModel):
+    """One free topped torrent row for the UI."""
+
+    id: str
+    name: str
+    size_bytes: int
+    size_display: str
+    seeders: int
+    leechers: int
+    discount: str | None = None
+    topping_level: int = 0
+    free_until: str | None = None
+    category: str = ""
+    imdb: str | None = None
+    douban: str | None = None
+
+
+class FreeToppedResponse(BaseModel):
+    """Free topped torrents split by topping level."""
+
+    level2: list[FreeToppedTorrentSchema] = Field(default_factory=list)
+    level1: list[FreeToppedTorrentSchema] = Field(default_factory=list)
+    total_count: int = 0
