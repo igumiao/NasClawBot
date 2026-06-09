@@ -21,9 +21,10 @@ class TMDBTrendingTool(Tool):
         super().__init__(
             name="tmdb_trending",
             description=(
-                "查看 TMDB 当前热门趋势。"
-                "可选 media_type 筛选电影/电视剧/人物（默认 all 返回全部），"
-                "time_window 选择今日或本周趋势。"
+                "查看 TMDB 日/周趋势热度榜。"
+                "适合用户问最近热门、本周热门或 TMDB 热门趋势。"
+                "热度榜不代表最新发布，也不适合查某个系列的最新作品。"
+                "可选 media_type 筛选电影/电视剧/人物。"
             ),
         )
         self._adapter = adapter

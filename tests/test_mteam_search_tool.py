@@ -20,8 +20,7 @@ def test_mteam_search_schema_exposes_only_agreed_optional_parameters():
 
     assert schema["required"] == []
     assert schema["additionalProperties"] is False
-    assert set(schema["properties"]) == {"keyword", "mode", "sort_by", "imdb", "douban"}
-    assert schema["properties"]["mode"]["enum"] == ["normal", "movie", "tvshow", "music"]
+    assert set(schema["properties"]) == {"keyword", "sort_by", "imdb", "douban"}
     assert schema["properties"]["sort_by"]["enum"] == ["smallest", "largest", "most_seeded"]
 
 
@@ -61,7 +60,7 @@ def test_mteam_search_uses_default_query_without_sort_fields():
         "imdb": None,
         "douban": None,
     }
-    assert response.data["applied_query"] == {"mode": "normal"}
+    assert response.data["applied_query"] == {}
 
 
 def test_mteam_search_returns_at_most_ten_candidates_with_extra_status_fields():
@@ -81,12 +80,12 @@ def test_mteam_search_returns_at_most_ten_candidates_with_extra_status_fields():
     ]
     tool = MTeamSearchTool(FakeMTeamAdapter(rows))
 
-    response = tool.run({"mode": "movie"})
+    response = tool.run({})
 
     assert response.data["pool_count"] == 12
     assert response.data["returned_count"] == 10
     assert len(response.data["candidates"]) == 10
-    assert response.data["candidates"][0]["media_type"] == "movie"
+    assert response.data["candidates"][0]["media_type"] == "unknown"
     assert response.data["candidates"][0]["resolution"] is None
     assert response.data["candidates"][0]["leechers"] == 1
     assert response.data["candidates"][0]["discount"] == "PERCENT_50"
@@ -170,7 +169,7 @@ def test_mteam_search_falls_back_to_name_for_resolution(name: str, expected: str
 @pytest.mark.parametrize(
     "parameters",
     [
-        {"mode": "all"},
+        {"mode": "movie"},
         {"sort_by": "newest"},
         {"discount": "FREE"},
         None,

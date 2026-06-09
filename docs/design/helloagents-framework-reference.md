@@ -183,13 +183,14 @@ alone does not guarantee valid model arguments.
 The current Agent-facing `mteam_search` surface is:
 
 ```text
-keyword?   mode?   sort_by?   imdb?   douban?
+keyword?   sort_by?   imdb?   douban?
 ```
 
 It intentionally does not expose M-Team pagination, categories, discounts,
-raw sort fields, or local hard filters. The app adapter maps the semantic sort
-presets to M-Team fields, returns the full first-page pool, and the tool returns
-at most 10 normalized candidates.
+raw sort fields, media modes, or local hard filters. The tool always uses
+M-Team `normal` mode. The app adapter maps the semantic sort presets to M-Team
+fields, returns the full first-page pool, and the tool returns at most 10
+normalized candidates.
 
 This is an app-level boundary:
 

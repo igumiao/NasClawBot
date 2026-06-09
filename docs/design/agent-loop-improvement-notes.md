@@ -62,7 +62,6 @@ surface instead of the full M-Team Swagger request:
 
 ```text
 keyword?   free-text search; empty is valid
-mode?      normal | movie | tvshow | music
 sort_by?   smallest | largest | most_seeded
 imdb?      exact external id
 douban?    exact external id
@@ -70,6 +69,8 @@ douban?    exact external id
 
 Important current decisions:
 
+- `MTeamSearchTool` always uses M-Team `normal` mode; media mode selection is
+  not exposed to the Agent.
 - Omitting `sort_by` preserves M-Team's default newest-first ordering.
 - `discount` remains candidate metadata, not a search parameter, because the
   API accepts only one discount value and overlapping meanings such as `FREE`

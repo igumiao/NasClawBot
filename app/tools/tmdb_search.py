@@ -21,11 +21,12 @@ class TMDBSearchTool(Tool):
         super().__init__(
             name="tmdb_search",
             description=(
-                "搜索 TMDB 影视数据库（电影/电视剧/人物）。"
-                "返回中文标题、媒体类型、TMDB ID 和概述。"
-                "可用 media_type 筛选类型，或省略以查看全部。"
-                "当用户提到的片名存在歧义时（如'星球大战'可能指多部电影或动画），"
-                "结果会展示多种可能，便于向用户澄清后精确搜索。"
+                "按明确或候选标题搜索 TMDB 的电影、电视剧和人物。"
+                "适合验证已知片名、剧名、人物名、中文名、英文名，"
+                "或查询明确系列/片名族下的候选条目。"
+                "返回标题、媒体类型、TMDB ID、日期和概述。"
+                "跨度很大的宇宙/IP、角色相关新作、最新新闻或未明确媒体类型的'系列最新'，"
+                "应先用 tavily_search 澄清具体作品范围。"
             ),
         )
         self._adapter = adapter
@@ -35,7 +36,7 @@ class TMDBSearchTool(Tool):
             ToolParameter(
                 name="query",
                 type="string",
-                description="搜索关键词（中英文均可）",
+                description="明确标题、候选官方标题、中文名、英文名、人物名或明确系列名；不要传'最新有什么'、'角色相关新作'这类开放任务。",
                 required=True,
             ),
             ToolParameter(

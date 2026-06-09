@@ -33,6 +33,7 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 - `PATCH /chat/agent/sessions/{session_id}`: updates a session checkpoint. Currently supports `title` in `metadata.title` for session renaming.
 - `DELETE /chat/agent/sessions/{session_id}`: deletes a persisted session checkpoint (HTTP 204 on success).
 - `app/agent/runner.py`: application-level Agent runner that loads/saves conversation checkpoints, builds the current `ToolCallingAgent`, restores history, and extracts route-facing search results/tool calls.
+- The Agent system prompt is intentionally compact. Tool-specific usage lives in tool descriptions; the runner appends a dynamic current-date/timezone line from `APP_TIMEZONE` so release/latest judgments have a fresh date anchor.
 - `NasClawAgentRunner.run/approve/deny` are serialized per session inside the current server process so concurrent approval decisions cannot execute the same side effect twice. Cross-process coordination remains a future durable-store concern.
 - `ToolCallingLoop`: applies `Filter` before sending tool schemas to the LLM, applies `Gate` before `tool.run()`, returns `awaiting_approval` with `pending_approvals` for confirm-gated calls, and performs one forced final LLM pass with `tool_choice="none"` when `max_steps` is reached.
 - `ToolObservation`: loop-level envelope for one tool call. It stores `tool_name`, `tool_call_id`, arguments, full structured `ToolResponse`, separate LLM-facing `observation_text`, and gate markers (`gate_result`, `gate_reason`, `approval_id`).
@@ -55,9 +56,9 @@ This path is for learning and iteration. `/chat` remains the stable no-LLM basel
 
 ### M-Team Search Contract
 
-- Agent-facing `mteam_search` parameters are optional `keyword`, `mode`, `sort_by`, `imdb`, and `douban`.
-- `mode` is limited to `normal`, `movie`, `tvshow`, and `music`.
-- Agent policy defaults M-Team searches to `normal`; do not guess between `movie` and `tvshow` for ambiguous media. Use names, aliases, years, season numbers, and episode numbers first; treat IMDb as an auxiliary signal, especially for TV/variety/anime resources.
+- Agent-facing `mteam_search` parameters are optional `keyword`, `sort_by`, `imdb`, and `douban`.
+- `mteam_search` always uses M-Team `normal` mode. Do not expose `movie`, `tvshow`, `music`, or other mode selection to the Agent.
+- Use names, aliases, years, season numbers, and episode numbers first; treat IMDb as an auxiliary signal, especially for TV/variety/anime resources.
 - `sort_by` is limited to `smallest`, `largest`, and `most_seeded`. Omitting it preserves M-Team's default newest-first ordering.
 - Do not expose `discount`, pagination, raw `sortField`/`sortDirection`, categories, or local hard-filter arguments to the Agent in the current phase.
 - The adapter requests page 1 with 20 rows. `MTeamSearchTool` returns at most the first 10 normalized candidates so `/chat`, `/chat/agent`, and the frontend share the same product limit.

@@ -15,7 +15,6 @@ from app.domain.models import ResourceCandidate
 class MTeamSearchTool(Tool):
     """Search M-Team and return a compact list of structured candidates."""
 
-    _MODES = ["normal", "movie", "tvshow", "music"]
     _SORTS = {
         "smallest": ("SIZE", "ASC"),
         "largest": ("SIZE", "DESC"),
@@ -26,7 +25,10 @@ class MTeamSearchTool(Tool):
     def __init__(self, adapter: MTeamAdapter) -> None:
         super().__init__(
             name="mteam_search",
-            description="搜索 M-Team 资源站。默认使用 normal 模式按最新发布排序；最多返回 10 个候选。",
+            description=(
+                "搜索 M-Team 资源站，默认按最新发布排序，最多返回 10 个候选。"
+                "资源标题多为英文/原名，keyword 优先使用英文标题、原名或罗马字标题。"
+            ),
         )
         self._adapter = adapter
 
@@ -35,15 +37,11 @@ class MTeamSearchTool(Tool):
             ToolParameter(
                 name="keyword",
                 type="string",
-                description="搜索关键词。浏览最新资源或使用 IMDb/豆瓣 ID 搜索时可以省略或传空字符串。",
+                description=(
+                    "搜索关键词。优先使用英文标题、原名或罗马字标题；"
+                    "中文名、别名可作为补充搜索。浏览最新资源或使用 IMDb/豆瓣 ID 搜索时可以省略或传空字符串。"
+                ),
                 required=False,
-            ),
-            ToolParameter(
-                name="mode",
-                type="string",
-                description="搜索范围。默认 normal；当前优先使用 normal，除非用户明确要求音乐。",
-                required=False,
-                enum=self._MODES,
             ),
             ToolParameter(
                 name="sort_by",
@@ -89,7 +87,7 @@ class MTeamSearchTool(Tool):
             keyword=query["keyword"],
             page=1,
             page_size=20,
-            mode=query["mode"],
+            mode="normal",
             sort_field=sort_field,
             sort_direction=sort_direction,
             imdb=query["imdb"],
@@ -103,7 +101,7 @@ class MTeamSearchTool(Tool):
                 ResourceCandidate(
                     id=str(row.get("id")),
                     title=title,
-                    media_type=self._media_type(query["mode"]),
+                    media_type="unknown",
                     resolution=self._resolution(str(resolution_source)),
                     seeders=int(row.get("seeders", 0) or 0),
                     leechers=int(row.get("leechers", 0) or 0),
@@ -129,20 +127,17 @@ class MTeamSearchTool(Tool):
         if not isinstance(parameters, dict):
             raise ValueError("M-Team search parameters must be an object.")
 
-        unknown = sorted(set(parameters) - {"keyword", "mode", "sort_by", "imdb", "douban"})
+        unknown = sorted(set(parameters) - {"keyword", "sort_by", "imdb", "douban"})
         if unknown:
             raise ValueError(f"Unsupported M-Team search parameters: {', '.join(unknown)}")
 
         keyword = str(parameters.get("keyword") or "").strip()
-        mode = str(parameters.get("mode") or "normal").strip().lower()
         sort_by = str(parameters.get("sort_by") or "").strip().lower() or None
         imdb = str(parameters.get("imdb") or "").strip() or None
         douban = str(parameters.get("douban") or "").strip() or None
 
         if len(keyword) > 100:
             raise ValueError("keyword must be <= 100 characters.")
-        if mode not in self._MODES:
-            raise ValueError(f"mode must be one of: {', '.join(self._MODES)}.")
         if sort_by is not None and sort_by not in self._SORTS:
             raise ValueError(f"sort_by must be one of: {', '.join(self._SORTS)}.")
         if imdb is not None and len(imdb) > 32:
@@ -152,19 +147,10 @@ class MTeamSearchTool(Tool):
 
         return {
             "keyword": keyword,
-            "mode": mode,
             "sort_by": sort_by,
             "imdb": imdb,
             "douban": douban,
         }
-
-    @staticmethod
-    def _media_type(mode: str) -> str:
-        if mode == "movie":
-            return "movie"
-        if mode == "tvshow":
-            return "tv"
-        return "unknown"
 
     @staticmethod
     def _resolution(source_text: str) -> str | None:

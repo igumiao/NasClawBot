@@ -20,8 +20,9 @@ class TMDBDetailsTool(Tool):
         super().__init__(
             name="tmdb_details",
             description=(
-                "获取 TMDB 影视作品详情：中文标题、概述、上映/首播日期、评分、"
-                "类型、时长/季数，以及 IMDb ID（可用于 mteam_search 精准搜索）。"
+                "获取已确定 TMDB movie/tv 条目的结构化详情：标题、原名、概述、"
+                "上映/首播日期、评分、类型、时长/季数、季集信息和 IMDb ID。"
+                "IMDb ID 仅作为辅助线索；电视剧、综艺、动画剧集资源仍优先用名称、年份、季号、集号搜索 M-Team。"
             ),
         )
         self._adapter = adapter
