@@ -47,6 +47,12 @@ export function AppShell() {
   }, [activeAgentSessionId]);
 
   useEffect(() => {
+    if (activeTab === "downloads") {
+      setDownloadRefreshSignal((n) => n + 1);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
     persistSidebarCollapsed(isSidebarCollapsed);
   }, [isSidebarCollapsed]);
 

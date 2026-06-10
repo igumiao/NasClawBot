@@ -67,6 +67,45 @@ class QBittorrentAdapter:
         logger.info("qB login succeeded base_url=%s", self._normalized_base_url())
         return client
 
+    def health(self) -> str:
+        """Check qBittorrent API reachability and credentials.
+
+        Uses ``login()`` as a connectivity+auth probe.  Returns one of
+        ``"ok"``, ``"unconfigured"``, ``"unavailable"``, or ``"error"``.
+        """
+        if not self._is_configured():
+            logger.warning("qB health check skipped: adapter is not configured")
+            return "unconfigured"
+
+        if qbittorrentapi is None:
+            logger.warning("qB health check failed: qbittorrent-api not installed")
+            return "error"
+
+        logger.info("qB health check started")
+        try:
+            client = self._build_client()
+            client.auth_log_in()
+            return "ok"
+        except Exception as exc:
+            exc_type = type(exc).__name__.lower()
+            exc_str = str(exc).lower()
+            # Connection failures (DNS, refused, timeout) → unavailable
+            if any(kw in exc_type for kw in ("connection", "timeout", "connect")):
+                logger.warning("qB health check failed: unavailable (%s)", exc)
+                return "unavailable"
+            if any(kw in exc_str for kw in ("connection refused", "name or service not known", "timed out", "timeout")):
+                logger.warning("qB health check failed: unavailable (%s)", exc)
+                return "unavailable"
+            # Auth failures (bad credentials) → error
+            if any(kw in exc_type for kw in ("login", "forbidden", "unauthorized", "auth")):
+                logger.warning("qB health check failed: error (%s)", exc)
+                return "error"
+            if any(kw in exc_str for kw in ("403", "401", "unauthorized", "forbidden", "login failed")):
+                logger.warning("qB health check failed: error (%s)", exc)
+                return "error"
+            logger.warning("qB health check failed: unexpected error (%s)", exc)
+            return "error"
+
     def build_add_payload(
         self,
         url: str,

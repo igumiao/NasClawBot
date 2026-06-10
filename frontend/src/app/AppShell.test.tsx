@@ -344,6 +344,23 @@ describe("AppShell", () => {
         );
       }
 
+      if (url === "/health/services") {
+        return Promise.resolve(
+          new Response(JSON.stringify({
+            status: "ok",
+            services: [
+              { service: "tmdb", status: "ok", latency_ms: 45.2, message: "TMDB API 响应正常" },
+              { service: "tavily", status: "unconfigured", latency_ms: 0.0, message: "Tavily 未配置" },
+              { service: "mteam", status: "ok", latency_ms: 234.1, message: "M-Team API 响应正常" },
+              { service: "qbittorrent", status: "ok", latency_ms: 12.3, message: "qBittorrent API 响应正常" },
+            ],
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }),
+        );
+      }
+
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
@@ -352,10 +369,10 @@ describe("AppShell", () => {
     await user.click(screen.getByRole("tab", { name: "Downloads" }));
     expect(await screen.findByText("下载任务")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Settings" }));
-    expect(screen.getByText("运行状态")).toBeInTheDocument();
-    expect(screen.getByText("只读面板。密钥由环境统一管理，这里只展示当前会话和后端状态。")).toBeInTheDocument();
-    expect(await screen.findByText("ok")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "状态" }));
+    expect(screen.getByText("服务健康检查")).toBeInTheDocument();
+    expect(screen.getByText("手动检查各外部服务的连通性和凭据状态。")).toBeInTheDocument();
+    expect(await screen.findAllByText("正常")).toHaveLength(3);
   });
 
   it("prevents default composer submission for empty chat input", () => {

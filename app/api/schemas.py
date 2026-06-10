@@ -157,3 +157,19 @@ class FreeToppedResponse(BaseModel):
     level2: list[FreeToppedTorrentSchema] = Field(default_factory=list)
     level1: list[FreeToppedTorrentSchema] = Field(default_factory=list)
     total_count: int = 0
+
+
+class ServiceHealth(BaseModel):
+    """Health status for a single external service dependency."""
+
+    service: str  # "tmdb" | "tavily" | "mteam" | "qbittorrent"
+    status: str  # "ok" | "unavailable" | "unconfigured" | "error"
+    latency_ms: float  # response time in milliseconds
+    message: str  # human-readable detail
+
+
+class HealthServicesResponse(BaseModel):
+    """Aggregated health check for all external service dependencies."""
+
+    status: str  # "ok" when all configured services are healthy, "degraded" otherwise
+    services: list[ServiceHealth] = Field(default_factory=list)
