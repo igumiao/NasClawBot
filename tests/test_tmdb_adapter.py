@@ -296,20 +296,21 @@ class TestTMDBAdapterTrending:
 # ---------------------------------------------------------------------------
 
 class TestTMDBAdapterHealth:
-    def test_returns_true_on_success(self):
-        """health() returns True when GET /3/authentication succeeds."""
+    def test_returns_ok_on_success(self):
+        """health() returns "ok" when GET /3/authentication succeeds."""
         mock_data = {"success": True}
         patcher, mock_cli = _mock_httpx(mock_data)
         with patcher:
             result = _adapter().health()
 
-        assert result is True
+        assert result == "ok"
         args, _ = mock_cli.get.call_args
         assert args[0] == "https://api.themoviedb.org/3/authentication"
 
-    def test_returns_false_on_http_error(self):
-        """health() returns False when the request raises TMDBError."""
+    def test_returns_error_on_4xx(self):
+        """health() returns "error" on 401 (bad credentials)."""
         mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 401
         mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
             "401 Unauthorized", request=MagicMock(), response=mock_resp,
         )
@@ -319,24 +320,36 @@ class TestTMDBAdapterHealth:
         with patch("httpx.Client", return_value=mock_cli):
             result = _adapter().health()
 
-        assert result is False
+        assert result == "error"
 
-    def test_returns_false_on_json_error(self):
-        """health() returns False when response body is not valid JSON."""
+    def test_returns_unavailable_on_5xx(self):
+        """health() returns "unavailable" on 500 (server-side failure)."""
         mock_resp = MagicMock(spec=httpx.Response)
-        mock_resp.json.side_effect = ValueError("Not JSON")
-        mock_resp.raise_for_status = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "500 Internal Server Error", request=MagicMock(), response=mock_resp,
+        )
         mock_cli = MagicMock()
         mock_cli.__enter__.return_value = mock_cli
         mock_cli.get.return_value = mock_resp
         with patch("httpx.Client", return_value=mock_cli):
             result = _adapter().health()
 
-        assert result is False
+        assert result == "unavailable"
 
-    def test_returns_false_when_not_configured(self):
+    def test_returns_unavailable_on_connect_error(self):
+        """health() returns "unavailable" on connection failure."""
+        mock_cli = MagicMock()
+        mock_cli.__enter__.return_value = mock_cli
+        mock_cli.get.side_effect = httpx.ConnectError("Connection refused")
+        with patch("httpx.Client", return_value=mock_cli):
+            result = _adapter().health()
+
+        assert result == "unavailable"
+
+    def test_returns_unconfigured_when_not_configured(self):
         result = _adapter(api_key="").health()
-        assert result is False
+        assert result == "unconfigured"
 
 
 # ---------------------------------------------------------------------------

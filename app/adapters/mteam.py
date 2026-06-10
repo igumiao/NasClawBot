@@ -373,6 +373,39 @@ class MTeamAdapter:
         )
         return data if isinstance(data, dict) else None
 
+    def health(self) -> str:
+        """Check M-Team API reachability and credentials.
+
+        Uses ``get_member_profile()`` as a lightweight auth+connectivity
+        probe.  Returns one of ``"ok"``, ``"unconfigured"``,
+        ``"unavailable"``, or ``"error"``.
+        """
+        if not self._is_configured():
+            logger.warning("M-Team health check skipped: adapter is not configured")
+            return "unconfigured"
+
+        logger.info("M-Team health check started")
+        try:
+            result = self.get_member_profile()
+            if result is not None:
+                return "ok"
+            # get_member_profile returned None — likely a business-logic
+            # failure (bad auth, unexpected response shape).
+            logger.warning("M-Team health check returned no profile data")
+            return "error"
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+            logger.warning("M-Team health check failed: unavailable")
+            return "unavailable"
+        except httpx.HTTPStatusError as exc:
+            if 400 <= exc.response.status_code < 500:
+                logger.warning("M-Team health check failed: error status=%s", exc.response.status_code)
+                return "error"
+            logger.warning("M-Team health check failed: unavailable status=%s", exc.response.status_code)
+            return "unavailable"
+        except Exception:
+            logger.exception("M-Team health check failed: unexpected error")
+            return "error"
+
     @staticmethod
     def _format_size(size_value: Any) -> str:
         try:

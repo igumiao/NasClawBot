@@ -73,3 +73,43 @@ class TavilyAdapter:
             raise TavilyError(str(exc)) from exc
 
         return data
+
+    def health(self) -> str:
+        """Check Tavily API reachability and credentials.
+
+        Returns one of ``"ok"``, ``"unconfigured"``, ``"unavailable"``,
+        or ``"error"``.
+        """
+        if not self._is_configured():
+            logger.warning("Tavily health check skipped: adapter is not configured")
+            return "unconfigured"
+
+        payload = {
+            "api_key": self.api_key,
+            "query": "test",
+            "search_depth": "basic",
+            "include_answer": False,
+            "include_images": False,
+            "include_raw_content": False,
+            "max_results": 1,
+        }
+        url = f"{self.base_url.rstrip('/')}/search"
+        logger.info("Tavily health check started")
+
+        try:
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                response = client.post(url, json=payload)
+                response.raise_for_status()
+            return "ok"
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+            logger.warning("Tavily health check failed: unavailable")
+            return "unavailable"
+        except httpx.HTTPStatusError as exc:
+            if 400 <= exc.response.status_code < 500:
+                logger.warning("Tavily health check failed: error status=%s", exc.response.status_code)
+                return "error"
+            logger.warning("Tavily health check failed: unavailable status=%s", exc.response.status_code)
+            return "unavailable"
+        except Exception:
+            logger.exception("Tavily health check failed: unexpected error")
+            return "error"

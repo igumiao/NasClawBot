@@ -1,5 +1,6 @@
 """HTTP routes for chat search and explicit download actions."""
 
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -8,6 +9,8 @@ from fastapi.responses import HTMLResponse
 from app.agent import NasClawAgentRunner
 from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
+from app.adapters.tavily import TavilyAdapter
+from app.adapters.tmdb import TMDBAdapter
 from app.api.qb_routes import build_qb_router
 from app.api.schemas import (
     AgentApprovalResponse,
@@ -18,6 +21,8 @@ from app.api.schemas import (
     ChatResponse,
     DownloadRequest,
     DownloadResponse,
+    HealthServicesResponse,
+    ServiceHealth,
     SessionUpdateRequest,
 )
 from app.config import get_settings
@@ -55,6 +60,16 @@ def _build_qb_adapter() -> QBittorrentAdapter:
     )
 
 
+def _build_tmdb_adapter() -> TMDBAdapter:
+    settings = get_settings()
+    return TMDBAdapter(api_key=settings.tmdb_api_key)
+
+
+def _build_tavily_adapter() -> TavilyAdapter:
+    settings = get_settings()
+    return TavilyAdapter(api_key=settings.tavily_api_key)
+
+
 def _agent_checkpoint_store() -> JSONConversationCheckpointStore:
     return JSONConversationCheckpointStore(_AGENT_SESSION_DIR)
 
@@ -68,6 +83,63 @@ def build_router() -> APIRouter:
     def health() -> dict[str, str]:
         """Basic liveness probe used by local checks/tests."""
         return {"status": "ok"}
+
+    @router.get("/health/services", response_model=HealthServicesResponse)
+    def health_services() -> HealthServicesResponse:
+        """Check reachability of all configured external service dependencies.
+
+        Each service is probed independently; the overall status is ``"ok"``
+        when every *configured* service responds, and ``"degraded"``
+        otherwise.  Unconfigured services are reported but do not degrade
+        the overall status.
+        """
+        _LABELS: dict[str, str] = {
+            "tmdb": "TMDB",
+            "tavily": "Tavily",
+            "mteam": "M-Team",
+            "qbittorrent": "qBittorrent",
+        }
+        _MESSAGES: dict[str, str] = {
+            "ok": "{} API 响应正常",
+            "unavailable": "{} 无法连接",
+            "unconfigured": "{} 未配置",
+            "error": "{} 返回错误",
+        }
+
+        def _check(svc: str, adapter: object) -> tuple[str, str, float]:
+            t0 = time.perf_counter()
+            st = getattr(adapter, "health")()
+            elapsed = (time.perf_counter() - t0) * 1000.0
+            return (svc, st, round(elapsed, 1))
+
+        results = [
+            _check("tmdb", _build_tmdb_adapter()),
+            _check("tavily", _build_tavily_adapter()),
+            _check("mteam", _build_mteam_adapter()),
+            _check("qbittorrent", _build_qb_adapter()),
+        ]
+
+        def _is_healthy(s: str) -> bool:
+            return s in ("ok", "unconfigured")
+
+        overall = (
+            "ok"
+            if all(_is_healthy(st) for (_, st, _) in results)
+            else "degraded"
+        )
+
+        return HealthServicesResponse(
+            status=overall,
+            services=[
+                ServiceHealth(
+                    service=svc,
+                    status=st,
+                    latency_ms=el,
+                    message=_MESSAGES.get(st, st).format(_LABELS.get(svc, svc)),
+                )
+                for (svc, st, el) in results
+            ],
+        )
 
     @router.post("/chat", response_model=ChatResponse)
     def chat(request: ChatRequest) -> ChatResponse:

@@ -154,6 +154,20 @@ export type HealthResponse = {
   status: string;
 };
 
+export type ServiceHealthStatus = "ok" | "unavailable" | "unconfigured" | "error";
+
+export type ServiceHealth = {
+  service: string;
+  status: ServiceHealthStatus;
+  latency_ms: number;
+  message: string;
+};
+
+export type HealthServicesResponse = {
+  status: string;
+  services: ServiceHealth[];
+};
+
 export type FreeToppedTorrent = {
   id: string;
   name: string;

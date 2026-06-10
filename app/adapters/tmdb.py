@@ -190,19 +190,36 @@ class TMDBAdapter:
         logger.info("TMDB trending_all started time_window=%s", time_window)
         return self._get(f"/3/trending/all/{time_window}")
 
-    def health(self) -> bool:
-        """Check TMDB API reachability (``GET /3/authentication``).
+    def health(self) -> str:
+        """Check TMDB API reachability and credentials.
 
-        Returns ``True`` when the endpoint responds successfully,
-        ``False`` otherwise (including when not configured).
+        Calls ``GET /3/authentication`` directly so exception types
+        are preserved for fine-grained status classification.  Returns
+        one of ``"ok"``, ``"unconfigured"``, ``"unavailable"``, or
+        ``"error"``.
         """
         if not self._is_configured():
             logger.warning("TMDB health check skipped: adapter is not configured")
-            return False
+            return "unconfigured"
 
+        url = f"{self.base_url}/3/authentication"
+        params = {"api_key": self.api_key}
         logger.info("TMDB health check started")
+
         try:
-            self._get("/3/authentication")
-            return True
-        except TMDBError:
-            return False
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                response = client.get(url, params=params)
+                response.raise_for_status()
+            return "ok"
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+            logger.warning("TMDB health check failed: unavailable")
+            return "unavailable"
+        except httpx.HTTPStatusError as exc:
+            if 400 <= exc.response.status_code < 500:
+                logger.warning("TMDB health check failed: error status=%s", exc.response.status_code)
+                return "error"
+            logger.warning("TMDB health check failed: unavailable status=%s", exc.response.status_code)
+            return "unavailable"
+        except Exception:
+            logger.exception("TMDB health check failed: unexpected error")
+            return "error"
