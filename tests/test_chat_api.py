@@ -6,8 +6,10 @@ from pydantic import ValidationError
 
 from app.agent import runner as agent_runner
 from app.api import chat_routes, qb_routes
-from app.api.schemas import ChatRequest, DownloadRequest, QBTorrentActionRequest
+from app.api.schemas import AgentApprovalDecisionRequest, ChatRequest, DownloadRequest, QBTorrentActionRequest
+from app.domain.authorization import DownloadAuthorizationPolicy, create_session_grant
 from app.main import create_app
+from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
 from hello_agents.checkpoints import ConversationCheckpoint, JSONConversationCheckpointStore
 from hello_agents.core.llm_response import LLMResponse, LLMToolResponse, ToolCall
 
@@ -128,6 +130,31 @@ def test_chat_endpoint_returns_search_results(monkeypatch: pytest.MonkeyPatch):
     assert body.tool_calls[0]["tool"] == "mteam_search"
 
 
+def test_download_authorization_settings_roundtrip(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(chat_routes, "_SETTINGS_DIR", tmp_path)
+    app = create_app()
+    get_endpoint = _route_for(app, "/settings/download-authorization", "GET").endpoint
+    put_endpoint = _route_for(app, "/settings/download-authorization", "PUT").endpoint
+
+    initial = get_endpoint()
+    assert initial.enabled is False
+    assert initial.paused_required is True
+
+    saved = put_endpoint(
+        DownloadAuthorizationPolicy(
+            enabled=True,
+            categories=["电视剧"],
+            save_path_prefixes=["/downloads/tv"],
+            max_items_per_batch=4,
+            max_total_items_per_session=12,
+        )
+    )
+
+    assert saved.enabled is True
+    assert saved.categories == ["电视剧"]
+    assert get_endpoint().save_path_prefixes == ["/downloads/tv"]
+
+
 def test_chat_agent_endpoint_uses_readonly_agent_and_persists_session(tmp_path, monkeypatch: pytest.MonkeyPatch):
     _patch_chat_adapters(monkeypatch)
     monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
@@ -230,6 +257,255 @@ def test_chat_agent_endpoint_returns_download_pending_approval(tmp_path, monkeyp
     checkpoint = JSONConversationCheckpointStore(tmp_path).load("agent-download")
     assert checkpoint is not None
     assert checkpoint.metadata["pending_approvals"] == body.pending_approvals
+
+
+def test_chat_agent_batch_approval_includes_session_authorization_eligibility(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path / "sessions")
+    monkeypatch.setattr(chat_routes, "_SETTINGS_DIR", tmp_path / "settings")
+    monkeypatch.setattr(agent_runner, "_SETTINGS_DIR", tmp_path / "settings")
+    DownloadAuthorizationPolicyStore(tmp_path / "settings").save(
+        DownloadAuthorizationPolicy(
+            enabled=True,
+            categories=["电视剧"],
+            save_path_prefixes=["/downloads/tv"],
+            max_items_per_batch=10,
+            max_total_items_per_session=20,
+        )
+    )
+
+    class FakeLLM:
+        model = "fake-model"
+        responses = [
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-batch-download",
+                        name="qb_add_torrents",
+                        arguments=(
+                            '{"items":['
+                            '{"torrent_id":"101","qb_category":"电视剧","save_path":"/downloads/tv/show"},'
+                            '{"torrent_id":"102","qb_category":"电视剧","save_path":"/downloads/tv/show"}'
+                            ']}'
+                        ),
+                    )
+                ],
+                model="fake-model",
+            ),
+        ]
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def invoke_with_tools(self, messages, tools, tool_choice="auto", **kwargs):
+            return FakeLLM.responses.pop(0)
+
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
+    endpoint = _route_for(create_app(), "/chat/agent", "POST").endpoint
+
+    body = endpoint(ChatRequest(session_id="agent-batch-auth", message="下载两集"))
+
+    assert body.status == "awaiting_approval"
+    approval = body.pending_approvals[0]
+    assert approval["tool_name"] == "qb_add_torrents"
+    assert approval["authorization"]["eligible"] is True
+    assert approval["authorization"]["policy_id"] == "download-add-torrents-v1"
+
+
+def test_chat_agent_single_approval_includes_session_authorization_eligibility(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path / "sessions")
+    monkeypatch.setattr(chat_routes, "_SETTINGS_DIR", tmp_path / "settings")
+    monkeypatch.setattr(agent_runner, "_SETTINGS_DIR", tmp_path / "settings")
+    DownloadAuthorizationPolicyStore(tmp_path / "settings").save(
+        DownloadAuthorizationPolicy(
+            enabled=True,
+            categories=["电视剧"],
+            save_path_prefixes=["/downloads/tv"],
+            max_items_per_batch=10,
+            max_total_items_per_session=20,
+        )
+    )
+
+    class FakeLLM:
+        model = "fake-model"
+        responses = [
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-single-download",
+                        name="qb_add_torrent",
+                        arguments='{"torrent_id":"101","qb_category":"电视剧","save_path":"/downloads/tv/show"}',
+                    )
+                ],
+                model="fake-model",
+            ),
+        ]
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def invoke_with_tools(self, messages, tools, tool_choice="auto", **kwargs):
+            return FakeLLM.responses.pop(0)
+
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
+    endpoint = _route_for(create_app(), "/chat/agent", "POST").endpoint
+
+    body = endpoint(ChatRequest(session_id="agent-single-auth", message="下载一集"))
+
+    assert body.status == "awaiting_approval"
+    approval = body.pending_approvals[0]
+    assert approval["tool_name"] == "qb_add_torrent"
+    assert approval["authorization"]["eligible"] is True
+    assert approval["authorization"]["item_count"] == 1
+
+
+def test_chat_agent_session_grant_auto_authorizes_batch_download(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    session_dir = tmp_path / "sessions"
+    settings_dir = tmp_path / "settings"
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", session_dir)
+    monkeypatch.setattr(chat_routes, "_SETTINGS_DIR", settings_dir)
+    monkeypatch.setattr(agent_runner, "_SETTINGS_DIR", settings_dir)
+    policy = DownloadAuthorizationPolicy(
+        enabled=True,
+        categories=["电视剧"],
+        save_path_prefixes=["/downloads/tv"],
+        max_items_per_batch=10,
+        max_total_items_per_session=20,
+    )
+    DownloadAuthorizationPolicyStore(settings_dir).save(policy)
+    args = {
+        "items": [
+            {"torrent_id": "101", "qb_category": "电视剧", "save_path": "/downloads/tv/show"},
+            {"torrent_id": "102", "qb_category": "电视剧", "save_path": "/downloads/tv/show"},
+        ]
+    }
+    grant = create_session_grant(policy, "qb_add_torrents", args)
+    store = JSONConversationCheckpointStore(session_dir)
+    store.save(
+        ConversationCheckpoint(
+            session_id="agent-auto-grant",
+            created_at="2026-06-04T10:00:00",
+            saved_at="2026-06-04T10:01:00",
+            history=[],
+            metadata={"authorization_grants": [grant]},
+        )
+    )
+
+    class FakeLLM:
+        model = "fake-model"
+        responses = [
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-auto-download",
+                        name="qb_add_torrents",
+                        arguments='{"items":[{"torrent_id":"101","qb_category":"电视剧","save_path":"/downloads/tv/show"},{"torrent_id":"102","qb_category":"电视剧","save_path":"/downloads/tv/show"}]}',
+                    )
+                ],
+                model="fake-model",
+            ),
+            LLMToolResponse(
+                content="已自动提交到 qBittorrent，任务保持暂停。",
+                tool_calls=[],
+                model="fake-model",
+            ),
+        ]
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def invoke_with_tools(self, messages, tools, tool_choice="auto", **kwargs):
+            return FakeLLM.responses.pop(0)
+
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
+    endpoint = _route_for(create_app(), "/chat/agent", "POST").endpoint
+
+    body = endpoint(ChatRequest(session_id="agent-auto-grant", message="继续下载"))
+
+    assert body.status == "completed"
+    assert body.pending_approvals == []
+    assert body.tool_calls[0]["tool"] == "qb_add_torrents"
+    assert body.tool_calls[0]["gate_result"] == "allow"
+    checkpoint = store.load("agent-auto-grant")
+    assert checkpoint is not None
+    assert checkpoint.metadata["authorization_grants"][0]["used_total_items"] == 2
+
+
+def test_chat_agent_session_grant_auto_authorizes_single_download(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    session_dir = tmp_path / "sessions"
+    settings_dir = tmp_path / "settings"
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", session_dir)
+    monkeypatch.setattr(chat_routes, "_SETTINGS_DIR", settings_dir)
+    monkeypatch.setattr(agent_runner, "_SETTINGS_DIR", settings_dir)
+    policy = DownloadAuthorizationPolicy(
+        enabled=True,
+        categories=["电视剧"],
+        save_path_prefixes=["/downloads/tv"],
+        max_items_per_batch=10,
+        max_total_items_per_session=20,
+    )
+    DownloadAuthorizationPolicyStore(settings_dir).save(policy)
+    grant = create_session_grant(
+        policy,
+        "qb_add_torrent",
+        {"torrent_id": "101", "qb_category": "电视剧", "save_path": "/downloads/tv/show"},
+    )
+    store = JSONConversationCheckpointStore(session_dir)
+    store.save(
+        ConversationCheckpoint(
+            session_id="agent-single-auto-grant",
+            created_at="2026-06-04T10:00:00",
+            saved_at="2026-06-04T10:01:00",
+            history=[],
+            metadata={"authorization_grants": [grant]},
+        )
+    )
+
+    class FakeLLM:
+        model = "fake-model"
+        responses = [
+            LLMToolResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call-auto-single-download",
+                        name="qb_add_torrent",
+                        arguments='{"torrent_id":"101","qb_category":"电视剧","save_path":"/downloads/tv/show"}',
+                    )
+                ],
+                model="fake-model",
+            ),
+            LLMToolResponse(
+                content="已自动提交到 qBittorrent，任务保持暂停。",
+                tool_calls=[],
+                model="fake-model",
+            ),
+        ]
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def invoke_with_tools(self, messages, tools, tool_choice="auto", **kwargs):
+            return FakeLLM.responses.pop(0)
+
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
+    endpoint = _route_for(create_app(), "/chat/agent", "POST").endpoint
+
+    body = endpoint(ChatRequest(session_id="agent-single-auto-grant", message="继续下载"))
+
+    assert body.status == "completed"
+    assert body.pending_approvals == []
+    assert body.tool_calls[0]["tool"] == "qb_add_torrent"
+    assert body.tool_calls[0]["gate_result"] == "allow"
+    checkpoint = store.load("agent-single-auto-grant")
+    assert checkpoint is not None
+    assert checkpoint.metadata["authorization_grants"][0]["used_total_items"] == 1
 
 
 def test_list_agent_sessions_returns_checkpoint_summaries(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -418,6 +694,97 @@ def test_approve_agent_batch_approval_executes_downloads(tmp_path, monkeypatch: 
     assert checkpoint is not None
     assert checkpoint.metadata["pending_approvals"] == []
     assert checkpoint.metadata["approvals"][0]["tool_name"] == "qb_add_torrents"
+
+
+def test_approve_agent_batch_approval_can_create_session_grant(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    session_dir = tmp_path / "sessions"
+    settings_dir = tmp_path / "settings"
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", session_dir)
+    monkeypatch.setattr(agent_runner, "_SETTINGS_DIR", settings_dir)
+    DownloadAuthorizationPolicyStore(settings_dir).save(
+        DownloadAuthorizationPolicy(
+            enabled=True,
+            categories=["电视剧"],
+            save_path_prefixes=["/downloads/tv"],
+            max_items_per_batch=10,
+            max_total_items_per_session=20,
+        )
+    )
+    store = JSONConversationCheckpointStore(session_dir)
+    store.save(
+        ConversationCheckpoint(
+            session_id="agent-batch-grant",
+            created_at="2026-06-04T10:00:00",
+            saved_at="2026-06-04T10:01:00",
+            history=[],
+            metadata={
+                "last_status": "awaiting_approval",
+                "pending_approvals": [
+                    {
+                        "approval_id": "approval-1",
+                        "tool_call_id": "call-download",
+                        "tool_name": "qb_add_torrents",
+                        "arguments": {
+                            "items": [
+                                {"torrent_id": "101", "qb_category": "电视剧", "save_path": "/downloads/tv/show"},
+                                {"torrent_id": "102", "qb_category": "电视剧", "save_path": "/downloads/tv/show"},
+                            ]
+                        },
+                        "status": "pending",
+                    }
+                ],
+            },
+        )
+    )
+
+    endpoint = _route_for(
+        create_app(),
+        "/chat/agent/sessions/{session_id}/approvals/{approval_id}/approve",
+        "POST",
+    ).endpoint
+    body = endpoint("agent-batch-grant", "approval-1", AgentApprovalDecisionRequest(decision="approve_and_grant_session"))
+
+    assert body.status == "approved"
+    checkpoint = store.load("agent-batch-grant")
+    assert checkpoint is not None
+    grant = checkpoint.metadata["authorization_grants"][0]
+    assert grant["tool_name"] == "download_add"
+    assert grant["used_total_items"] == 2
+
+
+def test_approve_agent_grant_rejects_non_policy_tool(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
+    JSONConversationCheckpointStore(tmp_path).save(
+        ConversationCheckpoint(
+            session_id="agent-grant-reject",
+            created_at="2026-06-04T10:00:00",
+            saved_at="2026-06-04T10:01:00",
+            history=[],
+            metadata={
+                "pending_approvals": [
+                    {
+                        "approval_id": "approval-1",
+                        "tool_call_id": "call-speed",
+                        "tool_name": "qb_set_global_speed",
+                        "arguments": {"download_limit": 1024},
+                        "status": "pending",
+                    }
+                ],
+            },
+        )
+    )
+    endpoint = _route_for(
+        create_app(),
+        "/chat/agent/sessions/{session_id}/approvals/{approval_id}/approve",
+        "POST",
+    ).endpoint
+
+    with pytest.raises(HTTPException) as excinfo:
+        endpoint("agent-grant-reject", "approval-1", AgentApprovalDecisionRequest(decision="approve_and_grant_session"))
+
+    assert excinfo.value.status_code == 409
 
 
 def test_deny_agent_approval_does_not_execute_download(tmp_path, monkeypatch: pytest.MonkeyPatch):

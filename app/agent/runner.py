@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import wraps
 import json
+from pathlib import Path
 from threading import Lock, RLock
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -51,7 +52,15 @@ from app.agent.approvals import (
     mark_failed,
 )
 from app.config import get_settings
+from app.domain.authorization import (
+    DownloadAuthorizationPolicy,
+    approval_authorization_info,
+    authorize_with_session_grant,
+    create_session_grant,
+    granted_item_count,
+)
 from app.domain.models import ResourceCandidate
+from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
 from app.tools import (
     CurrentTimeTool,
     MemberProfileTool,
@@ -81,6 +90,7 @@ from hello_agents.tools.response import ToolResponse
 
 _SESSION_LOCKS: dict[str, RLock] = {}
 _SESSION_LOCKS_GUARD = Lock()
+_SETTINGS_DIR = Path(__file__).resolve().parents[2] / "memory" / "settings"
 
 
 def _session_lock(session_id: str) -> RLock:
@@ -232,6 +242,7 @@ class NasClawAgentRunner:
         agent.trace_logger = _get_or_create_trace_logger(session_id)
         if checkpoint:
             self._restore_history(agent, checkpoint)
+        self._install_authorization_hook(agent, checkpoint)
 
         answer = agent.run(message)
         pending_approvals = self._agent_pending_approvals(agent, session_id)
@@ -316,7 +327,12 @@ class NasClawAgentRunner:
         )
 
     @_serialize_session
-    def approve(self, session_id: str, approval_id: str) -> AgentApprovalResult:
+    def approve(
+        self,
+        session_id: str,
+        approval_id: str,
+        decision: str = "approve_once",
+    ) -> AgentApprovalResult:
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint is None:
             raise KeyError("Agent session not found")
@@ -333,6 +349,10 @@ class NasClawAgentRunner:
             )
             self.checkpoint_store.save(saved_checkpoint)
             raise ValueError("Approval has expired")
+        if decision == "approve_and_grant_session":
+            self._validate_grant_decision(approval)
+        elif decision != "approve_once":
+            raise ValueError("Unknown approval decision")
         _EXECUTABLE_TOOLS = {
             "qb_add_torrent",
             "qb_add_torrents",
@@ -345,10 +365,17 @@ class NasClawAgentRunner:
 
         paused_loop = self._find_paused_loop(checkpoint, approval_id)
         if not paused_loop:
-            return self._approve_deterministically(session_id, checkpoint, approval)
+            return self._approve_deterministically(
+                session_id,
+                checkpoint,
+                approval,
+                decision=decision,
+            )
         self._validate_paused_loop_matches_approval(paused_loop, approval)
 
         response = self._execute_approved_tool(approval)
+        if decision == "approve_and_grant_session" and response.status.value != "error":
+            self._create_grant_from_approval(checkpoint, approval, response)
 
         if response.status.value == "error":
             mark_failed(approval, response)
@@ -436,8 +463,11 @@ class NasClawAgentRunner:
         session_id: str,
         checkpoint: ConversationCheckpoint,
         approval: ApprovalRecord,
+        decision: str = "approve_once",
     ) -> AgentApprovalResult:
         response = self._execute_approved_tool(approval)
+        if decision == "approve_and_grant_session" and response.status.value != "error":
+            self._create_grant_from_approval(checkpoint, approval, response)
 
         if response.status.value == "error":
             message = f"下载请求执行失败：{response.text}"
@@ -513,6 +543,61 @@ class NasClawAgentRunner:
             for message in agent.history_manager.get_history()
         )
         agent._session_metadata = dict(checkpoint.metadata)
+
+    def _install_authorization_hook(
+        self,
+        agent: ToolCallingAgent,
+        checkpoint: ConversationCheckpoint | None,
+    ) -> None:
+        metadata = dict(checkpoint.metadata if checkpoint else {})
+        metadata["authorization_grants"] = list(metadata.get("authorization_grants") or [])
+        setattr(agent, "_session_metadata", metadata)
+        policy = self._load_download_authorization_policy()
+
+        def authorize_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+            session_metadata = getattr(agent, "_session_metadata", metadata)
+            return authorize_with_session_grant(session_metadata, policy, tool_name, arguments)
+
+        setattr(agent, "authorize_tool_call", authorize_tool_call)
+
+    @staticmethod
+    def _load_download_authorization_policy() -> DownloadAuthorizationPolicy:
+        return DownloadAuthorizationPolicyStore(_SETTINGS_DIR).load()
+
+    def _validate_grant_decision(self, approval: ApprovalRecord) -> None:
+        info = approval_authorization_info(
+            self._load_download_authorization_policy(),
+            approval.tool_name,
+            approval.arguments,
+        )
+        if not info.get("eligible"):
+            raise ValueError(str(info.get("reason") or "Tool is not eligible for session authorization"))
+
+    def _create_grant_from_approval(
+        self,
+        checkpoint: ConversationCheckpoint,
+        approval: ApprovalRecord,
+        response: ToolResponse,
+    ) -> None:
+        policy = self._load_download_authorization_policy()
+        used_items = granted_item_count(approval.tool_name, response.data, approval.arguments)
+        grant = create_session_grant(
+            policy,
+            approval.tool_name,
+            approval.arguments,
+            used_items=used_items,
+        )
+        grants = [
+            grant_item
+            for grant_item in checkpoint.metadata.get("authorization_grants", [])
+            if not (
+                isinstance(grant_item, dict)
+                and grant_item.get("policy_id") == grant.get("policy_id")
+                and grant_item.get("status") == "active"
+            )
+        ]
+        grants.append(grant)
+        checkpoint.metadata["authorization_grants"] = grants
 
     def _execute_approved_tool(self, approval: ApprovalRecord) -> ToolResponse:
         settings = get_settings()
@@ -798,7 +883,7 @@ class NasClawAgentRunner:
         now = datetime.now(timezone.utc).isoformat()
         history = [message.to_dict() for message in agent.get_history()]
         archives = list(getattr(agent, "_conversation_archives", prior_checkpoint.archives if prior_checkpoint else []))
-        metadata = dict(prior_checkpoint.metadata if prior_checkpoint else {})
+        metadata = dict(getattr(agent, "_session_metadata", prior_checkpoint.metadata if prior_checkpoint else {}))
         metadata.update(
             {
                 "agent_name": agent.name,
@@ -851,14 +936,16 @@ class NasClawAgentRunner:
             for observation in agent.last_result.tool_observations
         ]
 
-    @staticmethod
-    def _agent_pending_approvals(agent: ToolCallingAgent, session_id: str) -> list[dict[str, Any]]:
+    def _agent_pending_approvals(self, agent: ToolCallingAgent, session_id: str) -> list[dict[str, Any]]:
         if not agent.last_result:
             return []
-        return [
-            create_pending_approval(raw, session_id=session_id).to_dict()
-            for raw in deepcopy(agent.last_result.pending_approvals)
-        ]
+        policy = self._load_download_authorization_policy()
+        approvals: list[dict[str, Any]] = []
+        for raw in deepcopy(agent.last_result.pending_approvals):
+            record = create_pending_approval(raw, session_id=session_id)
+            record.authorization = approval_authorization_info(policy, record.tool_name, record.arguments)
+            approvals.append(record.to_dict())
+        return approvals
 
     @staticmethod
     def _agent_results(agent: ToolCallingAgent) -> list[ResourceCandidate]:

@@ -151,7 +151,7 @@ export function useAgentChatSession({
     await sendAgentMessage(`请下载 M-Team torrent id ${torrentId}`);
   }, [sendAgentMessage]);
 
-  const decideApproval = useCallback(async (action: "approve" | "deny") => {
+  const decideApproval = useCallback(async (action: "approve" | "approve_and_grant_session" | "deny") => {
     const currentState = stateRef.current;
     const approval = currentState.pendingApproval;
     if (!approval || currentState.isSubmitting) return;
@@ -160,9 +160,13 @@ export function useAgentChatSession({
     const requestSessionId = currentState.sessionId;
     const requestVersion = sessionVersion.current;
     try {
-      const response = action === "approve"
-        ? await chatApi.approveAgentCall(requestSessionId, approval.approval_id)
-        : await chatApi.denyAgentCall(requestSessionId, approval.approval_id);
+      const response = action === "deny"
+        ? await chatApi.denyAgentCall(requestSessionId, approval.approval_id)
+        : await chatApi.approveAgentCall(
+          requestSessionId,
+          approval.approval_id,
+          action === "approve_and_grant_session" ? "approve_and_grant_session" : "approve_once",
+        );
       if (sessionVersion.current !== requestVersion || stateRef.current.sessionId !== requestSessionId) {
         return;
       }
@@ -184,7 +188,7 @@ export function useAgentChatSession({
       const status = error instanceof Error ? (error as HttpErrorLike).status : undefined;
       dispatch({
         type: "request_failed",
-        title: action === "approve" ? "批准失败" : "拒绝失败",
+        title: action === "deny" ? "拒绝失败" : "批准失败",
         detail: errorDetail(error),
         clearApproval: status === 409
       });

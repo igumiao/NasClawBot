@@ -27,9 +27,10 @@ export const chatApi = {
   approveAgentCall(
     sessionId: string,
     approvalId: string,
+    decision: "approve_once" | "approve_and_grant_session" = "approve_once",
     signal?: AbortSignal,
   ): Promise<AgentApprovalResponse> {
-    return postJson<AgentApprovalResponse>(approvalUrl(sessionId, approvalId, "approve"), {}, signal);
+    return postJson<AgentApprovalResponse>(approvalUrl(sessionId, approvalId, "approve"), { decision }, signal);
   },
 
   denyAgentCall(

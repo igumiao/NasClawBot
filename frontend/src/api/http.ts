@@ -39,3 +39,13 @@ export async function postJson<T>(url: string, body: unknown, signal?: AbortSign
   });
   return readJson<T>(response);
 }
+
+export async function putJson<T>(url: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  return readJson<T>(response);
+}

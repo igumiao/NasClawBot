@@ -13,12 +13,14 @@ from app.adapters.tavily import TavilyAdapter
 from app.adapters.tmdb import TMDBAdapter
 from app.api.qb_routes import build_qb_router
 from app.api.schemas import (
+    AgentApprovalDecisionRequest,
     AgentApprovalResponse,
     AgentSessionDetailResponse,
     AgentSessionListResponse,
     AgentSessionSummary,
     ChatRequest,
     ChatResponse,
+    DownloadAuthorizationPolicyResponse,
     DownloadRequest,
     DownloadResponse,
     HealthServicesResponse,
@@ -26,6 +28,8 @@ from app.api.schemas import (
     SessionUpdateRequest,
 )
 from app.config import get_settings
+from app.domain.authorization import DownloadAuthorizationPolicy
+from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
 from app.tools import MTeamSearchTool, QBAddTorrentTool
 from hello_agents.checkpoints import JSONConversationCheckpointStore
 
@@ -33,6 +37,7 @@ _FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 _FRONTEND_DIST_INDEX = _FRONTEND_DIR / "dist" / "index.html"
 _FRONTEND_INDEX = _FRONTEND_DIR / "index.html"
 _AGENT_SESSION_DIR = Path(__file__).resolve().parents[2] / "memory" / "agent-sessions"
+_SETTINGS_DIR = Path(__file__).resolve().parents[2] / "memory" / "settings"
 
 
 def _select_frontend_index() -> Path | None:
@@ -72,6 +77,10 @@ def _build_tavily_adapter() -> TavilyAdapter:
 
 def _agent_checkpoint_store() -> JSONConversationCheckpointStore:
     return JSONConversationCheckpointStore(_AGENT_SESSION_DIR)
+
+
+def _download_authorization_store() -> DownloadAuthorizationPolicyStore:
+    return DownloadAuthorizationPolicyStore(_SETTINGS_DIR)
 
 
 def build_router() -> APIRouter:
@@ -140,6 +149,22 @@ def build_router() -> APIRouter:
                 for (svc, st, el) in results
             ],
         )
+
+    @router.get("/settings/download-authorization", response_model=DownloadAuthorizationPolicyResponse)
+    def get_download_authorization_policy() -> DownloadAuthorizationPolicyResponse:
+        """Return the user-configured download authorization policy."""
+
+        policy = _download_authorization_store().load()
+        return DownloadAuthorizationPolicyResponse.model_validate(policy.model_dump())
+
+    @router.put("/settings/download-authorization", response_model=DownloadAuthorizationPolicyResponse)
+    def update_download_authorization_policy(
+        body: DownloadAuthorizationPolicy,
+    ) -> DownloadAuthorizationPolicyResponse:
+        """Persist the user-configured download authorization policy."""
+
+        policy = _download_authorization_store().save(body)
+        return DownloadAuthorizationPolicyResponse.model_validate(policy.model_dump())
 
     @router.post("/chat", response_model=ChatResponse)
     def chat(request: ChatRequest) -> ChatResponse:
@@ -282,12 +307,20 @@ def build_router() -> APIRouter:
         )
 
     @router.post("/chat/agent/sessions/{session_id}/approvals/{approval_id}/approve", response_model=AgentApprovalResponse)
-    def approve_agent_approval(session_id: str, approval_id: str) -> AgentApprovalResponse:
+    def approve_agent_approval(
+        session_id: str,
+        approval_id: str,
+        body: AgentApprovalDecisionRequest | None = None,
+    ) -> AgentApprovalResponse:
         """Approve one pending Agent tool call and execute it deterministically."""
 
         runner = NasClawAgentRunner(checkpoint_store=_agent_checkpoint_store())
         try:
-            result = runner.approve(session_id, approval_id)
+            result = runner.approve(
+                session_id,
+                approval_id,
+                decision=(body.decision if body else "approve_once"),
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:

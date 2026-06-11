@@ -47,6 +47,13 @@ export type PendingApproval = {
   result: Record<string, unknown> | null;
   error: Record<string, unknown> | null;
   expired_at: string | null;
+  authorization?: {
+    eligible?: boolean;
+    reason?: string;
+    policy_id?: string;
+    grant_scope_preview?: Record<string, unknown>;
+    item_count?: number;
+  } | null;
   risk: ApprovalRisk;
 };
 
@@ -166,6 +173,15 @@ export type ServiceHealth = {
 export type HealthServicesResponse = {
   status: string;
   services: ServiceHealth[];
+};
+
+export type DownloadAuthorizationPolicy = {
+  enabled: boolean;
+  categories: string[];
+  save_path_prefixes: string[];
+  max_items_per_batch: number;
+  max_total_items_per_session: number;
+  paused_required: boolean;
 };
 
 export type FreeToppedTorrent = {

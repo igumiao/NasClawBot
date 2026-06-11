@@ -73,6 +73,7 @@ class ApprovalRecord:
     result: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
     expired_at: str | None = None
+    authorization: dict[str, Any] | None = None
     risk: ApprovalRisk = field(default_factory=lambda: risk_for_tool(""))
 
     def to_dict(self) -> dict[str, Any]:
@@ -91,6 +92,7 @@ class ApprovalRecord:
             "result": self.result,
             "error": self.error,
             "expired_at": self.expired_at,
+            "authorization": self.authorization,
             "risk": self.risk.to_dict(),
         }
 
@@ -114,6 +116,7 @@ class ApprovalRecord:
             result=dict(data["result"]) if data.get("result") else None,
             error=dict(data["error"]) if data.get("error") else None,
             expired_at=data.get("expired_at"),
+            authorization=dict(data["authorization"]) if data.get("authorization") else None,
             risk=ApprovalRisk.from_dict(data.get("risk") or risk_for_tool(tool_name).to_dict()),
         )
 
@@ -141,6 +144,7 @@ def create_pending_approval(
         reason=str(raw.get("reason") or "Tool call requires user approval."),
         created_at=created_at,
         expires_at=expires_at,
+        authorization=dict(raw["authorization"]) if raw.get("authorization") else None,
         risk=ApprovalRisk.from_dict(raw.get("risk") or risk_for_tool(tool_name).to_dict()),
     )
 
