@@ -19,7 +19,12 @@ MAX_BATCH_ITEMS = 10
 class QBAddTorrentsTool(Tool):
     """Batch equivalent of QBAddTorrentTool for one user download intent."""
 
-    def __init__(self, mteam_adapter: MTeamAdapter, qb_adapter: QBittorrentAdapter) -> None:
+    def __init__(
+        self,
+        mteam_adapter: MTeamAdapter,
+        qb_adapter: QBittorrentAdapter,
+        default_save_path: str | None = None,
+    ) -> None:
         super().__init__(
             name="qb_add_torrents",
             description=(
@@ -28,7 +33,7 @@ class QBAddTorrentsTool(Tool):
                 f"单批最多 {MAX_BATCH_ITEMS} 个。"
             ),
         )
-        self._single_tool = QBAddTorrentTool(mteam_adapter, qb_adapter)
+        self._single_tool = QBAddTorrentTool(mteam_adapter, qb_adapter, default_save_path=default_save_path)
 
     def get_parameters(self) -> list[ToolParameter]:
         return [

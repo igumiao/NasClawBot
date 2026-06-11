@@ -61,6 +61,7 @@ from app.domain.authorization import (
 )
 from app.domain.models import ResourceCandidate
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
+from app.services.download_defaults_store import DownloadDefaultsStore
 from app.tools import (
     CurrentTimeTool,
     MemberProfileTool,
@@ -286,8 +287,13 @@ class NasClawAgentRunner:
         registry.register_tool(CurrentTimeTool(timezone_name=settings.app_timezone))
         registry.register_tool(MTeamSearchTool(mteam_adapter))
         registry.register_tool(MemberProfileTool(mteam_adapter))
-        registry.register_tool(QBAddTorrentTool(mteam_adapter, qb_adapter))
-        registry.register_tool(QBAddTorrentsTool(mteam_adapter, qb_adapter))
+
+        defaults_store = DownloadDefaultsStore(Path(__file__).resolve().parents[2] / "memory" / "settings")
+        download_defaults = defaults_store.load()
+        default_save_path = download_defaults.default_save_path
+
+        registry.register_tool(QBAddTorrentTool(mteam_adapter, qb_adapter, default_save_path=default_save_path))
+        registry.register_tool(QBAddTorrentsTool(mteam_adapter, qb_adapter, default_save_path=default_save_path))
         registry.register_tool(QBListTorrentsTool(qb_adapter))
         registry.register_tool(QBGetTorrentTool(qb_adapter))
         registry.register_tool(QBListCategoriesTool(qb_adapter))
@@ -610,6 +616,10 @@ class NasClawAgentRunner:
             password=settings.qb_password,
         )
 
+        defaults_store = DownloadDefaultsStore(Path(__file__).resolve().parents[2] / "memory" / "settings")
+        download_defaults = defaults_store.load()
+        default_save_path = download_defaults.default_save_path
+
         tool_name = approval.tool_name
         if tool_name == "qb_add_torrent":
             tool = QBAddTorrentTool(
@@ -618,6 +628,7 @@ class NasClawAgentRunner:
                     api_key=settings.mteam_api_key,
                 ),
                 qb_adapter,
+                default_save_path=default_save_path,
             )
         elif tool_name == "qb_add_torrents":
             tool = QBAddTorrentsTool(
@@ -626,6 +637,7 @@ class NasClawAgentRunner:
                     api_key=settings.mteam_api_key,
                 ),
                 qb_adapter,
+                default_save_path=default_save_path,
             )
         elif tool_name == "qb_control_torrent":
             tool = QBControlTorrentTool(qb_adapter)

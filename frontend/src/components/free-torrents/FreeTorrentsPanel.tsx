@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { freeTorrentsReducer, freeTorrentsInitialState } from "../../state/freeTorrentsState";
 import { mteamApi } from "../../api/mteamApi";
 import { chatApi } from "../../api/chatApi";
+import { settingsApi } from "../../api/settingsApi";
 import type { FreeToppedTorrent } from "../../types/api";
 
 type Props = { id: string; labelledBy: string };
@@ -31,6 +32,19 @@ export function FreeTorrentsPanel({ id, labelledBy }: Props) {
   const [state, dispatch] = useReducer(freeTorrentsReducer, freeTorrentsInitialState);
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const controller = new AbortController();
+    settingsApi.getDownloadDefaults(controller.signal).then(
+      (defaults) => {
+        if (defaults.default_save_path) {
+          dispatch({ type: "save_path_changed", value: defaults.default_save_path });
+        }
+      },
+      () => { /* keep hardcoded fallback */ },
+    );
+    return () => controller.abort();
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     dispatch({ type: "fetch_started" });
