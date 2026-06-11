@@ -39,7 +39,8 @@ cross-request Agent loop is active alongside `/chat`:
 /chat/agent
   -> NasClawAgentRunner
   -> ToolCallingAgent
-  -> mteam_search + member_profile + confirm-gated qb_add_torrent
+  -> readonly search/profile/TMDB/qB inspection tools
+  -> confirm-gated qB action tools
   -> JSON ConversationCheckpointStore
 ```
 
@@ -291,6 +292,7 @@ mteam_search        READONLY
 mteam_detail        READONLY
 mteam_download_url  SIDE_EFFECT or gated readonly, depending on site semantics
 qb_add_torrent      SIDE_EFFECT, paused by default
+qb_add_torrents     SIDE_EFFECT, paused by default, batch add
 file delete/move    DESTRUCTIVE, do not expose to open Agent loop
 ```
 
@@ -317,21 +319,27 @@ The loop returns `ToolCallingLoopResult.pending_approvals`, stores
 NasClawBot persists `metadata["pending_approvals"]` for UI/lifecycle recovery
 and `metadata["paused_loop"]` for provider protocol resume.
 
-For `qb_add_torrent`, approve validates the paused provider tool call against
-the application approval record, executes the saved tool arguments, appends the
-provider `tool` result with the original `tool_call_id`, and resumes the LLM
-with `tool_choice="none"`. Deny resumes with a `USER_DENIED` tool error without
-executing the tool. The deterministic approval summary path remains as a
-compatibility fallback for legacy checkpoints without `paused_loop`.
+For `qb_add_torrent`, `qb_add_torrents`, and other gated qB action tools,
+approve validates the paused provider tool call against the application
+approval record, executes the saved tool arguments, appends the provider `tool`
+result with the original `tool_call_id`, and resumes the normal tool loop with
+`tool_choice="auto"`. Deny resumes with a `USER_DENIED` tool error without
+executing the tool, then also returns to the normal loop so the model can adjust
+its plan or request another approval. The deterministic approval summary path
+remains as a compatibility fallback for legacy checkpoints without
+`paused_loop`.
 
 Application-level approval records currently live in `app/agent/approvals.py`,
 not the HelloAgents framework. They add lifecycle fields such as `expires_at`,
 `expired_at`, `decision`, `result`, `error`, and enum-backed `risk` while
 keeping JSON checkpoint storage. Broader framework-level policy is still open:
 the current branch supports one pending approval at a time, rejects new user
-messages while a non-expired approval is pending, resolves expired approvals
-before the next turn without executing the tool, and treats multiple
-simultaneous `ASK_USER` calls as a controlled conflict.
+messages while a non-expired approval is pending, and resolves expired
+approvals before the next turn without executing the tool. If the model emits
+multiple simultaneous `ASK_USER` calls, the invalid assistant tool-call message
+is not persisted; the loop feeds model-visible replan feedback and asks for
+exactly one approval-gated call, or a batch tool when it is the same kind of
+action.
 
 NasClawBot currently serializes `run/approve/deny` per session inside one
 server process. Cross-process approval coordination remains outside the JSON
@@ -421,6 +429,7 @@ Current tool set:
 mteam_search        READONLY
 member_profile      READONLY
 qb_add_torrent      SIDE_EFFECT, confirm-gated
+qb_add_torrents     SIDE_EFFECT, confirm-gated batch add
 ```
 
 Do not add ungated qB write tools to the open loop.

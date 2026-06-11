@@ -14,7 +14,7 @@ The current experimental loop is:
 /chat/agent
   -> NasClawAgentRunner
   -> load JSON checkpoint from memory/agent-sessions/{session_id}.json
-  -> build ToolCallingAgent with mteam_search + member_profile + gated qb_add_torrent
+  -> build ToolCallingAgent with readonly tools + gated qB action tools
   -> run filtered/gated tool loop
   -> save JSON checkpoint
 ```
@@ -36,7 +36,7 @@ natural-language request
   -> /chat/agent
   -> assistant answer + tool activity + search candidates
   -> selected candidate sent back through /chat/agent
-  -> gated qb_add_torrent approval card
+  -> gated qb_add_torrent or qb_add_torrents approval card
   -> approve or deny endpoint
 ```
 
@@ -219,30 +219,51 @@ assistant tool-call message before continuing so later model calls do not see
 an orphaned tool-call protocol entry. Expiration is not a user decision, so it
 does not set `decided_at`.
 
-NasClawBot now registers `qb_add_torrent` in `/chat/agent`, but it is
-confirm-gated. On `ASK_USER`, the loop saves the assistant tool-call message and
-pauses before writing any provider `tool` result. Approving a pending download
-validates `paused_loop` against the `ApprovalRecord`, executes the saved
-`tool_name + arguments`, appends the real provider `tool` result with the
-original `tool_call_id`, and resumes the LLM with `tool_choice="none"`.
-Denying a pending download does not execute the tool; it resumes the provider
-protocol with a `USER_DENIED` tool error and a no-tools final LLM pass.
+NasClawBot now registers `qb_add_torrent` and `qb_add_torrents` in
+`/chat/agent`, and both are confirm-gated unless covered by an active session
+download authorization grant. `qb_add_torrents` is a batch form of the same
+download-add operation: each item has a `torrent_id`, optional `qb_category`,
+and optional `save_path`; a single batch is capped at 10 items and all qB adds
+remain paused.
 
-The Phase 3 shape is:
+On `ASK_USER`, the loop saves the assistant tool-call message and pauses before
+writing any provider `tool` result. Approving a pending action validates
+`paused_loop` against the `ApprovalRecord`, executes the saved `tool_name +
+arguments`, appends the real provider `tool` result with the original
+`tool_call_id`, and resumes the normal tool loop with `tool_choice="auto"`.
+Denying a pending action does not execute the tool; it resumes the provider
+protocol with a `USER_DENIED` tool error and also continues the normal loop.
+That lets the model request the next gated operation, run read-only tools, or
+change its plan after a denial.
+
+The current serial approval shape is:
 
 ```text
 pause at assistant tool_call
-  -> external approval
-  -> execute tool
+  -> external approval or denial
+  -> execute tool or append USER_DENIED tool result
   -> append provider tool result
-  -> call LLM for final answer
+  -> continue the normal tool loop
+  -> either final answer or next awaiting_approval
 ```
 
 The deterministic approval summary path remains as a compatibility fallback for
 legacy checkpoints that do not have `paused_loop`. Current limitations are
 intentional: a session rejects new user messages while a non-expired approval
 is pending, and the loop supports one pending approval at a time. Multiple
-simultaneous `ASK_USER` tool calls return a controlled approval conflict.
+simultaneous `ASK_USER` tool calls are fed back to the model as replan feedback
+instead of being surfaced as a user-visible conflict; the invalid assistant
+tool-call message is not persisted.
+
+Download session authorization is deliberately application-level, not
+framework-level policy. Settings persist the boundary in
+`memory/settings/download-authorization.json`: enabled flag, allowed categories,
+allowed save path prefixes, max items per batch, max total items per session,
+and `paused_required=true`. Approving an eligible `qb_add_torrent` or
+`qb_add_torrents` call with `approve_and_grant_session` creates
+`metadata["authorization_grants"]` on that conversation checkpoint. Other
+ASK_USER tools are not eligible for this grant and continue to require explicit
+approval.
 
 `NasClawAgentRunner.run/approve/deny` are serialized by session inside the
 current server process. This closes the local race where two concurrent
