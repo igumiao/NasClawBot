@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.tools.qb_add_torrent import QBAddTorrentTool
+from app.tools.qb_add_torrents import MAX_BATCH_ITEMS, QBAddTorrentsTool
 from app.tools.qb_control_torrent import QBControlTorrentTool
 from app.tools.qb_get_torrent import QBGetTorrentTool
 from app.tools.qb_list_categories import QBListCategoriesTool
@@ -341,3 +342,72 @@ def test_qb_add_torrent_default_category_when_omitted():
     response = tool.run({"torrent_id": "123"})
 
     assert response.status.value == "success"
+
+
+def test_qb_add_torrents_submits_all_items_paused():
+    """Batch add should add each item through the same paused qB path."""
+    mteam = MagicMock()
+    mteam.get_torrent_details.side_effect = [
+        {"title": "Episode 1"},
+        {"title": "Episode 2"},
+    ]
+    mteam.get_torrent_download_url.side_effect = [
+        "https://example.com/dl/101",
+        "https://example.com/dl/102",
+    ]
+    mteam.is_download_url_torrent.return_value = True
+
+    qb = MagicMock()
+    qb.generate_mteam_torrent_name.side_effect = ["[101][电视剧][Episode 1]", "[102][电视剧][Episode 2]"]
+    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
+
+    tool = QBAddTorrentsTool(mteam, qb)
+    response = tool.run({
+        "items": [
+            {"torrent_id": "101", "qb_category": "电视剧", "save_path": "/downloads/tv"},
+            {"torrent_id": "102", "qb_category": "电视剧", "save_path": "/downloads/tv"},
+        ]
+    })
+
+    assert response.status.value == "success"
+    assert response.data["summary"] == {"total": 2, "succeeded": 2, "failed": 0}
+    assert response.data["receipt"]["type"] == "batch"
+    assert len(response.data["receipts"]) == 2
+    assert qb.add_torrent_url.call_count == 2
+    assert all(call.kwargs["paused"] is True for call in qb.add_torrent_url.call_args_list)
+    assert all(call.kwargs["save_path"] == "/downloads/tv" for call in qb.add_torrent_url.call_args_list)
+
+
+def test_qb_add_torrents_reports_partial_success():
+    """A failed item should not hide successfully submitted paused tasks."""
+    mteam = MagicMock()
+    mteam.get_torrent_details.side_effect = [
+        {"title": "Episode 1"},
+        None,
+    ]
+    mteam.get_torrent_download_url.return_value = "https://example.com/dl/101"
+    mteam.is_download_url_torrent.return_value = True
+
+    qb = MagicMock()
+    qb.generate_mteam_torrent_name.return_value = "[101][电视剧][Episode 1]"
+    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
+
+    tool = QBAddTorrentsTool(mteam, qb)
+    response = tool.run({
+        "items": [
+            {"torrent_id": "101", "qb_category": "电视剧"},
+            {"torrent_id": "102", "qb_category": "电视剧"},
+        ]
+    })
+
+    assert response.status.value == "partial"
+    assert response.data["summary"] == {"total": 2, "succeeded": 1, "failed": 1}
+    assert response.data["items"][1]["status"] == "error"
+
+
+def test_qb_add_torrents_rejects_oversized_batch():
+    tool = QBAddTorrentsTool(MagicMock(), MagicMock())
+    response = tool.run({"items": [{"torrent_id": str(i)} for i in range(MAX_BATCH_ITEMS + 1)]})
+
+    assert response.status.value == "error"
+    assert response.error_info["code"] == "BATCH_TOO_LARGE"

@@ -52,6 +52,12 @@ function formatExpiry(expiresAt: string): string {
   }).format(timestamp);
 }
 
+function batchItems(argumentsValue: Record<string, unknown>): Record<string, unknown>[] {
+  return Array.isArray(argumentsValue.items)
+    ? argumentsValue.items.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+}
+
 export function ApprovalCard({
   approval,
   status,
@@ -63,8 +69,10 @@ export function ApprovalCard({
   const argumentsValue = approval.arguments ?? {};
   const torrentId = String(argumentsValue.torrent_id ?? "未提供");
   const qbCategory = String(argumentsValue.qb_category ?? "mteam");
+  const items = batchItems(argumentsValue);
   const displayStatus: ApprovalCardStatus = status === "pending" && isPast(approval.expires_at) ? "expired" : status;
   const isPending = displayStatus === "pending";
+  const isBatch = items.length > 0;
 
   return (
     <section className="chat-card approval-card" aria-labelledby={titleId}>
@@ -83,14 +91,23 @@ export function ApprovalCard({
       <p className="approval-risk">{approval.risk?.summary ?? "该操作会产生外部副作用。"}</p>
 
       <dl className="approval-details">
-        <div>
-          <dt>Torrent ID</dt>
-          <dd>{torrentId}</dd>
-        </div>
-        <div>
-          <dt>qB 分类</dt>
-          <dd>{qbCategory}</dd>
-        </div>
+        {isBatch ? (
+          <div>
+            <dt>批量项目</dt>
+            <dd>{items.length} 个 torrent</dd>
+          </div>
+        ) : (
+          <>
+            <div>
+              <dt>Torrent ID</dt>
+              <dd>{torrentId}</dd>
+            </div>
+            <div>
+              <dt>qB 分类</dt>
+              <dd>{qbCategory}</dd>
+            </div>
+          </>
+        )}
         <div>
           <dt>过期时间</dt>
           <dd>
@@ -98,6 +115,18 @@ export function ApprovalCard({
           </dd>
         </div>
       </dl>
+
+      {isBatch && (
+        <ol className="approval-item-list" aria-label="待添加 torrent">
+          {items.map((item, index) => (
+            <li key={`${String(item.torrent_id ?? index)}-${index}`}>
+              <span>{String(item.torrent_id ?? "未提供")}</span>
+              <span>{String(item.qb_category ?? item.category ?? "mteam")}</span>
+              {item.save_path ? <span>{String(item.save_path)}</span> : null}
+            </li>
+          ))}
+        </ol>
+      )}
 
       {!isPending ? (
         <p className="approval-status-message" data-status={displayStatus} role="status">

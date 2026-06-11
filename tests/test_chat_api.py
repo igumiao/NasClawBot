@@ -73,7 +73,8 @@ class FakeQBAdapter:
         self.username = username
         self.password = password
 
-    def add_torrent_url(self, *, url: str, category: str, rename: str, tags: list[str], paused: bool) -> dict[str, Any]:
+    def add_torrent_url(self, *, url: str, category: str, rename: str, tags: list[str], paused: bool, **kwargs: Any) -> dict[str, Any]:
+        _ = kwargs
         assert paused is True
         return {"ok": True, "status": "submitted_paused", "qb_hash": "fake-hash"}
 
@@ -369,6 +370,54 @@ def test_approve_agent_approval_executes_download_and_updates_checkpoint(tmp_pat
     assert checkpoint.metadata["pending_approvals"] == []
     assert checkpoint.metadata["approvals"][0]["status"] == "approved"
     assert checkpoint.history[-1]["content"] == "已提交到 qBittorrent，任务保持暂停。"
+
+
+def test_approve_agent_batch_approval_executes_downloads(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_chat_adapters(monkeypatch)
+    monkeypatch.setattr(chat_routes, "_AGENT_SESSION_DIR", tmp_path)
+    FakeApprovalLLM.invoke_calls = []
+    store = JSONConversationCheckpointStore(tmp_path)
+    store.save(
+        ConversationCheckpoint(
+            session_id="agent-batch-approve",
+            created_at="2026-06-04T10:00:00",
+            saved_at="2026-06-04T10:01:00",
+            history=[],
+            metadata={
+                "last_status": "awaiting_approval",
+                "pending_approvals": [
+                    {
+                        "approval_id": "approval-1",
+                        "tool_call_id": "call-download",
+                        "tool_name": "qb_add_torrents",
+                        "arguments": {
+                            "items": [
+                                {"torrent_id": "101", "qb_category": "电视剧"},
+                                {"torrent_id": "102", "qb_category": "电视剧"},
+                            ]
+                        },
+                        "status": "pending",
+                    }
+                ],
+            },
+        )
+    )
+
+    endpoint = _route_for(
+        create_app(),
+        "/chat/agent/sessions/{session_id}/approvals/{approval_id}/approve",
+        "POST",
+    ).endpoint
+    body = endpoint("agent-batch-approve", "approval-1")
+
+    assert body.status == "approved"
+    assert body.receipt is not None
+    assert body.receipt["type"] == "batch"
+    assert body.receipt["summary"] == {"total": 2, "succeeded": 2, "failed": 0}
+    checkpoint = store.load("agent-batch-approve")
+    assert checkpoint is not None
+    assert checkpoint.metadata["pending_approvals"] == []
+    assert checkpoint.metadata["approvals"][0]["tool_name"] == "qb_add_torrents"
 
 
 def test_deny_agent_approval_does_not_execute_download(tmp_path, monkeypatch: pytest.MonkeyPatch):

@@ -138,7 +138,7 @@ class ToolCallingLoop:
             )
             ask_user_items = [item for item in gate_plan if item["gate_result_enum"] == GateResult.ASK_USER]
             if len(ask_user_items) > 1:
-                final_answer = "一次只能确认一个工具调用，请重新说明要执行的单个操作。"
+                final_answer = "一次只能确认一个工具调用；同类批量下载请改用批量工具。"
                 self.agent.add_message(Message(final_answer, "assistant"))
                 self._save_session_if_enabled()
                 return ToolCallingLoopResult(

@@ -840,6 +840,33 @@ textarea {
   margin-bottom: 14px;
 }
 
+.approval-item-list {
+  display: grid;
+  gap: 6px;
+  margin: -2px 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.approval-item-list li {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) minmax(64px, 0.6fr) minmax(0, 1.5fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.approval-item-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .approval-status-message[data-status="denied"],
 .approval-status-message[data-status="failed"],
 .approval-status-message[data-status="expired"] {
