@@ -22,6 +22,15 @@ class MTeamSearchTool(Tool):
     }
     _RESULT_LIMIT = 20
 
+    # M-Team standardList ID → resolution name. SD (5) intentionally excluded.
+    _STANDARD_MAP: dict[str, str] = {
+        "1": "1080p",
+        "2": "1080p",
+        "3": "720p",
+        "6": "2160p",
+        "7": "4320p",
+    }
+
     def __init__(self, adapter: MTeamAdapter) -> None:
         super().__init__(
             name="mteam_search",
@@ -101,13 +110,15 @@ class MTeamSearchTool(Tool):
         candidates: list[ResourceCandidate] = []
         for row in rows[: self._RESULT_LIMIT]:
             title = str(row.get("title") or row.get("name") or f"M-Team {row.get('id', '')}")
+            raw = row.get("raw", {})
+            standard = str(raw.get("standard", "")).strip() if isinstance(raw, dict) else None
             resolution_source = row.get("small_description") or row.get("name") or title
             candidates.append(
                 ResourceCandidate(
                     id=str(row.get("id")),
                     title=title,
                     media_type="unknown",
-                    resolution=self._resolution(str(resolution_source)),
+                    resolution=self._resolution(str(resolution_source), standard=standard),
                     seeders=int(row.get("seeders", 0) or 0),
                     leechers=int(row.get("leechers", 0) or 0),
                     discount=str(row.get("discount")) if row.get("discount") else None,
@@ -157,14 +168,18 @@ class MTeamSearchTool(Tool):
             "douban": douban,
         }
 
-    @staticmethod
-    def _resolution(source_text: str) -> str | None:
+    @classmethod
+    def _resolution(cls, source_text: str, *, standard: str | None = None) -> str | None:
+        # Standard field (uploader-selected) is the most reliable source.
+        if standard and standard in cls._STANDARD_MAP:
+            return cls._STANDARD_MAP[standard]
+        # Fallback: parse resolution from name / smallDescr text.
         lowered_text = source_text.lower()
         if "4320p" in lowered_text or re.search(r"(?<!\d)8k(?!\d)", lowered_text):
             return "4320p"
         if "2160p" in lowered_text or re.search(r"(?<!\d)4k(?!\d)", lowered_text):
             return "2160p"
-        if "1080p" in lowered_text:
+        if "1080p" in lowered_text or "1080i" in lowered_text:
             return "1080p"
         if "720p" in lowered_text:
             return "720p"
