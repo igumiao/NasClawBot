@@ -71,7 +71,7 @@ class FakeQBAdapter:
     def generate_mteam_torrent_name(self, mteam_id: str, detail: dict[str, Any], qb_category: str) -> str:
         return f"{mteam_id}-{qb_category}.torrent"
 
-    def add_torrent_url(self, *, url: str, category: str, rename: str, tags: list[str], paused: bool) -> dict[str, Any]:
+    def add_torrent_url(self, *, url: str, category: str, rename: str, tags: list[str], paused: bool, **extra_kwargs: Any) -> dict[str, Any]:
         self.calls.append(
             {
                 "url": url,
@@ -79,6 +79,7 @@ class FakeQBAdapter:
                 "rename": rename,
                 "tags": tags,
                 "paused": paused,
+                **extra_kwargs,
             }
         )
         return {"ok": True, "status": "submitted_paused", "qb_hash": "fake-hash"}

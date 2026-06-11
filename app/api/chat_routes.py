@@ -29,7 +29,9 @@ from app.api.schemas import (
 )
 from app.config import get_settings
 from app.domain.authorization import DownloadAuthorizationPolicy
+from app.domain.download_defaults import DownloadDefaults
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
+from app.services.download_defaults_store import DownloadDefaultsStore
 from app.tools import MTeamSearchTool, QBAddTorrentTool
 from hello_agents.checkpoints import JSONConversationCheckpointStore
 
@@ -81,6 +83,10 @@ def _agent_checkpoint_store() -> JSONConversationCheckpointStore:
 
 def _download_authorization_store() -> DownloadAuthorizationPolicyStore:
     return DownloadAuthorizationPolicyStore(_SETTINGS_DIR)
+
+
+def _download_defaults_store() -> DownloadDefaultsStore:
+    return DownloadDefaultsStore(_SETTINGS_DIR)
 
 
 def build_router() -> APIRouter:
@@ -165,6 +171,20 @@ def build_router() -> APIRouter:
 
         policy = _download_authorization_store().save(body)
         return DownloadAuthorizationPolicyResponse.model_validate(policy.model_dump())
+
+    @router.get("/settings/download-defaults", response_model=DownloadDefaults)
+    def get_download_defaults() -> DownloadDefaults:
+        """Return the user-configured download defaults (e.g. default save_path)."""
+
+        return _download_defaults_store().load()
+
+    @router.put("/settings/download-defaults", response_model=DownloadDefaults)
+    def update_download_defaults(
+        body: DownloadDefaults,
+    ) -> DownloadDefaults:
+        """Persist the user-configured download defaults."""
+
+        return _download_defaults_store().save(body)
 
     @router.post("/chat", response_model=ChatResponse)
     def chat(request: ChatRequest) -> ChatResponse:

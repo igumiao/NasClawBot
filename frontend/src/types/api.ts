@@ -185,6 +185,10 @@ export type DownloadAuthorizationPolicy = {
   paused_required: boolean;
 };
 
+export type DownloadDefaults = {
+  default_save_path: string;
+};
+
 export type FreeToppedTorrent = {
   id: string;
   name: string;

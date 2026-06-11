@@ -15,13 +15,19 @@ from app.services.receipt_service import build_receipt
 class QBAddTorrentTool(Tool):
     """Execute the full download chain: M-Team detail → genDlToken → qB add (paused)."""
 
-    def __init__(self, mteam_adapter: MTeamAdapter, qb_adapter: QBittorrentAdapter) -> None:
+    def __init__(
+        self,
+        mteam_adapter: MTeamAdapter,
+        qb_adapter: QBittorrentAdapter,
+        default_save_path: str | None = None,
+    ) -> None:
         super().__init__(
             name="qb_add_torrent",
             description="通过 M-Team torrent ID 执行下载：获取详情→生成下载链接→添加到 qBittorrent（暂停状态）",
         )
         self._mteam = mteam_adapter
         self._qb = qb_adapter
+        self._default_save_path = (default_save_path or "").strip() or None
 
     def get_parameters(self) -> list[ToolParameter]:
         return [
@@ -84,6 +90,8 @@ class QBAddTorrentTool(Tool):
             "paused": True,
         }
         save_path = str(parameters.get("save_path", "")).strip()
+        if not save_path and self._default_save_path:
+            save_path = self._default_save_path
         if save_path:
             add_kwargs["save_path"] = save_path
 
