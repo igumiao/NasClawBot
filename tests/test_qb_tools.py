@@ -291,7 +291,7 @@ def test_qb_add_torrent_category_optional_with_presets():
     params = {p.name: p for p in tool.get_parameters()}
 
     assert params["qb_category"].required is False
-    assert params["qb_category"].enum == ["电影", "电视剧", "综艺", "动漫", "纪录片"]
+    assert params["qb_category"].enum == ["电影", "电视剧", "综艺", "动漫", "纪录片", "其他"]
 
 
 def test_qb_add_torrent_has_save_path_param():

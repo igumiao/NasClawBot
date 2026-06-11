@@ -20,13 +20,13 @@ class MTeamSearchTool(Tool):
         "largest": ("SIZE", "DESC"),
         "most_seeded": ("SEEDERS", "DESC"),
     }
-    _RESULT_LIMIT = 10
+    _RESULT_LIMIT = 20
 
     def __init__(self, adapter: MTeamAdapter) -> None:
         super().__init__(
             name="mteam_search",
             description=(
-                "搜索 M-Team 资源站，默认按最新发布排序，最多返回 10 个候选。"
+                "搜索 M-Team 资源站，默认按最新发布排序。"
                 "资源标题多为英文/原名，keyword 优先使用英文标题、原名或罗马字标题。"
             ),
         )
