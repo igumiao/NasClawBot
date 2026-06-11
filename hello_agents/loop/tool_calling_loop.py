@@ -356,6 +356,12 @@ class ToolCallingLoop:
             else:
                 gate_result_enum = self._check_gate(tool_call.name, arguments)
                 gate_result = self._gate_result_name(gate_result_enum)
+                if gate_result_enum == GateResult.ASK_USER:
+                    authorization = self._authorize_tool_call(tool_call.name, arguments)
+                    if authorization:
+                        gate_result_enum = GateResult.ALLOW
+                        gate_result = "allow"
+                        gate_reason = str(authorization.get("reason") or "Allowed by session authorization grant")
                 if gate_result_enum == GateResult.DENY:
                     gate_reason = "Tool call was denied by the permission gate."
                     response = ToolResponse.error(
@@ -509,6 +515,15 @@ class ToolCallingLoop:
         if not gate:
             return GateResult.ALLOW
         return gate.check(GateToolCall(tool_name=tool_name, params=arguments))
+
+    def _authorize_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any] | None:
+        hook = getattr(self.agent, "authorize_tool_call", None)
+        if not callable(hook):
+            return None
+        result = hook(tool_name, arguments)
+        if isinstance(result, dict) and result.get("authorized") is True:
+            return result
+        return None
 
     @staticmethod
     def _gate_result_name(result: GateResult) -> str:

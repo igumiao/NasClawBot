@@ -13,18 +13,45 @@ const MOCK_SERVICES_RESPONSE = {
   ],
 };
 
+const MOCK_POLICY_RESPONSE = {
+  enabled: false,
+  categories: [],
+  save_path_prefixes: [],
+  max_items_per_batch: 10,
+  max_total_items_per_session: 20,
+  paused_required: true
+};
+
+function mockSettingsFetch() {
+  return vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+    const url = String(input);
+    if (url === "/health/services") {
+      return Promise.resolve(new Response(JSON.stringify(MOCK_SERVICES_RESPONSE), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    }
+    if (url === "/settings/download-authorization") {
+      const body = init?.method === "PUT" ? init.body : JSON.stringify(MOCK_POLICY_RESPONSE);
+      return Promise.resolve(new Response(String(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    }
+    return Promise.resolve(new Response("{}", {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    }));
+  });
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 describe("SettingsPanel", () => {
   it("renders the session id and service health cards", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify(MOCK_SERVICES_RESPONSE), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+    mockSettingsFetch();
 
     render(
       <SettingsPanel
@@ -60,12 +87,7 @@ describe("SettingsPanel", () => {
   });
 
   it("shows refresh button and triggers re-fetch", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify(MOCK_SERVICES_RESPONSE), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+    const fetchSpy = mockSettingsFetch();
 
     render(
       <SettingsPanel
@@ -79,10 +101,10 @@ describe("SettingsPanel", () => {
     expect(refreshBtn).toBeInTheDocument();
 
     // Initial fetch happened on mount
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
 
     await userEvent.click(refreshBtn);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 
   it("shows error banner on fetch failure", async () => {
@@ -98,5 +120,32 @@ describe("SettingsPanel", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Network error");
+  });
+
+  it("saves download authorization policy", async () => {
+    const fetchSpy = mockSettingsFetch();
+
+    render(
+      <SettingsPanel
+        id="workspace-panel-settings"
+        labelledBy="workspace-tab-settings"
+        sessionId="session-4"
+      />,
+    );
+
+    await userEvent.click(await screen.findByLabelText(/允许在审批后/));
+    await userEvent.click(screen.getByLabelText("电视剧"));
+    await userEvent.type(screen.getByLabelText("允许保存路径前缀"), "/downloads/tv");
+    await userEvent.click(screen.getByRole("button", { name: "保存授权设置" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("已保存下载授权设置");
+    const putCall = fetchSpy.mock.calls.find(([url, init]) => String(url) === "/settings/download-authorization" && init?.method === "PUT");
+    expect(putCall).toBeTruthy();
+    expect(JSON.parse(String(putCall?.[1]?.body))).toMatchObject({
+      enabled: true,
+      categories: ["电视剧"],
+      save_path_prefixes: ["/downloads/tv"],
+      paused_required: true
+    });
   });
 });

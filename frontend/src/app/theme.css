@@ -1028,6 +1028,77 @@ textarea {
   line-height: 1.45;
 }
 
+.settings-policy-card {
+  grid-column: 1 / -1;
+}
+
+.settings-toggle-row,
+.settings-check-chip,
+.settings-field {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.settings-toggle-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-field-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-check-chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.settings-field {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-field input,
+.settings-field textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.settings-field input {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.settings-field textarea {
+  min-height: 80px;
+  resize: vertical;
+  padding: 9px 10px;
+}
+
+.settings-number-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* Health check dashboard */
 .health-header {
   display: flex;

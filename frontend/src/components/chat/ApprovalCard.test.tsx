@@ -40,7 +40,7 @@ describe("ApprovalCard", () => {
     expect(screen.getByText("等待确认")).toBeInTheDocument();
     expect(screen.getByText(/2099/).closest("time")).toHaveAttribute("datetime", pendingApproval.expires_at);
 
-    await user.click(screen.getByRole("button", { name: "批准并加入 qB" }));
+    await user.click(screen.getByRole("button", { name: "仅批准本次" }));
     await user.click(screen.getByRole("button", { name: "拒绝" }));
 
     expect(onApprove).toHaveBeenCalledWith("approval-1");
@@ -88,6 +88,28 @@ describe("ApprovalCard", () => {
     expect(screen.getByText("/downloads/tv")).toBeInTheDocument();
   });
 
+  it("shows session authorization action only when eligible", async () => {
+    const user = userEvent.setup();
+    const onApproveWithGrant = vi.fn();
+
+    render(
+      <ApprovalCard
+        approval={{
+          ...pendingApproval,
+          authorization: { eligible: true }
+        }}
+        status="pending"
+        isSubmitting={false}
+        onApprove={vi.fn()}
+        onApproveWithGrant={onApproveWithGrant}
+        onDeny={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "本会话内允许" }));
+    expect(onApproveWithGrant).toHaveBeenCalledWith("approval-1");
+  });
+
   it("hides actions and displays an expired state", () => {
     render(
       <ApprovalCard
@@ -101,7 +123,7 @@ describe("ApprovalCard", () => {
 
     expect(screen.getByText("已过期")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("此审批已过期");
-    expect(screen.queryByRole("button", { name: "批准并加入 qB" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "仅批准本次" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
   });
 

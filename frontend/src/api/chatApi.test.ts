@@ -100,7 +100,7 @@ describe("chatApi", () => {
       expect.objectContaining({
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({})
+        body: JSON.stringify({ decision: "approve_once" })
       }),
     );
     expect(result.status).toBe("approved");

@@ -10,6 +10,10 @@ export type PendingApprovalLike = {
     level?: string;
     summary?: string;
   } | null;
+  authorization?: {
+    eligible?: boolean;
+    reason?: string;
+  } | null;
 };
 
 export type ApprovalCardStatus = "pending" | "approved" | "denied" | "failed" | "expired";
@@ -19,6 +23,7 @@ type ApprovalCardProps = {
   status: ApprovalCardStatus;
   isSubmitting: boolean;
   onApprove: (approvalId: string) => void;
+  onApproveWithGrant?: (approvalId: string) => void;
   onDeny: (approvalId: string) => void;
 };
 
@@ -63,6 +68,7 @@ export function ApprovalCard({
   status,
   isSubmitting,
   onApprove,
+  onApproveWithGrant,
   onDeny
 }: ApprovalCardProps) {
   const titleId = `${useId()}-approval-title`;
@@ -73,6 +79,7 @@ export function ApprovalCard({
   const displayStatus: ApprovalCardStatus = status === "pending" && isPast(approval.expires_at) ? "expired" : status;
   const isPending = displayStatus === "pending";
   const isBatch = items.length > 0;
+  const canGrant = approval.authorization?.eligible === true && typeof onApproveWithGrant === "function";
 
   return (
     <section className="chat-card approval-card" aria-labelledby={titleId}>
@@ -148,8 +155,18 @@ export function ApprovalCard({
             disabled={isSubmitting}
             onClick={() => onApprove(approval.approval_id)}
           >
-            {isSubmitting ? "处理中..." : "批准并加入 qB"}
+            {isSubmitting ? "处理中..." : "仅批准本次"}
           </button>
+          {canGrant && (
+            <button
+              type="button"
+              className="primary-button"
+              disabled={isSubmitting}
+              onClick={() => onApproveWithGrant?.(approval.approval_id)}
+            >
+              本会话内允许
+            </button>
+          )}
         </div>
       )}
     </section>

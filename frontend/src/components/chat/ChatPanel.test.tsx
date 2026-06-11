@@ -251,9 +251,9 @@ describe("ChatPanel", () => {
     await user.click(screen.getByRole("button", { name: "发送" }));
     await user.click(await screen.findByRole("button", { name: "请求下载" }));
 
-    expect(await screen.findByRole("button", { name: "批准并加入 qB" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "仅批准本次" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "媒体需求" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "批准并加入 qB" }));
+    await user.click(screen.getByRole("button", { name: "仅批准本次" }));
 
     expect(await screen.findByText("已提交到 qBittorrent，任务保持暂停。")).toBeInTheDocument();
     expect(onDownloadSubmitted).toHaveBeenCalledWith({ external_id: "r1", status: "submitted_paused" });
@@ -292,10 +292,10 @@ describe("ChatPanel", () => {
 
     await user.type(screen.getByRole("textbox", { name: "媒体需求" }), "下载 r1");
     await user.click(screen.getByRole("button", { name: "发送" }));
-    await user.click(await screen.findByRole("button", { name: "批准并加入 qB" }));
+    await user.click(await screen.findByRole("button", { name: "仅批准本次" }));
 
     expect(await screen.findByText("已过期")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "批准并加入 qB" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "仅批准本次" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "媒体需求" })).toBeEnabled();
   });
 

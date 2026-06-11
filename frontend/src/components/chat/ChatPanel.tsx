@@ -78,7 +78,7 @@ export function ChatPanel({
     await requestDownload(torrentId);
   }
 
-  async function handleApproval(action: "approve" | "deny") {
+  async function handleApproval(action: "approve" | "approve_and_grant_session" | "deny") {
     await decideApproval(action);
   }
 
@@ -129,6 +129,7 @@ export function ChatPanel({
                       status={message.status}
                       isSubmitting={state.isSubmitting}
                       onApprove={() => void handleApproval("approve")}
+                      onApproveWithGrant={() => void handleApproval("approve_and_grant_session")}
                       onDeny={() => void handleApproval("deny")}
                     />
                   );

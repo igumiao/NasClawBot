@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.domain.authorization import DownloadAuthorizationPolicy
 from app.domain.models import ResourceCandidate
 
 
@@ -63,6 +64,12 @@ class AgentApprovalResponse(BaseModel):
     message: str
     receipt: dict[str, Any] | None = None
     error: str | None = None
+
+
+class AgentApprovalDecisionRequest(BaseModel):
+    """Optional payload for approving a pending Agent approval."""
+
+    decision: Literal["approve_once", "approve_and_grant_session"] = "approve_once"
 
 
 class SessionUpdateRequest(BaseModel):
@@ -173,3 +180,7 @@ class HealthServicesResponse(BaseModel):
 
     status: str  # "ok" when all configured services are healthy, "degraded" otherwise
     services: list[ServiceHealth] = Field(default_factory=list)
+
+
+class DownloadAuthorizationPolicyResponse(DownloadAuthorizationPolicy):
+    """Settings response for download authorization policy."""
