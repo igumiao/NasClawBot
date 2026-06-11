@@ -138,14 +138,13 @@ class ToolCallingLoop:
             )
             ask_user_items = [item for item in gate_plan if item["gate_result_enum"] == GateResult.ASK_USER]
             if len(ask_user_items) > 1:
-                final_answer = "一次只能确认一个工具调用；同类批量下载请改用批量工具。"
-                self.agent.add_message(Message(final_answer, "assistant"))
-                self._save_session_if_enabled()
-                return ToolCallingLoopResult(
-                    final_answer=final_answer,
-                    steps=step,
-                    status="approval_conflict",
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": self._approval_conflict_replan_message(ask_user_items),
+                    }
                 )
+                continue
 
             messages.append(assistant_message)
             self.agent.add_message(
@@ -258,6 +257,7 @@ class ToolCallingLoop:
         step = int(paused_loop.get("step") or 1)
 
         tool_observations: List[ToolObservation] = []
+        pending_approvals: List[Dict[str, Any]] = []
         response_by_id = {pending_tool_call_id: tool_response}
         for skipped_call in paused_loop.get("other_tool_calls") or []:
             skipped_id = str(skipped_call.get("id") or "")
@@ -310,7 +310,144 @@ class ToolCallingLoop:
                 )
             )
 
-        final_answer = self._finalize_after_resume(
+        return self._continue_after_tool_messages(
+            messages=messages,
+            tool_schemas=tool_schemas,
+            tool_observations=tool_observations,
+            pending_approvals=pending_approvals,
+            start_step=step + 1,
+            **kwargs,
+        )
+
+    def _continue_after_tool_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        tool_schemas: List[Dict[str, Any]],
+        tool_observations: List[ToolObservation],
+        pending_approvals: List[Dict[str, Any]],
+        start_step: int,
+        **kwargs: Any,
+    ) -> ToolCallingLoopResult:
+        visible_tool_names = self._tool_schema_names(tool_schemas)
+        filter_active = bool(getattr(self.agent, "tool_filter", None))
+
+        for step in range(start_step, self.max_steps + 1):
+            messages = self._prepare_messages_for_model_call(messages, tool_schemas)
+            response = self.agent.llm.invoke_with_tools(
+                messages=messages,
+                tools=tool_schemas,
+                tool_choice="auto",
+                **kwargs,
+            )
+            self._log_model_output(step, response)
+
+            tool_calls = response.tool_calls or []
+            if not tool_calls:
+                final_answer = response.content or ""
+                self.agent.add_message(Message(final_answer, "assistant"))
+                self._save_session_if_enabled()
+                return ToolCallingLoopResult(
+                    final_answer=final_answer,
+                    steps=step,
+                    tool_observations=tool_observations,
+                    status="success",
+                )
+
+            assistant_message = self._assistant_tool_call_message(response)
+            gate_plan = self._build_gate_plan(
+                tool_calls=tool_calls,
+                filter_active=filter_active,
+                visible_tool_names=visible_tool_names,
+            )
+            ask_user_items = [item for item in gate_plan if item["gate_result_enum"] == GateResult.ASK_USER]
+            if len(ask_user_items) > 1:
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": self._approval_conflict_replan_message(ask_user_items),
+                    }
+                )
+                continue
+
+            messages.append(assistant_message)
+            self.agent.add_message(
+                Message(
+                    response.content or "",
+                    "assistant",
+                    metadata={"tool_calls": assistant_message["tool_calls"]},
+                )
+            )
+            if ask_user_items:
+                ask_item = ask_user_items[0]
+                gate_reason = "Tool call requires user approval."
+                approval = self._build_pending_approval(
+                    tool_call_id=ask_item["tool_call"].id,
+                    tool_name=ask_item["tool_call"].name,
+                    arguments=ask_item["arguments"] or {},
+                    reason=gate_reason,
+                )
+                pending_approvals.append(approval)
+                observation = self._pending_approval_observation(ask_item, approval)
+                tool_observations.append(observation)
+                self._log_tool_result(step, observation)
+                approval_message = self._pending_approval_message(pending_approvals)
+                paused_loop = self._build_paused_loop_state(
+                    approval=approval,
+                    assistant_message=assistant_message,
+                    pending_item=ask_item,
+                    gate_plan=gate_plan,
+                    step=step,
+                )
+                self._save_session_if_enabled()
+                return ToolCallingLoopResult(
+                    final_answer=approval_message,
+                    steps=step,
+                    tool_observations=tool_observations,
+                    status="awaiting_approval",
+                    pending_approvals=pending_approvals,
+                    paused_loop=paused_loop,
+                )
+
+            for item in gate_plan:
+                tool_call = item["tool_call"]
+                arguments = item["arguments"]
+                gate_result = item["gate_result"]
+                gate_reason = item["gate_reason"]
+                response = item["response"]
+                if response is None:
+                    response = self._execute_tool_call(tool_call.name, arguments or {})
+                observation_text, truncation = self._build_observation_text(tool_call.name, response)
+                observation = ToolObservation(
+                    tool_name=tool_call.name,
+                    tool_call_id=tool_call.id,
+                    arguments=arguments or {},
+                    response=response,
+                    observation_text=observation_text,
+                    truncated=bool(truncation.get("truncated", False)),
+                    gate_result=gate_result,
+                    gate_reason=gate_reason,
+                    stats=truncation.get("stats", {}),
+                )
+                self._log_tool_result(step, observation)
+                tool_observations.append(observation)
+                tool_message = {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": observation.observation_text,
+                }
+                messages.append(tool_message)
+                self.agent.add_message(
+                    Message(
+                        observation.observation_text,
+                        "tool",
+                        metadata={
+                            "tool_call_id": tool_call.id,
+                            "tool_name": tool_call.name,
+                        },
+                    )
+                )
+
+        final_answer = self._finalize_after_max_steps(
             messages=messages,
             tool_schemas=tool_schemas,
             **kwargs,
@@ -319,9 +456,10 @@ class ToolCallingLoop:
         self._save_session_if_enabled()
         return ToolCallingLoopResult(
             final_answer=final_answer,
-            steps=step + 1,
+            steps=self.max_steps,
             tool_observations=tool_observations,
-            status="success" if tool_response.status.value != "error" else "tool_error",
+            status="max_steps",
+            pending_approvals=pending_approvals,
         )
 
     def _build_gate_plan(
@@ -545,6 +683,22 @@ class ToolCallingLoop:
             "reason": reason,
             "created_at": datetime.now().isoformat(),
         }
+
+    @staticmethod
+    def _approval_conflict_replan_message(ask_user_items: List[Dict[str, Any]]) -> str:
+        tool_names = [
+            str(item["tool_call"].name)
+            for item in ask_user_items
+            if item.get("tool_call") is not None
+        ]
+        names = ", ".join(tool_names)
+        return (
+            "Runtime constraint: your previous response requested multiple approval-gated tool calls "
+            f"({names}). The application can pause for only one user approval at a time. "
+            "Retry this turn by requesting exactly one approval-gated tool call. "
+            "If the action is a same-kind batch and a batch tool is available, use the batch tool instead. "
+            "Do not tell the user about this internal retry unless you cannot continue."
+        )
 
     @staticmethod
     def _serialize_tool_call(tool_call: Any, arguments: Dict[str, Any] | None) -> Dict[str, Any]:

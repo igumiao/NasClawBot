@@ -63,6 +63,7 @@ class AgentApprovalResponse(BaseModel):
     status: str
     message: str
     receipt: dict[str, Any] | None = None
+    pending_approvals: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
 
 

@@ -73,6 +73,7 @@ export type AgentApprovalResponse = {
   status: string;
   message: string;
   receipt: Record<string, unknown> | null;
+  pending_approvals?: PendingApproval[];
   error: string | null;
 };
 
