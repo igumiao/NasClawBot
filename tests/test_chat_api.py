@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.agent import runner as agent_runner
+from app.agent.runner import _reset_module_qb_adapter
 from app.api import chat_routes, qb_routes
 from app.api.schemas import AgentApprovalDecisionRequest, ChatRequest, DownloadRequest, QBTorrentActionRequest
 from app.domain.authorization import DownloadAuthorizationPolicy, create_session_grant
@@ -95,6 +96,14 @@ class FakeApprovalLLM:
     def invoke(self, messages, **kwargs):
         FakeApprovalLLM.invoke_calls.append(messages)
         return LLMResponse(content=self.text_response, model=self.model)
+
+
+@pytest.fixture(autouse=True)
+def _reset_qb_adapter_before_each_test_in_chat():
+    """Ensure the module-level qB adapter cache does not leak between tests."""
+    _reset_module_qb_adapter()
+    yield
+    _reset_module_qb_adapter()
 
 
 def _patch_chat_adapters(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from app.agent import runner as agent_runner
-from app.agent.runner import NasClawAgentRunner
+from app.agent.runner import NasClawAgentRunner, _reset_module_qb_adapter
 from hello_agents.checkpoints import ConversationCheckpoint, JSONConversationCheckpointStore
 from hello_agents.core.llm_response import LLMResponse, LLMToolResponse, ToolCall
 from hello_agents.tools import Gate
@@ -110,6 +110,14 @@ class FailingSummaryLLM(FakeLLM):
     def invoke(self, messages, **kwargs):
         FailingSummaryLLM.invoke_calls.append(messages)
         raise RuntimeError("summary failed")
+
+
+@pytest.fixture(autouse=True)
+def _reset_qb_adapter_before_each_test():
+    """Ensure the module-level qB adapter cache does not leak between tests."""
+    _reset_module_qb_adapter()
+    yield
+    _reset_module_qb_adapter()
 
 
 def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeypatch: pytest.MonkeyPatch):

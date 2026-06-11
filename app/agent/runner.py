@@ -17,6 +17,19 @@ from hello_agents.observability import TraceLogger
 _trace_loggers: dict[str, TraceLogger] = {}
 _trace_loggers_lock = Lock()
 
+# Module-level: one qB adapter shared across all HTTP requests within the process.
+# The adapter caches the authenticated client internally; the process-level cache
+# avoids re-creating the adapter (and re-authenticating) on every request.
+_qb_adapter: "QBittorrentAdapter | None" = None
+_qb_adapter_lock = Lock()
+
+
+def _reset_module_qb_adapter() -> None:
+    """Reset the module-level qB adapter (used in tests for isolation)."""
+    global _qb_adapter
+    with _qb_adapter_lock:
+        _qb_adapter = None
+
 
 def _get_or_create_trace_logger(session_id: str) -> TraceLogger:
     with _trace_loggers_lock:
@@ -266,6 +279,28 @@ class NasClawAgentRunner:
             checkpoint=saved_checkpoint,
         )
 
+    def _get_qb_adapter(self) -> QBittorrentAdapter:
+        """Return the process-level cached qB adapter, creating it once.
+
+        Double-checked locking: first read without lock (fast path), then
+        acquire lock for the create-once guarantee. The adapter itself caches
+        the authenticated client internally, so every request within the
+        process reuses the same SID until the qB session expires.
+        """
+        global _qb_adapter
+        if _qb_adapter is not None:
+            return _qb_adapter
+        with _qb_adapter_lock:
+            if _qb_adapter is not None:
+                return _qb_adapter
+            settings = get_settings()
+            _qb_adapter = self.qb_adapter_factory(
+                base_url=settings.qb_base_url,
+                username=settings.qb_username,
+                password=settings.qb_password,
+            )
+            return _qb_adapter
+
     def _build_agent(self) -> ToolCallingAgent:
         settings = get_settings()
         llm = self.llm_factory(
@@ -278,11 +313,7 @@ class NasClawAgentRunner:
             base_url=settings.mteam_base_url,
             api_key=settings.mteam_api_key,
         )
-        qb_adapter = self.qb_adapter_factory(
-            base_url=settings.qb_base_url,
-            username=settings.qb_username,
-            password=settings.qb_password,
-        )
+        qb_adapter = self._get_qb_adapter()
         registry = ToolRegistry()
         registry.register_tool(CurrentTimeTool(timezone_name=settings.app_timezone))
         registry.register_tool(MTeamSearchTool(mteam_adapter))
@@ -610,11 +641,7 @@ class NasClawAgentRunner:
 
     def _execute_approved_tool(self, approval: ApprovalRecord) -> ToolResponse:
         settings = get_settings()
-        qb_adapter = self.qb_adapter_factory(
-            base_url=settings.qb_base_url,
-            username=settings.qb_username,
-            password=settings.qb_password,
-        )
+        qb_adapter = self._get_qb_adapter()
 
         defaults_store = DownloadDefaultsStore(Path(__file__).resolve().parents[2] / "memory" / "settings")
         download_defaults = defaults_store.load()
