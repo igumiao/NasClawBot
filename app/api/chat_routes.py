@@ -332,6 +332,7 @@ def build_router() -> APIRouter:
             status=result.status,
             message=result.message,
             receipt=result.receipt,
+            pending_approvals=result.pending_approvals,
             error=result.error,
         )
 
@@ -353,6 +354,7 @@ def build_router() -> APIRouter:
             status=result.status,
             message=result.message,
             receipt=result.receipt,
+            pending_approvals=result.pending_approvals,
             error=result.error,
         )
 

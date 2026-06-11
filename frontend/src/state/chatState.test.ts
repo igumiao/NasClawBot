@@ -137,6 +137,48 @@ describe("chatState", () => {
     expect(approved.pendingApproval).toBeNull();
   });
 
+  it("appends the next pending approval from an approval response", () => {
+    const nextApproval = {
+      ...pendingApproval,
+      approval_id: "approval-2",
+      tool_call_id: "call-2",
+      tool_name: "qb_control_torrent",
+      arguments: { torrent_hash: "abc", action: "resume" }
+    };
+    const pending = chatReducer(chatInitialState("session-1"), {
+      type: "chat_response_received",
+      response: agentResponse({
+        message: "工具调用需要确认。",
+        results: [],
+        tool_calls: [],
+        pending_approvals: [pendingApproval]
+      })
+    });
+
+    const approved = chatReducer(pending, {
+      type: "approval_response_received",
+      response: {
+        session_id: "session-1",
+        approval_id: "approval-1",
+        status: "approved",
+        message: "第一步已完成，下一步需要确认。",
+        receipt: null,
+        pending_approvals: [nextApproval],
+        error: null
+      }
+    });
+
+    expect(approved.messages.map((message) => message.kind)).toEqual([
+      "assistant",
+      "approval",
+      "assistant",
+      "approval"
+    ]);
+    expect(approved.messages[1]).toMatchObject({ kind: "approval", status: "approved" });
+    expect(approved.messages[3]).toMatchObject({ kind: "approval", status: "pending" });
+    expect(approved.pendingApproval?.approval_id).toBe("approval-2");
+  });
+
   it("keeps an expired approval card visible while unblocking the session", () => {
     const pending = chatReducer(chatInitialState("session-1"), {
       type: "chat_response_received",

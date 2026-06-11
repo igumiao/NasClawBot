@@ -1,7 +1,7 @@
 """Application-level Agent runner for NasClawBot conversations."""
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import wraps
 import json
@@ -166,6 +166,7 @@ class AgentApprovalResult:
     message: str
     receipt: dict[str, Any] | None = None
     error: str | None = None
+    pending_approvals: list[dict[str, Any]] = field(default_factory=list)
     checkpoint: ConversationCheckpoint | None = None
 
 
@@ -406,6 +407,7 @@ class NasClawAgentRunner:
             message=message,
             receipt=receipt,
             error=error,
+            pending_approvals=self._pending_approval_dicts(saved_checkpoint),
             checkpoint=saved_checkpoint,
         )
 
@@ -455,6 +457,7 @@ class NasClawAgentRunner:
             approval_id=approval_id,
             status="denied",
             message=message,
+            pending_approvals=self._pending_approval_dicts(saved_checkpoint),
             checkpoint=saved_checkpoint,
         )
 
@@ -738,8 +741,8 @@ class NasClawAgentRunner:
         checkpoint.metadata["turn_count"] = sum(1 for message in checkpoint.history if message.get("role") == "user")
         return checkpoint
 
-    @staticmethod
     def _checkpoint_from_resumed_agent(
+        self,
         checkpoint: ConversationCheckpoint,
         agent: ToolCallingAgent,
         approval: ApprovalRecord,
@@ -749,13 +752,17 @@ class NasClawAgentRunner:
         checkpoint.history = [message.to_dict() for message in agent.get_history()]
         checkpoint.saved_at = now
         checkpoint.archives = list(getattr(agent, "_conversation_archives", checkpoint.archives))
-        checkpoint.metadata["last_status"] = last_status
-        checkpoint.metadata["pending_approvals"] = [
+        checkpoint.metadata["last_status"] = agent.last_result.status if agent.last_result else last_status
+        pending_approvals = [
             item
-            for item in checkpoint.metadata.get("pending_approvals", [])
+            for item in self._agent_pending_approvals(agent, checkpoint.session_id)
             if item.get("approval_id") != approval.approval_id
         ]
-        checkpoint.metadata.pop("paused_loop", None)
+        checkpoint.metadata["pending_approvals"] = pending_approvals
+        if agent.last_result and agent.last_result.paused_loop:
+            checkpoint.metadata["paused_loop"] = deepcopy(agent.last_result.paused_loop)
+        else:
+            checkpoint.metadata.pop("paused_loop", None)
         approvals = list(checkpoint.metadata.get("approvals", []))
         approvals.append(approval.to_dict())
         checkpoint.metadata["approvals"] = approvals

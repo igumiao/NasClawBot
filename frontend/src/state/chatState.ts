@@ -294,10 +294,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       if (action.response.receipt) {
         messages.push({ id: id("receipt"), kind: "receipt", receipt: action.response.receipt });
       }
+      const pendingApprovals = action.response.pending_approvals ?? [];
+      for (const approval of pendingApprovals) {
+        messages.push({ id: id("approval"), kind: "approval", approval, status: "pending" });
+      }
       return {
         ...state,
         messages,
-        pendingApproval: null,
+        pendingApproval: pendingApprovals[0] ?? null,
         isSubmitting: false,
         lastError: action.response.error
       };

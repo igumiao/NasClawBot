@@ -172,6 +172,7 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
         "member_profile",
         "mteam_search",
         "qb_add_torrent",
+        "qb_add_torrents",
         "qb_control_torrent",
         "qb_get_torrent",
         "qb_list_categories",
@@ -443,7 +444,7 @@ def test_nasclaw_agent_runner_approve_resumes_provider_tool_call_loop(tmp_path, 
     assert result.message == "已提交到 qBittorrent，任务保持暂停。"
     assert result.receipt is not None
     assert FakeQBAdapter.calls[0]["paused"] is True
-    assert FakeLLM.tool_choices == ["auto", "none"]
+    assert FakeLLM.tool_choices == ["auto", "auto"]
     assert FakeLLM.invoke_calls == []
     resume_messages = FakeLLM.calls[-1]
     assert resume_messages[-1]["role"] == "tool"
@@ -454,6 +455,58 @@ def test_nasclaw_agent_runner_approve_resumes_provider_tool_call_loop(tmp_path, 
     assert "paused_loop" not in checkpoint.metadata
     assert checkpoint.metadata["approvals"][0]["status"] == "approved"
     assert [message["role"] for message in checkpoint.history] == ["user", "assistant", "tool", "assistant"]
+
+
+def test_nasclaw_agent_runner_approve_can_pause_for_next_gated_tool(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: FakeSettings())
+    FakeQBAdapter.calls = []
+    FakeLLM.calls = []
+    FakeLLM.tool_choices = []
+    FakeLLM.invoke_calls = []
+    FakeLLM.responses = [
+        LLMToolResponse(
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="call-download",
+                    name="qb_add_torrent",
+                    arguments='{"torrent_id":"123","qb_category":"movie"}',
+                )
+            ],
+            model="fake-model",
+        ),
+        LLMToolResponse(
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="call-resume",
+                    name="qb_control_torrent",
+                    arguments='{"torrent_hash":"fake-hash","action":"resume"}',
+                )
+            ],
+            model="fake-model",
+        ),
+    ]
+    store = JSONConversationCheckpointStore(tmp_path)
+    runner = NasClawAgentRunner(
+        checkpoint_store=store,
+        mteam_adapter_factory=FakeMTeamAdapter,
+        qb_adapter_factory=FakeQBAdapter,
+        llm_factory=FakeLLM,
+    )
+    pending = runner.run("session-resume-next-approval", "下载后恢复")
+
+    result = runner.approve("session-resume-next-approval", pending.pending_approvals[0]["approval_id"])
+
+    assert result.status == "approved"
+    assert result.pending_approvals[0]["tool_name"] == "qb_control_torrent"
+    assert result.pending_approvals[0]["arguments"] == {"torrent_hash": "fake-hash", "action": "resume"}
+    assert FakeLLM.tool_choices == ["auto", "auto"]
+    checkpoint = store.load("session-resume-next-approval")
+    assert checkpoint is not None
+    assert checkpoint.metadata["pending_approvals"][0]["tool_name"] == "qb_control_torrent"
+    assert checkpoint.metadata["paused_loop"]["pending_tool_call"]["id"] == "call-resume"
+    assert checkpoint.metadata["approvals"][0]["tool_name"] == "qb_add_torrent"
 
 
 def test_nasclaw_agent_runner_approve_rejects_mismatched_paused_loop_without_qb_execution(
@@ -540,7 +593,7 @@ def test_nasclaw_agent_runner_deny_resumes_with_user_denied_tool_result(tmp_path
     assert result.status == "denied"
     assert result.message == "已取消这次下载请求。"
     assert FakeQBAdapter.calls == []
-    assert FakeLLM.tool_choices == ["auto", "none"]
+    assert FakeLLM.tool_choices == ["auto", "auto"]
     tool_payload = FakeLLM.calls[-1][-1]["content"]
     assert "USER_DENIED" in tool_payload
     checkpoint = store.load("session-resume-deny")
