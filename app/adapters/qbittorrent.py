@@ -32,14 +32,22 @@ def _read_value(payload: Any, key: str, default: Any = None) -> Any:
     return getattr(payload, key, default)
 
 
-@dataclass(slots=True)
+@dataclass
 class QBittorrentAdapter:
-    """Boundary object for qBittorrent task operations."""
+    """Boundary object for qBittorrent task operations.
+
+    Caches the authenticated client after the first ``login()`` call so
+    subsequent operations within the same adapter instance reuse the
+    session cookie without a fresh auth round-trip.
+    """
 
     base_url: str
     username: str
     password: str
     timeout_seconds: float = 10.0
+
+    def __post_init__(self) -> None:
+        self._client: Any = None
 
     def _normalized_base_url(self) -> str:
         return self.base_url.rstrip("/")
@@ -58,14 +66,16 @@ class QBittorrentAdapter:
         )
 
     def login(self):
-        """Create and authenticate a qBittorrent API client."""
+        """Return an authenticated qBittorrent API client, caching on first call."""
         if not self._is_configured():
             logger.warning("qB login skipped: adapter is not configured")
             return None
-        client = self._build_client()
-        client.auth_log_in()
+        if self._client is not None:
+            return self._client
+        self._client = self._build_client()
+        self._client.auth_log_in()
         logger.info("qB login succeeded base_url=%s", self._normalized_base_url())
-        return client
+        return self._client
 
     def health(self) -> str:
         """Check qBittorrent API reachability and credentials.
