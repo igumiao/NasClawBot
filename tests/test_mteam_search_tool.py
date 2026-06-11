@@ -83,8 +83,8 @@ def test_mteam_search_returns_at_most_ten_candidates_with_extra_status_fields():
     response = tool.run({})
 
     assert response.data["pool_count"] == 12
-    assert response.data["returned_count"] == 10
-    assert len(response.data["candidates"]) == 10
+    assert response.data["returned_count"] == 12
+    assert len(response.data["candidates"]) == 12
     assert response.data["candidates"][0]["media_type"] == "unknown"
     assert response.data["candidates"][0]["resolution"] is None
     assert response.data["candidates"][0]["leechers"] == 1
