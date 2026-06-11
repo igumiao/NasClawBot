@@ -193,7 +193,12 @@ def mark_expired(
 
 
 def risk_for_tool(tool_name: str, arguments: dict[str, Any] | None = None) -> ApprovalRisk:
-    if tool_name == "qb_add_torrent":
+    if tool_name in {"qb_add_torrent", "qb_add_torrents"}:
+        if tool_name == "qb_add_torrents":
+            return ApprovalRisk(
+                level=ApprovalRiskLevel.SIDE_EFFECT,
+                summary="Submit multiple torrents to qBittorrent in paused state",
+            )
         return ApprovalRisk(
             level=ApprovalRiskLevel.SIDE_EFFECT,
             summary="Submit torrent to qBittorrent in paused state",

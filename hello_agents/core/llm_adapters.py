@@ -147,6 +147,8 @@ class OpenAIAdapter(BaseLLMAdapter):
                     "prompt_tokens": response.usage.prompt_tokens,
                     "completion_tokens": response.usage.completion_tokens,
                     "total_tokens": response.usage.total_tokens,
+                    "prompt_cache_hit_tokens": getattr(response.usage, "prompt_cache_hit_tokens", 0),
+                    "prompt_cache_miss_tokens": getattr(response.usage, "prompt_cache_miss_tokens", 0),
                 }
             
             return LLMResponse(
@@ -204,6 +206,8 @@ class OpenAIAdapter(BaseLLMAdapter):
                         "prompt_tokens": chunk.usage.prompt_tokens,
                         "completion_tokens": chunk.usage.completion_tokens,
                         "total_tokens": chunk.usage.total_tokens,
+                        "prompt_cache_hit_tokens": getattr(chunk.usage, "prompt_cache_hit_tokens", 0),
+                        "prompt_cache_miss_tokens": getattr(chunk.usage, "prompt_cache_miss_tokens", 0),
                     }
 
             latency_ms = int((time.time() - start_time) * 1000)
@@ -263,6 +267,8 @@ class OpenAIAdapter(BaseLLMAdapter):
                         "prompt_tokens": chunk.usage.prompt_tokens,
                         "completion_tokens": chunk.usage.completion_tokens,
                         "total_tokens": chunk.usage.total_tokens,
+                        "prompt_cache_hit_tokens": getattr(chunk.usage, "prompt_cache_hit_tokens", 0),
+                        "prompt_cache_miss_tokens": getattr(chunk.usage, "prompt_cache_miss_tokens", 0),
                     }
 
             latency_ms = int((time.time() - start_time) * 1000)
@@ -311,7 +317,9 @@ class OpenAIAdapter(BaseLLMAdapter):
                 usage = {
                     "prompt_tokens": response.usage.prompt_tokens,
                     "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens
+                    "total_tokens": response.usage.total_tokens,
+                    "prompt_cache_hit_tokens": getattr(response.usage, "prompt_cache_hit_tokens", 0),
+                    "prompt_cache_miss_tokens": getattr(response.usage, "prompt_cache_miss_tokens", 0),
                 }
 
             return LLMToolResponse(

@@ -33,21 +33,23 @@ class TraceLogger:
         self,
         output_dir: str = "memory/traces",
         sanitize: bool = True,
-        html_include_raw_response: bool = False
+        html_include_raw_response: bool = False,
+        session_id: Optional[str] = None,
     ):
-        """初始化 TraceLogger
-        
+        """Initialize TraceLogger
+
         Args:
             output_dir: 输出目录
             sanitize: 是否脱敏敏感信息
             html_include_raw_response: HTML 是否包含原始响应
+            session_id: 指定会话ID（用于多轮对话聚合）。不传则自动生成。
         """
         self.output_dir = Path(output_dir)
         self.sanitize = sanitize
         self.html_include_raw = html_include_raw_response
-        
-        # 生成会话 ID
-        self.session_id = self._generate_session_id()
+
+        # 使用传入的 session_id，否则自动生成
+        self.session_id = session_id or self._generate_session_id()
         
         # 事件缓存（用于生成统计和最终 HTML）
         self._events: List[Dict] = []
@@ -380,11 +382,21 @@ class TraceLogger:
             border-left: 3px solid #00bfff;
         }}
     </style>
+    <script>
+        function toggleDetails(id) {{
+            const el = document.getElementById(id);
+            if (el.style.display === 'none' || el.style.display === '') {{
+                el.style.display = 'block';
+            }} else {{
+                el.style.display = 'none';
+            }}
+        }}
+    </script>
 </head>
 <body>
     <div class="header">
         <h1>🔍 Trace Session: {self.session_id}</h1>
-        <p>生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+        <p>生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} | 实时更新中 — 刷新页面查看最新事件</p>
     </div>
 
     <div class="events-container">
@@ -494,16 +506,6 @@ class TraceLogger:
         {error_list_html}
     </div>
 
-    <script>
-        function toggleDetails(id) {{
-            const el = document.getElementById(id);
-            if (el.style.display === 'none' || el.style.display === '') {{
-                el.style.display = 'block';
-            }} else {{
-                el.style.display = 'none';
-            }}
-        }}
-    </script>
 </body>
 </html>
 """

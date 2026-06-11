@@ -257,6 +257,7 @@ def build_router() -> APIRouter:
         store = _agent_checkpoint_store()
         if not store.delete(session_id):
             raise HTTPException(status_code=404, detail="Agent session not found")
+        NasClawAgentRunner.cleanup_session_trace(session_id)
 
     @router.patch("/chat/agent/sessions/{session_id}", response_model=AgentSessionDetailResponse)
     def update_agent_session(session_id: str, body: SessionUpdateRequest) -> AgentSessionDetailResponse:

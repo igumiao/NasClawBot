@@ -62,6 +62,32 @@ describe("ApprovalCard", () => {
     expect(screen.getByRole("button", { name: "拒绝" })).toBeDisabled();
   });
 
+  it("renders batch approval items", () => {
+    render(
+      <ApprovalCard
+        approval={{
+          ...pendingApproval,
+          tool_name: "qb_add_torrents",
+          arguments: {
+            items: [
+              { torrent_id: "101", qb_category: "电视剧", save_path: "/downloads/tv" },
+              { torrent_id: "102", qb_category: "电视剧" }
+            ]
+          }
+        }}
+        status="pending"
+        isSubmitting={false}
+        onApprove={vi.fn()}
+        onDeny={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("2 个 torrent")).toBeInTheDocument();
+    expect(screen.getByText("101")).toBeInTheDocument();
+    expect(screen.getByText("102")).toBeInTheDocument();
+    expect(screen.getByText("/downloads/tv")).toBeInTheDocument();
+  });
+
   it("hides actions and displays an expired state", () => {
     render(
       <ApprovalCard

@@ -9,6 +9,34 @@ from threading import Lock, RLock
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from hello_agents.observability import TraceLogger
+
+# Module-level registry: one TraceLogger per conversation session,
+# surviving across requests so all turns of one conversation write to the same trace files.
+_trace_loggers: dict[str, TraceLogger] = {}
+_trace_loggers_lock = Lock()
+
+
+def _get_or_create_trace_logger(session_id: str) -> TraceLogger:
+    with _trace_loggers_lock:
+        if session_id not in _trace_loggers:
+            _trace_loggers[session_id] = TraceLogger(
+                output_dir="memory/traces",
+                session_id=session_id,
+            )
+        return _trace_loggers[session_id]
+
+
+def _cleanup_session_trace(session_id: str) -> None:
+    """Finalize and remove a session's trace logger. Called on session delete."""
+    with _trace_loggers_lock:
+        tl = _trace_loggers.pop(session_id, None)
+    if tl:
+        try:
+            tl.finalize()
+        except Exception:
+            pass
+
 from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
 from app.adapters.tavily import TavilyAdapter
@@ -29,6 +57,7 @@ from app.tools import (
     MemberProfileTool,
     MTeamSearchTool,
     QBAddTorrentTool,
+    QBAddTorrentsTool,
     QBListTorrentsTool,
     QBGetTorrentTool,
     QBListCategoriesTool,
@@ -144,7 +173,7 @@ class NasClawAgentRunner:
         llm_factory: Callable[..., Any] | None = None,
         mteam_adapter_factory: Callable[..., MTeamAdapter] | None = None,
         qb_adapter_factory: Callable[..., QBittorrentAdapter] | None = None,
-        max_steps: int = 4,
+        max_steps: int = 30,
         agent_config_overrides: dict[str, Any] | None = None,
         tool_filter: Filter | None = None,
         tool_gate: Gate | None = None,
@@ -161,6 +190,7 @@ class NasClawAgentRunner:
             "mteam_search",
             "member_profile",
             "qb_add_torrent",
+            "qb_add_torrents",
             "qb_list_torrents",
             "qb_get_torrent",
             "qb_list_categories",
@@ -175,6 +205,7 @@ class NasClawAgentRunner:
         ])
         self.tool_gate = tool_gate or Gate(confirm=[
             lambda call: call.tool_name == "qb_add_torrent",
+            lambda call: call.tool_name == "qb_add_torrents",
             lambda call: call.tool_name == "qb_control_torrent",
             lambda call: call.tool_name == "qb_set_global_speed",
             lambda call: call.tool_name == "qb_set_torrent_speed",
@@ -198,6 +229,7 @@ class NasClawAgentRunner:
             )
 
         agent = self._build_agent()
+        agent.trace_logger = _get_or_create_trace_logger(session_id)
         if checkpoint:
             self._restore_history(agent, checkpoint)
 
@@ -243,6 +275,7 @@ class NasClawAgentRunner:
         registry.register_tool(MTeamSearchTool(mteam_adapter))
         registry.register_tool(MemberProfileTool(mteam_adapter))
         registry.register_tool(QBAddTorrentTool(mteam_adapter, qb_adapter))
+        registry.register_tool(QBAddTorrentsTool(mteam_adapter, qb_adapter))
         registry.register_tool(QBListTorrentsTool(qb_adapter))
         registry.register_tool(QBGetTorrentTool(qb_adapter))
         registry.register_tool(QBListCategoriesTool(qb_adapter))
@@ -257,7 +290,7 @@ class NasClawAgentRunner:
         registry.register_tool(TMDBDiscoverTool(tmdb_adapter))
         registry.register_tool(TMDBTrendingTool(tmdb_adapter))
         config_values = {
-            "trace_enabled": False,
+            "trace_enabled": False,  # runner manages trace per conversation session
             "session_enabled": False,
             "skills_enabled": False,
             "subagent_enabled": False,
@@ -300,7 +333,13 @@ class NasClawAgentRunner:
             )
             self.checkpoint_store.save(saved_checkpoint)
             raise ValueError("Approval has expired")
-        _EXECUTABLE_TOOLS = {"qb_add_torrent", "qb_control_torrent", "qb_set_global_speed", "qb_set_torrent_speed"}
+        _EXECUTABLE_TOOLS = {
+            "qb_add_torrent",
+            "qb_add_torrents",
+            "qb_control_torrent",
+            "qb_set_global_speed",
+            "qb_set_torrent_speed",
+        }
         if approval.tool_name not in _EXECUTABLE_TOOLS:
             raise ValueError(f"Tool '{approval.tool_name}' cannot be executed via approval")
 
@@ -323,6 +362,7 @@ class NasClawAgentRunner:
             error = None
 
         agent = self._build_agent()
+        agent.trace_logger = _get_or_create_trace_logger(session_id)
         self._restore_history(agent, checkpoint)
         message = agent.resume_tool_call(paused_loop, response)
         saved_checkpoint = self._checkpoint_from_resumed_agent(
@@ -373,6 +413,7 @@ class NasClawAgentRunner:
             context={"tool_name": approval.tool_name},
         )
         agent = self._build_agent()
+        agent.trace_logger = _get_or_create_trace_logger(session_id)
         self._restore_history(agent, checkpoint)
         message = agent.resume_tool_call(paused_loop, denial_response)
         saved_checkpoint = self._checkpoint_from_resumed_agent(
@@ -457,6 +498,11 @@ class NasClawAgentRunner:
         )
 
     @staticmethod
+    def cleanup_session_trace(session_id: str) -> None:
+        """Finalize and remove trace files for a deleted session."""
+        _cleanup_session_trace(session_id)
+
+    @staticmethod
     def _restore_history(agent: ToolCallingAgent, checkpoint: ConversationCheckpoint) -> None:
         agent.clear_history()
         for message_data in checkpoint.history:
@@ -479,6 +525,14 @@ class NasClawAgentRunner:
         tool_name = approval.tool_name
         if tool_name == "qb_add_torrent":
             tool = QBAddTorrentTool(
+                self.mteam_adapter_factory(
+                    base_url=settings.mteam_base_url,
+                    api_key=settings.mteam_api_key,
+                ),
+                qb_adapter,
+            )
+        elif tool_name == "qb_add_torrents":
+            tool = QBAddTorrentsTool(
                 self.mteam_adapter_factory(
                     base_url=settings.mteam_base_url,
                     api_key=settings.mteam_api_key,
@@ -670,6 +724,15 @@ class NasClawAgentRunner:
     ) -> str:
         torrent_id = str(approval.arguments.get("torrent_id", ""))
         category = str(approval.arguments.get("qb_category", ""))
+        if approval.tool_name == "qb_add_torrents":
+            items = approval.arguments.get("items")
+            count = len(items) if isinstance(items, list) else 0
+            if receipt:
+                summary = receipt.get("summary") if isinstance(receipt.get("summary"), dict) else {}
+                succeeded = summary.get("succeeded", count)
+                failed = summary.get("failed", 0)
+                return f"批量下载请求已提交到 qBittorrent（暂停状态）：成功 {succeeded}/{count}，失败 {failed}。"
+            return f"批量下载请求已提交到 qBittorrent（暂停状态）：共 {count} 项。"
         if receipt:
             title = receipt.get("resource_title") or torrent_id
             status = receipt.get("status") or "submitted_paused"
