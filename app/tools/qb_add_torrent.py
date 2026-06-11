@@ -92,7 +92,7 @@ class QBAddTorrentTool(Tool):
         save_path = str(parameters.get("save_path", "")).strip()
         if not save_path and self._default_save_path:
             qb_category = str(parameters.get("qb_category", "")).strip()
-            if qb_category and qb_category != "其他":
+            if qb_category:
                 save_path = f"{self._default_save_path.rstrip('/')}/{qb_category}"
             else:
                 save_path = self._default_save_path
