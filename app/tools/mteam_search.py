@@ -46,7 +46,12 @@ class MTeamSearchTool(Tool):
             ToolParameter(
                 name="sort_by",
                 type="string",
-                description="可选排序方式。省略时使用 M-Team 默认排序，即按创建时间降序。",
+                description=(
+                    "可选排序方式。用户要求\"最大/体积最大/最大的文件\"时用 largest；"
+                    "\"最多做种/最热门/保种最好\"时用 most_seeded；"
+                    "\"最小/省空间/小文件/刷流\"时用 smallest。"
+                    "无明确偏好时省略，默认按发布时间最新排序。"
+                ),
                 required=False,
                 enum=list(self._SORTS),
             ),
