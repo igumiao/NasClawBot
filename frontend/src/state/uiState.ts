@@ -1,4 +1,4 @@
-export type WorkspaceTab = "chat" | "downloads" | "settings" | "free-torrents";
+export type WorkspaceTab = "chat" | "downloads" | "settings" | "free-torrents" | "memory";
 
 export type UiState = {
   activeTab: WorkspaceTab;

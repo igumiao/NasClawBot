@@ -6,6 +6,7 @@ import { ConversationSidebar } from "../components/layout/ConversationSidebar";
 import { WorkspaceTabs } from "../components/layout/WorkspaceTabs";
 import { SettingsPanel } from "../components/settings/SettingsPanel";
 import { FreeTorrentsPanel } from "../components/free-torrents/FreeTorrentsPanel";
+import { MemoryPanel } from "../components/memory/MemoryPanel";
 import { persistAgentSessionId, readStoredAgentSessionId } from "../state/agentSessionStorage";
 import type { AgentSessionSummary } from "../types/api";
 import type { WorkspaceTab } from "../state/uiState";
@@ -182,6 +183,11 @@ export function AppShell() {
             id="workspace-panel-free-torrents"
             labelledBy="workspace-tab-free-torrents"
           />
+        </div>
+        <div style={panelStyle(activeTab === "memory")}>
+          <section role="tabpanel" id="workspace-panel-memory" aria-labelledby="workspace-tab-memory">
+            <MemoryPanel />
+          </section>
         </div>
       </main>
     </div>
