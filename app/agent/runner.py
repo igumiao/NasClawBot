@@ -84,6 +84,7 @@ from app.tools import (
     CurrentTimeTool,
     MemberProfileTool,
     MemorySearchTool,
+    RememberThisTool,
     MTeamSearchTool,
     QBAddTorrentTool,
     QBAddTorrentsTool,
@@ -224,6 +225,7 @@ class NasClawAgentRunner:
         self.tool_filter = tool_filter or Filter(allow=[
             "current_time",
             "memory_search",
+            "remember_this",
             "mteam_search",
             "member_profile",
             "qb_add_torrent",
@@ -330,8 +332,10 @@ class NasClawAgentRunner:
         qb_adapter = self._get_qb_adapter()
         registry = ToolRegistry()
         memory_store = MarkdownMemoryStore(self.memory_root)
+        memory_store.ensure_template_files()
         registry.register_tool(CurrentTimeTool(timezone_name=settings.app_timezone))
         registry.register_tool(MemorySearchTool(memory_store))
+        registry.register_tool(RememberThisTool(memory_store))
         registry.register_tool(MTeamSearchTool(mteam_adapter))
         registry.register_tool(MemberProfileTool(mteam_adapter))
 

@@ -767,6 +767,23 @@ textarea {
   box-shadow: none;
 }
 
+.memory-activity-card {
+  border-left: 3px solid #f59e0b;
+  background: linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.1),
+    rgba(245, 158, 11, 0.02));
+}
+
+.memory-activity-card .chat-card-eyebrow {
+  color: #d97706;
+  font-weight: 600;
+}
+
+.memory-activity-card .chat-card-eyebrow::before {
+  content: "🧠 ";
+}
+
 .tool-activity-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }

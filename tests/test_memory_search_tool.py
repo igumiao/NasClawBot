@@ -17,25 +17,24 @@ def test_memory_search_schema_exposes_readonly_search_surface():
     assert schema["properties"]["kind"]["enum"] == [
         "index",
         "user_profile",
-        "facts",
-        "experiences",
+        "knowledge",
     ]
 
 
 def test_memory_search_returns_tool_response_hits(tmp_path: Path):
-    (tmp_path / "experiences.md").write_text(
+    (tmp_path / "knowledge.md").write_text(
         "# Playback\nPrefer remux for Dune.\n",
         encoding="utf-8",
     )
     tool = MemorySearchTool(MarkdownMemoryStore(tmp_path))
 
-    response = tool.run({"query": "DUNE", "kind": "experiences", "limit": 3})
+    response = tool.run({"query": "DUNE", "kind": "knowledge", "limit": 3})
 
     assert response.status.value == "success"
     assert response.data["returned_count"] == 1
     assert response.data["hits"] == [
         {
-            "kind": "experiences",
+            "kind": "knowledge",
             "line_number": 2,
             "section": "Playback",
             "text": "Prefer remux for Dune.",
@@ -74,7 +73,7 @@ def test_memory_search_rejects_invalid_parameters(parameters):
 
 
 def test_memory_search_caps_limit_at_twenty(tmp_path: Path):
-    (tmp_path / "facts.md").write_text(
+    (tmp_path / "knowledge.md").write_text(
         "\n".join(f"alpha {index}" for index in range(25)),
         encoding="utf-8",
     )
