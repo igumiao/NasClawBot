@@ -81,7 +81,7 @@ export function MemoryPanel() {
   const applyDecisions = async () => {
     const decisions: CuratorApplyDecision[] = [];
     for (const state of entryStates.values()) {
-      if (state.status === "applied") continue;
+      if (state.status === "pending") continue; // skip un-reviewed items
       const decision: CuratorApplyDecision = {
         inbox_index: state.entry.index,
         action: state.status === "discarded" ? "discard" : "keep",
@@ -242,7 +242,7 @@ export function MemoryPanel() {
         </div>
       )}
 
-      {entryStates.size > 0 && pendingCount > 0 && (
+      {entryStates.size > 0 && (appliedCount > 0 || pendingCount > 0) && (
         <footer className="memory-panel-footer">
           <span>
             已选 {appliedCount} 条应用 · {discardedCount} 条丢弃 · {pendingCount}{" "}
