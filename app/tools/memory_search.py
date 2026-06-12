@@ -7,7 +7,6 @@ from typing import Any
 from hello_agents.tools.base import Tool, ToolParameter
 from hello_agents.tools.response import ToolResponse
 
-from app.domain.memory import MemoryKind
 from app.services.markdown_memory_store import (
     DEFAULT_MEMORY_SEARCH_LIMIT,
     MAX_MEMORY_SEARCH_LIMIT,
@@ -24,8 +23,8 @@ class MemorySearchTool(Tool):
         super().__init__(
             name="memory_search",
             description=(
-                "只读搜索本应用的 markdown 记忆片段。"
-                "可查索引、用户画像、事实和经验，用于补充当前对话上下文；不会写入记忆。"
+                "只读搜索本应用的 markdown 知识库，"
+                "用于补充当前对话上下文；不会写入记忆。"
             ),
         )
         self._store = store or MarkdownMemoryStore()
@@ -35,15 +34,8 @@ class MemorySearchTool(Tool):
             ToolParameter(
                 name="query",
                 type="string",
-                description="要在 markdown 记忆中查找的文本，大小写不敏感。",
+                description="要在知识库中查找的文本，大小写不敏感。",
                 required=True,
-            ),
-            ToolParameter(
-                name="kind",
-                type="string",
-                description="可选记忆类型；省略时搜索所有类型。",
-                required=False,
-                enum=[kind.value for kind in MemoryKind],
             ),
             ToolParameter(
                 name="limit",
@@ -61,14 +53,13 @@ class MemorySearchTool(Tool):
 
     def run(self, parameters: dict[str, Any]) -> ToolResponse:
         try:
-            query, kind, limit = self._normalize_parameters(parameters)
+            query, limit = self._normalize_parameters(parameters)
         except ValueError as exc:
             return ToolResponse.error(code="INVALID_PARAM", message=str(exc))
 
-        hits = self._store.search(query=query, kind=kind, limit=limit)
+        hits = self._store.search(query=query, limit=limit)
         payload_hits = [
             {
-                "kind": hit.kind.value,
                 "line_number": hit.line_number,
                 "section": hit.section,
                 "text": hit.text,
@@ -88,7 +79,6 @@ class MemorySearchTool(Tool):
             text=f"Memory search found {len(payload_hits)} hit(s).",
             data={
                 "query": query,
-                "kind": kind.value if kind else None,
                 "limit": limit,
                 "returned_count": len(payload_hits),
                 "hits": payload_hits,
@@ -98,11 +88,11 @@ class MemorySearchTool(Tool):
     def _normalize_parameters(
         self,
         parameters: dict[str, Any],
-    ) -> tuple[str, MemoryKind | None, int]:
+    ) -> tuple[str, int]:
         if not isinstance(parameters, dict):
             raise ValueError("memory_search parameters must be an object.")
 
-        unknown = sorted(set(parameters) - {"query", "kind", "limit"})
+        unknown = sorted(set(parameters) - {"query", "limit"})
         if unknown:
             raise ValueError(f"Unsupported memory_search parameters: {', '.join(unknown)}")
 
@@ -111,10 +101,6 @@ class MemorySearchTool(Tool):
             raise ValueError("query is required.")
         if len(query) > self._MAX_QUERY_LENGTH:
             raise ValueError(f"query must be <= {self._MAX_QUERY_LENGTH} characters.")
-
-        kind: MemoryKind | None = None
-        if parameters.get("kind") is not None:
-            kind = MemoryKind.parse(parameters["kind"])
 
         raw_limit = parameters.get("limit", DEFAULT_MEMORY_SEARCH_LIMIT)
         try:
@@ -125,4 +111,4 @@ class MemorySearchTool(Tool):
             raise ValueError("limit must be >= 1.")
         limit = min(limit, MAX_MEMORY_SEARCH_LIMIT)
 
-        return query, kind, limit
+        return query, limit

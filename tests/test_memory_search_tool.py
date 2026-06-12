@@ -8,17 +8,12 @@ from app.services.markdown_memory_store import MarkdownMemoryStore
 from app.tools.memory_search import MemorySearchTool
 
 
-def test_memory_search_schema_exposes_readonly_search_surface():
+def test_memory_search_schema_has_query_and_limit_only():
     schema = MemorySearchTool().to_openai_schema()["function"]["parameters"]
 
     assert schema["required"] == ["query"]
     assert schema["additionalProperties"] is False
-    assert set(schema["properties"]) == {"query", "kind", "limit"}
-    assert schema["properties"]["kind"]["enum"] == [
-        "index",
-        "user_profile",
-        "knowledge",
-    ]
+    assert set(schema["properties"]) == {"query", "limit"}
 
 
 def test_memory_search_returns_tool_response_hits(tmp_path: Path):
@@ -28,13 +23,12 @@ def test_memory_search_returns_tool_response_hits(tmp_path: Path):
     )
     tool = MemorySearchTool(MarkdownMemoryStore(tmp_path))
 
-    response = tool.run({"query": "DUNE", "kind": "knowledge", "limit": 3})
+    response = tool.run({"query": "DUNE", "limit": 3})
 
     assert response.status.value == "success"
     assert response.data["returned_count"] == 1
     assert response.data["hits"] == [
         {
-            "kind": "knowledge",
             "line_number": 2,
             "section": "Playback",
             "text": "Prefer remux for Dune.",
@@ -59,7 +53,6 @@ def test_memory_search_returns_tool_response_hits(tmp_path: Path):
     [
         {},
         {"query": ""},
-        {"query": "Dune", "kind": "unknown"},
         {"query": "Dune", "limit": 0},
         {"query": "Dune", "extra": True},
         None,
@@ -67,7 +60,6 @@ def test_memory_search_returns_tool_response_hits(tmp_path: Path):
 )
 def test_memory_search_rejects_invalid_parameters(parameters):
     response = MemorySearchTool().run(parameters)
-
     assert response.status.value == "error"
     assert response.error_info["code"] == "INVALID_PARAM"
 

@@ -12,15 +12,9 @@ from app.domain.memory import MemoryContextLine, MemoryDocument, MemoryHit, Memo
 DEFAULT_MARKDOWN_MEMORY_ROOT = Path(__file__).resolve().parents[2] / "memory" / "agent-memory"
 
 MEMORY_FILENAMES: dict[MemoryKind, str] = {
-    MemoryKind.INDEX: "memory.md",
     MemoryKind.USER_PROFILE: "user_profile.md",
     MemoryKind.KNOWLEDGE: "knowledge.md",
 }
-
-DEFAULT_SEARCH_KINDS: tuple[MemoryKind, ...] = (
-    MemoryKind.USER_PROFILE,
-    MemoryKind.KNOWLEDGE,
-)
 DEFAULT_MEMORY_SEARCH_LIMIT = 5
 MAX_MEMORY_SEARCH_LIMIT = 20
 DEFAULT_MEMORY_CONTEXT_LINES = 2
@@ -31,27 +25,6 @@ BODY_MATCH_SCORE = 1.0
 MEMORY_INBOX_FILENAME = "memory_inbox.md"
 
 _TEMPLATES: dict[MemoryKind, str] = {
-    MemoryKind.INDEX: (
-        "# NasClawBot Agent Memory\n"
-        "\n"
-        "This directory stores read-only long-term memory for the NasClawBot Agent.\n"
-        "\n"
-        "## Files\n"
-        "\n"
-        "- `user_profile.md`: stable user preferences and operating preferences."
-        " This file is compactly injected into the Agent system prompt.\n"
-        "- `knowledge.md`: dated domain knowledge, operational lessons, and factual information."
-        " Searched on demand via memory_search.\n"
-        "- `memory_inbox.md`: Agent-written memory suggestions awaiting manual curation.\n"
-        "\n"
-        "## Rules\n"
-        "\n"
-        "- Keep entries concise.\n"
-        "- Prefer dated bullets in `knowledge.md`.\n"
-        "- Do not store secrets, API keys, cookies, or tokenized download URLs.\n"
-        "- Executable app settings remain in `memory/settings/*.json`;"
-        " markdown memory is context, not source-of-truth configuration.\n"
-    ),
     MemoryKind.USER_PROFILE: (
         "# User Profile\n"
         "\n"
@@ -111,7 +84,6 @@ class MarkdownMemoryStore:
     def search(
         self,
         query: str,
-        kind: MemoryKind | None = None,
         limit: int | None = None,
     ) -> list[MemoryHit]:
         needle = str(query or "").strip().lower()
@@ -119,15 +91,11 @@ class MarkdownMemoryStore:
             return []
 
         normalized_limit = self._normalize_limit(limit)
-        hits: list[MemoryHit] = []
-        kinds = [kind] if kind is not None else list(DEFAULT_SEARCH_KINDS)
-        for current_kind in kinds:
-            document = self.load(current_kind)
-            hits.extend(self._search_document(document, needle))
+        document = self.load(MemoryKind.KNOWLEDGE)
+        hits = self._search_document(document, needle)
         hits.sort(
             key=lambda hit: (
                 -hit.score,
-                kinds.index(hit.kind),
                 hit.line_number,
             )
         )
