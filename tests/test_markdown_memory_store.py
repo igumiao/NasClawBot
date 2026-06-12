@@ -206,3 +206,56 @@ def test_ensure_template_files_idempotent(tmp_path: Path):
     mtime_after = (tmp_path / "knowledge.md").stat().st_mtime
 
     assert mtime_before == mtime_after
+
+
+# ---------------------------------------------------------------------------
+# get_sections
+# ---------------------------------------------------------------------------
+
+
+def test_get_sections_returns_headings(tmp_path: Path):
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n## TMDB\n- item\n\n## M-Team\n- item\n\n## Other\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    sections = store.get_sections(MemoryKind.KNOWLEDGE)
+    assert sections == ["TMDB", "M-Team", "Other"]
+
+
+def test_get_sections_missing_file_returns_empty(tmp_path: Path):
+    store = MarkdownMemoryStore(tmp_path)
+    assert store.get_sections(MemoryKind.KNOWLEDGE) == []
+
+
+# ---------------------------------------------------------------------------
+# append_to_section
+# ---------------------------------------------------------------------------
+
+
+def test_append_to_section_inserts_under_correct_heading(tmp_path: Path):
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n## TMDB\n- old entry\n\n## M-Team\n- another\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    store.append_to_section(MemoryKind.KNOWLEDGE, "TMDB", "new tip")
+    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
+    lines = content.splitlines()
+    tmdb_idx = next(i for i, l in enumerate(lines) if l.strip() == "## TMDB")
+    mteam_idx = next(i for i, l in enumerate(lines) if l.strip() == "## M-Team")
+    assert "- old entry" in lines  # old entry still there
+    assert "new tip" in content
+    new_tip_line_idx = next(i for i, l in enumerate(lines) if "new tip" in l)
+    assert new_tip_line_idx < mteam_idx
+    assert new_tip_line_idx > tmdb_idx
+    # new tip inserted after the old entry content, before next section heading
+    assert lines[new_tip_line_idx].startswith("- [20")
+
+
+def test_append_to_section_creates_section_if_missing(tmp_path: Path):
+    store = MarkdownMemoryStore(tmp_path)
+    store.append_to_section(MemoryKind.KNOWLEDGE, "NewSection", "first item")
+    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
+    assert "## NewSection" in content
+    assert "first item" in content

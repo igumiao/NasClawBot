@@ -101,6 +101,48 @@ class MarkdownMemoryStore:
         )
         return hits[:normalized_limit]
 
+    def get_sections(self, kind: MemoryKind) -> list[str]:
+        """Return all ## heading text from a memory file (excludes ### sub-headings)."""
+        path = self._path_for(kind)
+        if not path.exists():
+            return []
+        sections: list[str] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("## ") and not stripped.startswith("### "):
+                sections.append(stripped[3:].strip())
+        return sections
+
+    def append_to_section(self, kind: MemoryKind, section: str, text: str) -> None:
+        """Append a dated entry under a ## Section heading.  Creates section at end if absent."""
+        path = self._path_for(kind)
+        content = path.read_text(encoding="utf-8") if path.exists() else ""
+        lines = content.splitlines()
+
+        target_heading = f"## {section}"
+        insert_at = len(lines)
+        found = False
+        for i, line in enumerate(lines):
+            if line.strip() == target_heading:
+                insert_at = i + 1
+                while insert_at < len(lines) and not lines[insert_at].strip().startswith("## "):
+                    insert_at += 1
+                found = True
+                break
+
+        if not found:
+            if lines and lines[-1].strip():
+                lines.append("")
+            lines.append(target_heading)
+            insert_at = len(lines)
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        entry_line = f"- [{today}] {text}"
+        new_lines = lines[:insert_at] + [entry_line, ""] + lines[insert_at:]
+
+        with self._inbox_lock:
+            path.write_text("\n".join(new_lines).rstrip("\n") + "\n", encoding="utf-8")
+
     def format_user_profile_prompt(self) -> str:
         """Return compact prompt text for the user profile memory, or empty string."""
 
