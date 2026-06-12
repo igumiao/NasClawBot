@@ -163,6 +163,14 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
     assert checkpoint is not None
     assert checkpoint.session_id == "session-1"
     assert checkpoint.metadata["turn_count"] == 1
+    runtime_state = checkpoint.metadata["runtime_state"]
+    assert runtime_state["version"] == 1
+    assert runtime_state["turn_count"] == 1
+    assert runtime_state["current_query"] == {"text": "Dune"}
+    assert runtime_state["candidate_set"]["source"] == "mteam_search"
+    assert runtime_state["candidate_set"]["applied_query"] == {"keyword": "Dune"}
+    assert runtime_state["candidate_set"]["items"][0]["torrent_id"] == "123"
+    assert runtime_state["candidate_set"]["items"][0]["title"] == "Dune 2160p"
     assert [message["role"] for message in checkpoint.history] == [
         "user",
         "assistant",
@@ -179,6 +187,7 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
     assert second.checkpoint.metadata["tool_names"] == sorted([
         "current_time",
         "member_profile",
+        "memory_search",
         "mteam_search",
         "qb_add_torrent",
         "qb_add_torrents",
@@ -221,6 +230,38 @@ def test_nasclaw_agent_runner_injects_current_date_into_system_prompt(tmp_path, 
     assert system_message["role"] == "system"
     assert f"当前日期：{today}" in system_message["content"]
     assert "时区：UTC" in system_message["content"]
+
+
+def test_nasclaw_agent_runner_injects_user_profile_memory(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(agent_runner, "get_settings", lambda: UTCFakeSettings())
+    monkeypatch.setattr(agent_runner, "MTeamAdapter", FakeMTeamAdapter)
+    monkeypatch.setattr(agent_runner, "QBittorrentAdapter", FakeQBAdapter)
+    monkeypatch.setattr(agent_runner, "HelloAgentsLLM", FakeLLM)
+    memory_root = tmp_path / "agent-memory"
+    memory_root.mkdir()
+    (memory_root / "user_profile.md").write_text("- Prefers 1080p releases\n", encoding="utf-8")
+    FakeLLM.calls = []
+    FakeLLM.tool_choices = []
+    FakeLLM.invoke_calls = []
+    FakeLLM.responses = [
+        LLMToolResponse(
+            content="ok",
+            tool_calls=[],
+            model="fake-model",
+        ),
+    ]
+
+    runner = NasClawAgentRunner(
+        checkpoint_store=JSONConversationCheckpointStore(tmp_path / "sessions"),
+        memory_root=memory_root,
+    )
+    result = runner.run("session-memory-prompt", "记住我的偏好了吗？")
+
+    assert result.answer == "ok"
+    system_message = FakeLLM.calls[0][0]
+    assert system_message["role"] == "system"
+    assert "长期用户画像" in system_message["content"]
+    assert "Prefers 1080p releases" in system_message["content"]
 
 
 def test_nasclaw_agent_runner_persists_preflight_compression_archives(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -326,6 +367,11 @@ def test_nasclaw_agent_runner_persists_pending_approvals(tmp_path, monkeypatch: 
     assert checkpoint.metadata["last_status"] == "awaiting_approval"
     assert checkpoint.metadata["pending_approvals"] == result.pending_approvals
     assert checkpoint.metadata["paused_loop"]["approval_id"] == result.pending_approvals[0]["approval_id"]
+    assert checkpoint.metadata["runtime_state"]["pending_action"] == {
+        "approval_id": result.pending_approvals[0]["approval_id"],
+        "tool_name": "mteam_search",
+        "arguments": {"keyword": "Dune"},
+    }
     assert [message["role"] for message in checkpoint.history] == ["user", "assistant"]
     assert result.checkpoint.metadata["pending_approvals"] is not result.pending_approvals
 
@@ -374,6 +420,11 @@ def test_nasclaw_agent_runner_gates_download_tool_by_default(tmp_path, monkeypat
     checkpoint = store.load("session-download")
     assert checkpoint is not None
     assert checkpoint.metadata["paused_loop"]["pending_tool_call"]["id"] == "call-download"
+    assert checkpoint.metadata["runtime_state"]["pending_action"] == {
+        "approval_id": result.pending_approvals[0]["approval_id"],
+        "tool_name": "qb_add_torrent",
+        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+    }
     assert [message["role"] for message in checkpoint.history] == ["user", "assistant"]
 
 
@@ -463,6 +514,9 @@ def test_nasclaw_agent_runner_approve_resumes_provider_tool_call_loop(tmp_path, 
     assert checkpoint.metadata["pending_approvals"] == []
     assert "paused_loop" not in checkpoint.metadata
     assert checkpoint.metadata["approvals"][0]["status"] == "approved"
+    assert "pending_action" not in checkpoint.metadata["runtime_state"]
+    assert checkpoint.metadata["runtime_state"]["last_decision"]["type"] == "approval_approved"
+    assert checkpoint.metadata["runtime_state"]["last_decision"]["approval_id"] == pending.pending_approvals[0]["approval_id"]
     assert [message["role"] for message in checkpoint.history] == ["user", "assistant", "tool", "assistant"]
 
 
@@ -516,6 +570,11 @@ def test_nasclaw_agent_runner_approve_can_pause_for_next_gated_tool(tmp_path, mo
     assert checkpoint.metadata["pending_approvals"][0]["tool_name"] == "qb_control_torrent"
     assert checkpoint.metadata["paused_loop"]["pending_tool_call"]["id"] == "call-resume"
     assert checkpoint.metadata["approvals"][0]["tool_name"] == "qb_add_torrent"
+    assert checkpoint.metadata["runtime_state"]["pending_action"] == {
+        "approval_id": result.pending_approvals[0]["approval_id"],
+        "tool_name": "qb_control_torrent",
+        "arguments": {"torrent_hash": "fake-hash", "action": "resume"},
+    }
 
 
 def test_nasclaw_agent_runner_approve_rejects_mismatched_paused_loop_without_qb_execution(

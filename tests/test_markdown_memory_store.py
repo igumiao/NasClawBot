@@ -1,0 +1,143 @@
+"""Tests for the read-only markdown memory store."""
+
+from pathlib import Path
+
+import pytest
+
+from app.domain.memory import MemoryKind
+from app.services.markdown_memory_store import MarkdownMemoryStore
+
+
+def test_missing_memory_files_are_empty_documents(tmp_path: Path):
+    store = MarkdownMemoryStore(tmp_path)
+
+    document = store.load(MemoryKind.FACTS)
+
+    assert document.kind == MemoryKind.FACTS
+    assert document.text == ""
+    assert store.search("anything") == []
+    assert store.format_user_profile_prompt() == ""
+
+
+def test_search_finds_case_insensitive_lines_with_sections(tmp_path: Path):
+    (tmp_path / "facts.md").write_text(
+        "# Movies\n"
+        "Dune has a 2021 adaptation.\n"
+        "\n"
+        "## Cast\n"
+        "Zendaya appears in DUNE.\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+
+    hits = store.search("dune", kind=MemoryKind.FACTS, limit=10)
+
+    assert [hit.line_number for hit in hits] == [2, 5]
+    assert [hit.section for hit in hits] == ["Movies", "Cast"]
+    assert hits[0].text == "Dune has a 2021 adaptation."
+
+
+def test_search_honors_kind_and_limit(tmp_path: Path):
+    (tmp_path / "memory.md").write_text("alpha\nalpha again\n", encoding="utf-8")
+    (tmp_path / "facts.md").write_text("alpha fact\n", encoding="utf-8")
+    (tmp_path / "experiences.md").write_text("alpha experience\n", encoding="utf-8")
+    store = MarkdownMemoryStore(tmp_path)
+
+    all_hits = store.search("alpha", limit=2)
+    index_hits = store.search("alpha", kind=MemoryKind.INDEX, limit=5)
+    fact_hits = store.search("alpha", kind=MemoryKind.FACTS, limit=5)
+
+    assert [hit.kind for hit in all_hits] == [MemoryKind.FACTS, MemoryKind.EXPERIENCES]
+    assert [hit.kind for hit in index_hits] == [MemoryKind.INDEX, MemoryKind.INDEX]
+    assert [hit.kind for hit in fact_hits] == [MemoryKind.FACTS]
+
+
+def test_search_ranks_heading_matches_before_body_matches(tmp_path: Path):
+    (tmp_path / "experiences.md").write_text(
+        "# Search Notes\n"
+        "TMDB is useful for title disambiguation.\n"
+        "\n"
+        "## TMDB\n"
+        "- Chinese titles can map to multiple years.\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+
+    hits = store.search("tmdb", kind=MemoryKind.EXPERIENCES, limit=5)
+
+    assert [hit.match_type for hit in hits] == ["heading", "body"]
+    assert hits[0].score > hits[1].score
+    assert hits[0].line_number == 4
+
+
+def test_search_returns_context_lines(tmp_path: Path):
+    (tmp_path / "facts.md").write_text(
+        "# Facts\n"
+        "line before\n"
+        "target alpha\n"
+        "line after\n"
+        "second after\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+
+    hits = store.search("alpha", kind=MemoryKind.FACTS, limit=1)
+
+    assert hits[0].context is not None
+    assert [(line.line_number, line.text) for line in hits[0].context] == [
+        (1, "# Facts"),
+        (2, "line before"),
+        (3, "target alpha"),
+        (4, "line after"),
+        (5, "second after"),
+    ]
+
+
+def test_search_rejects_invalid_limit(tmp_path: Path):
+    store = MarkdownMemoryStore(tmp_path)
+
+    with pytest.raises(ValueError, match="limit must be >= 1"):
+        store.search("alpha", limit=0)
+
+    with pytest.raises(ValueError, match="limit must be an integer"):
+        store.search("alpha", limit="many")
+
+
+def test_format_user_profile_prompt_compacts_blank_lines(tmp_path: Path):
+    (tmp_path / "user_profile.md").write_text(
+        "\n# User\n\nPrefers concise answers.\n\nAvoids real downloads.\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+
+    assert store.format_user_profile_prompt() == (
+        "User profile memory:\n"
+        "# User\n"
+        "Prefers concise answers.\n"
+        "Avoids real downloads."
+    )
+
+
+def test_format_user_profile_prompt_ignores_heading_only_template(tmp_path: Path):
+    (tmp_path / "user_profile.md").write_text(
+        "# User Profile\n\n"
+        "## Media Preferences\n\n"
+        "## Download Preferences\n\n"
+        "## Operating Preferences\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+
+    assert store.format_user_profile_prompt() == ""
+
+
+def test_store_never_reads_symlinked_file_outside_root(tmp_path: Path):
+    outside = tmp_path / "outside.md"
+    outside.write_text("secret alpha\n", encoding="utf-8")
+    root = tmp_path / "memory"
+    root.mkdir()
+    (root / "facts.md").symlink_to(outside)
+    store = MarkdownMemoryStore(root)
+
+    with pytest.raises(ValueError, match="outside configured root"):
+        store.load(MemoryKind.FACTS)
