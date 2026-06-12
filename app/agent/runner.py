@@ -64,6 +64,10 @@ from app.agent.approvals import (
     mark_expired,
     mark_failed,
 )
+from app.agent.runtime_state import (
+    update_runtime_state_after_approval,
+    update_runtime_state_after_turn,
+)
 from app.config import get_settings
 from app.domain.authorization import (
     DownloadAuthorizationPolicy,
@@ -75,9 +79,11 @@ from app.domain.authorization import (
 from app.domain.models import ResourceCandidate
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
 from app.services.download_defaults_store import DownloadDefaultsStore
+from app.services.markdown_memory_store import MarkdownMemoryStore
 from app.tools import (
     CurrentTimeTool,
     MemberProfileTool,
+    MemorySearchTool,
     MTeamSearchTool,
     QBAddTorrentTool,
     QBAddTorrentsTool,
@@ -105,6 +111,7 @@ from hello_agents.tools.response import ToolResponse
 _SESSION_LOCKS: dict[str, RLock] = {}
 _SESSION_LOCKS_GUARD = Lock()
 _SETTINGS_DIR = Path(__file__).resolve().parents[2] / "memory" / "settings"
+_MEMORY_DIR = Path(__file__).resolve().parents[2] / "memory" / "agent-memory"
 
 
 def _session_lock(session_id: str) -> RLock:
@@ -141,7 +148,7 @@ AGENT_SESSION_PROMPT = f"""你是 NasClawBot 的媒体搜索和下载助手。
 """
 
 
-def _agent_session_prompt(settings: Any) -> str:
+def _agent_session_prompt(settings: Any, profile_memory: str = "") -> str:
     """Build the Agent system prompt with a fresh server date anchor."""
     try:
         tz = ZoneInfo(settings.app_timezone)
@@ -154,7 +161,10 @@ def _agent_session_prompt(settings: Any) -> str:
         f"当前日期：{today}，时区：{timezone_name}。"
         "判断已上映、未上映、最新、最近时，以工具结果中的日期和当前日期为准。"
     )
-    return f"{AGENT_SESSION_PROMPT}\n{date_line}"
+    prompt = f"{AGENT_SESSION_PROMPT}\n{date_line}"
+    if profile_memory.strip():
+        prompt = f"{prompt}\n\n长期用户画像：\n{profile_memory.strip()}"
+    return prompt
 
 
 @dataclass
@@ -203,6 +213,7 @@ class NasClawAgentRunner:
         tool_filter: Filter | None = None,
         tool_gate: Gate | None = None,
         approval_summary_enabled: bool = True,
+        memory_root: Path | None = None,
     ):
         self.checkpoint_store = checkpoint_store
         self.llm_factory = llm_factory or HelloAgentsLLM
@@ -212,6 +223,7 @@ class NasClawAgentRunner:
         self.agent_config_overrides = agent_config_overrides or {}
         self.tool_filter = tool_filter or Filter(allow=[
             "current_time",
+            "memory_search",
             "mteam_search",
             "member_profile",
             "qb_add_torrent",
@@ -236,6 +248,7 @@ class NasClawAgentRunner:
             lambda call: call.tool_name == "qb_set_torrent_speed",
         ])
         self.approval_summary_enabled = approval_summary_enabled
+        self.memory_root = memory_root or _MEMORY_DIR
 
     @_serialize_session
     def run(self, session_id: str, message: str) -> AgentRunResult:
@@ -264,6 +277,7 @@ class NasClawAgentRunner:
         saved_checkpoint = self._checkpoint_from_agent(
             session_id=session_id,
             agent=agent,
+            user_message=message,
             prior_checkpoint=checkpoint,
             pending_approvals=pending_approvals,
         )
@@ -315,7 +329,9 @@ class NasClawAgentRunner:
         )
         qb_adapter = self._get_qb_adapter()
         registry = ToolRegistry()
+        memory_store = MarkdownMemoryStore(self.memory_root)
         registry.register_tool(CurrentTimeTool(timezone_name=settings.app_timezone))
+        registry.register_tool(MemorySearchTool(memory_store))
         registry.register_tool(MTeamSearchTool(mteam_adapter))
         registry.register_tool(MemberProfileTool(mteam_adapter))
 
@@ -357,7 +373,7 @@ class NasClawAgentRunner:
             name="nasclawbot-agent",
             llm=llm,
             tool_registry=registry,
-            system_prompt=_agent_session_prompt(settings),
+            system_prompt=_agent_session_prompt(settings, memory_store.format_user_profile_prompt()),
             config=Config(**config_values),
             max_steps=self.max_steps,
             tool_filter=self.tool_filter,
@@ -766,11 +782,12 @@ class NasClawAgentRunner:
         checkpoint.history.append(Message(assistant_message, "assistant").to_dict())
         checkpoint.saved_at = now
         checkpoint.metadata["last_status"] = last_status
-        checkpoint.metadata["pending_approvals"] = [
+        remaining_approvals = [
             item
             for item in checkpoint.metadata.get("pending_approvals", [])
             if item.get("approval_id") != approval.approval_id
         ]
+        checkpoint.metadata["pending_approvals"] = remaining_approvals
         paused_loop = checkpoint.metadata.get("paused_loop")
         if isinstance(paused_loop, dict) and paused_loop.get("approval_id") == approval.approval_id:
             checkpoint.metadata.pop("paused_loop", None)
@@ -778,6 +795,13 @@ class NasClawAgentRunner:
         approvals.append(approval.to_dict())
         checkpoint.metadata["approvals"] = approvals
         checkpoint.metadata["turn_count"] = sum(1 for message in checkpoint.history if message.get("role") == "user")
+        checkpoint.metadata["runtime_state"] = update_runtime_state_after_approval(
+            checkpoint.metadata.get("runtime_state"),
+            approval=approval,
+            last_status=last_status,
+            pending_approvals=remaining_approvals,
+            turn_count=checkpoint.metadata["turn_count"],
+        )
         return checkpoint
 
     def _checkpoint_from_resumed_agent(
@@ -807,6 +831,13 @@ class NasClawAgentRunner:
         checkpoint.metadata["approvals"] = approvals
         checkpoint.metadata["turn_count"] = sum(1 for message in checkpoint.history if message.get("role") == "user")
         checkpoint.metadata["archive_count"] = len(checkpoint.archives)
+        checkpoint.metadata["runtime_state"] = update_runtime_state_after_approval(
+            checkpoint.metadata.get("runtime_state"),
+            approval=approval,
+            last_status=checkpoint.metadata["last_status"],
+            pending_approvals=pending_approvals,
+            turn_count=checkpoint.metadata["turn_count"],
+        )
         return checkpoint
 
     @staticmethod
@@ -923,6 +954,7 @@ class NasClawAgentRunner:
     def _checkpoint_from_agent(
         session_id: str,
         agent: ToolCallingAgent,
+        user_message: str,
         prior_checkpoint: ConversationCheckpoint | None,
         pending_approvals: list[dict[str, Any]],
     ) -> ConversationCheckpoint:
@@ -945,6 +977,13 @@ class NasClawAgentRunner:
             metadata["paused_loop"] = deepcopy(agent.last_result.paused_loop)
         else:
             metadata.pop("paused_loop", None)
+        metadata["runtime_state"] = update_runtime_state_after_turn(
+            metadata.get("runtime_state"),
+            user_message=user_message,
+            loop_result=agent.last_result,
+            pending_approvals=deepcopy(pending_approvals),
+            turn_count=metadata["turn_count"],
+        )
         return ConversationCheckpoint(
             session_id=session_id,
             created_at=prior_checkpoint.created_at if prior_checkpoint else now,
