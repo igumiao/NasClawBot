@@ -116,6 +116,30 @@ class MarkdownMemoryStore:
         compact = "\n".join(lines)
         return f"User profile memory:\n{compact}"
 
+    def parse_inbox(self) -> list[dict[str, object]]:
+        """Parse memory_inbox.md into indexed entries.  Returns empty list when file is absent."""
+        inbox_path = self._resolved_root / MEMORY_INBOX_FILENAME
+        if not inbox_path.exists():
+            return []
+        text = inbox_path.read_text(encoding="utf-8")
+        entries: list[dict[str, object]] = []
+        blocks = text.split("\n---\n")
+        for i, block in enumerate(blocks):
+            block = block.strip()
+            if not block:
+                continue
+            lines = block.split("\n")
+            heading = lines[0].lstrip("#").strip()
+            parts = heading.split(" | ")
+            timestamp = parts[0].strip() if parts else ""
+            # Skip heading line and the blank line after it
+            body_start = 2
+            body_lines = [l for l in lines[body_start:] if l.strip()]
+            entry_text = "\n".join(body_lines)
+            if entry_text:
+                entries.append({"index": i, "timestamp": timestamp, "text": entry_text})
+        return entries
+
     def append_to_inbox(self, text: str) -> str:
         """Append a dated entry to the memory inbox file.  Returns the entry text."""
 

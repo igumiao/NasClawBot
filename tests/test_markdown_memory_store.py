@@ -7,6 +7,49 @@ import pytest
 from app.domain.memory import MemoryKind
 from app.services.markdown_memory_store import MarkdownMemoryStore
 
+# ---------------------------------------------------------------------------
+# parse_inbox
+# ---------------------------------------------------------------------------
+
+
+def test_parse_inbox_returns_entries(tmp_path: Path):
+    (tmp_path / "memory_inbox.md").write_text(
+        "## 2026-06-12 10:17 | 知识\n"
+        "\n"
+        "用户偏好：华语片用中文名搜索。\n"
+        "\n"
+        "---\n"
+        "## 2026-06-12 10:18 | 知识\n"
+        "\n"
+        "用户喜欢动漫。\n"
+        "\n"
+        "---\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    entries = store.parse_inbox()
+    assert len(entries) == 2
+    assert entries[0]["index"] == 0
+    assert entries[0]["timestamp"] == "2026-06-12 10:17"
+    assert entries[0]["text"] == "用户偏好：华语片用中文名搜索。"
+    assert entries[1]["index"] == 1
+    assert entries[1]["text"] == "用户喜欢动漫。"
+
+
+def test_parse_inbox_missing_file_returns_empty(tmp_path: Path):
+    store = MarkdownMemoryStore(tmp_path)
+    assert store.parse_inbox() == []
+
+
+def test_parse_inbox_handles_trailing_separator(tmp_path: Path):
+    (tmp_path / "memory_inbox.md").write_text(
+        "## 2026-06-12 10:17 | 知识\n\nsingle entry\n\n---\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    entries = store.parse_inbox()
+    assert len(entries) == 1
+
 
 def test_missing_memory_files_are_empty_documents(tmp_path: Path):
     store = MarkdownMemoryStore(tmp_path)
