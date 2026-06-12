@@ -3,8 +3,9 @@ import type { WorkspaceTab } from "../../state/uiState";
 const tabs: Array<{ id: WorkspaceTab; label: string }> = [
   { id: "chat", label: "Chat" },
   { id: "downloads", label: "Downloads" },
-  { id: "settings", label: "状态" },
-  { id: "free-torrents", label: "刷流" }
+  { id: "memory", label: "记忆" },
+  { id: "free-torrents", label: "刷流" },
+  { id: "settings", label: "状态" }
 ];
 
 export function getWorkspaceTabId(tab: WorkspaceTab) {

@@ -88,3 +88,73 @@ export const chatApi = {
     return postJson<DownloadResponse>("/download", body, signal);
   }
 };
+
+// ── Memory Curator API ────────────────────────────────────────
+
+export interface MemoryInboxEntry {
+  index: number;
+  timestamp: string;
+  text: string;
+}
+
+export interface MemoryInboxResponse {
+  entries: MemoryInboxEntry[];
+  entry_count: number;
+}
+
+export interface CurationSuggestion {
+  inbox_index: number;
+  preview: string;
+  action: "keep" | "discard";
+  destination: "user_profile" | "knowledge" | null;
+  section: string | null;
+  edited_text: string | null;
+}
+
+export interface CurationResponse {
+  suggestions: CurationSuggestion[];
+  inbox_entry_count: number;
+  sections: {
+    user_profile: string[];
+    knowledge: string[];
+  };
+}
+
+export interface CuratorApplyDecision {
+  inbox_index: number;
+  action: "keep" | "discard";
+  destination?: "user_profile" | "knowledge";
+  section?: string;
+  text?: string;
+}
+
+export interface CuratorApplyResponse {
+  applied: number;
+  discarded: number;
+  remaining: number;
+}
+
+export async function fetchInbox(): Promise<MemoryInboxResponse> {
+  const res = await fetch("/memory/inbox");
+  if (!res.ok) throw new Error("Failed to fetch inbox");
+  return res.json();
+}
+
+export async function fetchCuration(): Promise<CurationResponse> {
+  const res = await fetch("/memory/curate", { method: "POST" });
+  if (!res.ok) throw new Error("Failed to run curation");
+  return res.json();
+}
+
+export async function applyCuration(
+  inboxEntryCount: number,
+  decisions: CuratorApplyDecision[]
+): Promise<CuratorApplyResponse> {
+  const res = await fetch("/memory/curate/apply", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inbox_entry_count: inboxEntryCount, decisions }),
+  });
+  if (!res.ok) throw new Error("Failed to apply curation");
+  return res.json();
+}
