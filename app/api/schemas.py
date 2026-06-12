@@ -185,3 +185,53 @@ class HealthServicesResponse(BaseModel):
 
 class DownloadAuthorizationPolicyResponse(DownloadAuthorizationPolicy):
     """Settings response for download authorization policy."""
+
+
+class MemoryInboxEntry(BaseModel):
+    index: int
+    timestamp: str
+    text: str
+
+
+class MemoryInboxResponse(BaseModel):
+    entries: list[MemoryInboxEntry] = Field(default_factory=list)
+    entry_count: int
+
+
+class CurationSuggestion(BaseModel):
+    inbox_index: int
+    preview: str
+    action: Literal["keep", "discard"]
+    destination: Literal["user_profile", "knowledge"] | None = None
+    section: str | None = None
+    edited_text: str | None = None
+
+
+class CurationSections(BaseModel):
+    user_profile: list[str] = Field(default_factory=list)
+    knowledge: list[str] = Field(default_factory=list)
+
+
+class CurationResponse(BaseModel):
+    suggestions: list[CurationSuggestion] = Field(default_factory=list)
+    inbox_entry_count: int
+    sections: CurationSections = Field(default_factory=CurationSections)
+
+
+class CuratorApplyDecision(BaseModel):
+    inbox_index: int
+    action: Literal["keep", "discard"]
+    destination: Literal["user_profile", "knowledge"] | None = None
+    section: str | None = None
+    text: str | None = None
+
+
+class CuratorApplyRequest(BaseModel):
+    inbox_entry_count: int
+    decisions: list[CuratorApplyDecision] = Field(default_factory=list)
+
+
+class CuratorApplyResponse(BaseModel):
+    applied: int
+    discarded: int
+    remaining: int
