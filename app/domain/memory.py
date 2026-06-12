@@ -11,8 +11,7 @@ class MemoryKind(str, Enum):
 
     INDEX = "index"
     USER_PROFILE = "user_profile"
-    FACTS = "facts"
-    EXPERIENCES = "experiences"
+    KNOWLEDGE = "knowledge"
 
     @classmethod
     def parse(cls, value: object) -> "MemoryKind":

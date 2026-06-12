@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 
 from app.domain.memory import MemoryContextLine, MemoryDocument, MemoryHit, MemoryKind
 
@@ -12,14 +14,12 @@ DEFAULT_MARKDOWN_MEMORY_ROOT = Path(__file__).resolve().parents[2] / "memory" / 
 MEMORY_FILENAMES: dict[MemoryKind, str] = {
     MemoryKind.INDEX: "memory.md",
     MemoryKind.USER_PROFILE: "user_profile.md",
-    MemoryKind.FACTS: "facts.md",
-    MemoryKind.EXPERIENCES: "experiences.md",
+    MemoryKind.KNOWLEDGE: "knowledge.md",
 }
 
 DEFAULT_SEARCH_KINDS: tuple[MemoryKind, ...] = (
     MemoryKind.USER_PROFILE,
-    MemoryKind.FACTS,
-    MemoryKind.EXPERIENCES,
+    MemoryKind.KNOWLEDGE,
 )
 DEFAULT_MEMORY_SEARCH_LIMIT = 5
 MAX_MEMORY_SEARCH_LIMIT = 20
@@ -28,12 +28,74 @@ HEADING_MATCH_SCORE = 2.0
 BODY_MATCH_SCORE = 1.0
 
 
+MEMORY_INBOX_FILENAME = "memory_inbox.md"
+
+_TEMPLATES: dict[MemoryKind, str] = {
+    MemoryKind.INDEX: (
+        "# NasClawBot Agent Memory\n"
+        "\n"
+        "This directory stores read-only long-term memory for the NasClawBot Agent.\n"
+        "\n"
+        "## Files\n"
+        "\n"
+        "- `user_profile.md`: stable user preferences and operating preferences."
+        " This file is compactly injected into the Agent system prompt.\n"
+        "- `knowledge.md`: dated domain knowledge, operational lessons, and factual information."
+        " Searched on demand via memory_search.\n"
+        "- `memory_inbox.md`: Agent-written memory suggestions awaiting manual curation.\n"
+        "\n"
+        "## Rules\n"
+        "\n"
+        "- Keep entries concise.\n"
+        "- Prefer dated bullets in `knowledge.md`.\n"
+        "- Do not store secrets, API keys, cookies, or tokenized download URLs.\n"
+        "- Executable app settings remain in `memory/settings/*.json`;"
+        " markdown memory is context, not source-of-truth configuration.\n"
+    ),
+    MemoryKind.USER_PROFILE: (
+        "# User Profile\n"
+        "\n"
+        "## Communication Style\n"
+        "\n"
+        "## Tool Preferences\n"
+        "\n"
+        "## Project Conventions\n"
+        "\n"
+        "## Personal Info\n"
+        "\n"
+        "## Prohibitions\n"
+    ),
+    MemoryKind.KNOWLEDGE: (
+        "# Knowledge\n"
+        "\n"
+        "## TMDB\n"
+        "\n"
+        "<!-- Example:\n"
+        "- [2026-06-12] Chinese titles can map to multiple countries or years;"
+        " disambiguate with TMDB before searching torrents.\n"
+        "-->\n"
+        "\n"
+        "## M-Team\n"
+        "\n"
+        "<!-- Example:\n"
+        "- [2026-06-12] User prefers 4K REMUX for movies, 1080p for TV series."
+        " Learned from multiple download choices.\n"
+        "-->\n"
+        "\n"
+        "## qBittorrent\n"
+        "\n"
+        "## Other\n"
+    ),
+}
+
+
 class MarkdownMemoryStore:
     """Load and search the fixed app markdown memory files."""
 
     def __init__(self, root: Path = DEFAULT_MARKDOWN_MEMORY_ROOT) -> None:
         self.root = Path(root)
         self._resolved_root = self.root.resolve()
+        self._inbox_lock = Lock()
 
     def load(self, kind: MemoryKind) -> MemoryDocument:
         path = self._path_for(kind)
@@ -85,6 +147,40 @@ class MarkdownMemoryStore:
             return ""
         compact = "\n".join(lines)
         return f"User profile memory:\n{compact}"
+
+    def append_to_inbox(self, text: str) -> str:
+        """Append a dated entry to the memory inbox file.  Returns the entry text."""
+
+        now = datetime.now(timezone.utc)
+        entry = (
+            f"## {now.strftime('%Y-%m-%d %H:%M')} | 知识\n"
+            f"\n"
+            f"{text.strip()}\n"
+            f"\n"
+            f"---\n"
+        )
+        inbox_path = self._resolved_root / MEMORY_INBOX_FILENAME
+        with self._inbox_lock:
+            inbox_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(inbox_path, "a", encoding="utf-8") as fh:
+                fh.write(entry)
+        return entry
+
+    def ensure_template_files(self) -> None:
+        """Create the memory directory and write default templates for any missing files.
+
+        Idempotent: existing files are never overwritten.
+        """
+
+        with self._inbox_lock:
+            self._resolved_root.mkdir(parents=True, exist_ok=True)
+            for kind, filename in MEMORY_FILENAMES.items():
+                path = self._resolved_root / filename
+                if path.exists():
+                    continue
+                template = _TEMPLATES.get(kind)
+                if template is not None:
+                    path.write_text(template, encoding="utf-8")
 
     def _path_for(self, kind: MemoryKind) -> Path:
         filename = MEMORY_FILENAMES[kind]

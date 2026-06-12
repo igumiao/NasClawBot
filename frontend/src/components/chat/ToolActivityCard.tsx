@@ -39,9 +39,11 @@ export function ToolActivityCard({ toolCall }: ToolActivityCardProps) {
   const toolName = toolCall.tool ?? toolCall.tool_name ?? "unknown_tool";
   const status = toolCall.status ?? toolCall.gate_result ?? "unknown";
   const entries = argumentEntries(toolCall.arguments);
+  const isMemoryCard = toolName === "remember_this";
+  const cardClass = `chat-card tool-activity-card${isMemoryCard ? " memory-activity-card" : ""}`;
 
   return (
-    <section className="chat-card tool-activity-card" aria-labelledby={titleId}>
+    <section className={cardClass} aria-labelledby={titleId}>
       <header className="chat-card-header">
         <div>
           <p className="chat-card-eyebrow">工具调用</p>

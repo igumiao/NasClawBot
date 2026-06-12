@@ -188,6 +188,7 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
         "current_time",
         "member_profile",
         "memory_search",
+        "remember_this",
         "mteam_search",
         "qb_add_torrent",
         "qb_add_torrents",
