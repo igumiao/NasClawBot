@@ -19,7 +19,7 @@ env/
 *.db-journal
 *.sqlite
 *.sqlite3
-memory/
+/memory/
 tool-output/
 
 # Environment and editor files
