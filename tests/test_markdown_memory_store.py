@@ -11,10 +11,8 @@ from app.services.markdown_memory_store import MarkdownMemoryStore
 def test_missing_memory_files_are_empty_documents(tmp_path: Path):
     store = MarkdownMemoryStore(tmp_path)
 
-    document = store.load(MemoryKind.KNOWLEDGE)
-
-    assert document.kind == MemoryKind.KNOWLEDGE
-    assert document.text == ""
+    assert store.load(MemoryKind.KNOWLEDGE).kind == MemoryKind.KNOWLEDGE
+    assert store.load(MemoryKind.KNOWLEDGE).text == ""
     assert store.search("anything") == []
     assert store.format_user_profile_prompt() == ""
 
@@ -30,25 +28,24 @@ def test_search_finds_case_insensitive_lines_with_sections(tmp_path: Path):
     )
     store = MarkdownMemoryStore(tmp_path)
 
-    hits = store.search("dune", kind=MemoryKind.KNOWLEDGE, limit=10)
+    hits = store.search("dune", limit=10)
 
     assert [hit.line_number for hit in hits] == [2, 5]
     assert [hit.section for hit in hits] == ["Movies", "Cast"]
     assert hits[0].text == "Dune has a 2021 adaptation."
 
 
-def test_search_honors_kind_and_limit(tmp_path: Path):
-    (tmp_path / "memory.md").write_text("alpha index\n", encoding="utf-8")
-    (tmp_path / "knowledge.md").write_text("alpha knowledge\n", encoding="utf-8")
+def test_search_respects_limit(tmp_path: Path):
+    (tmp_path / "knowledge.md").write_text(
+        "alpha one\nalpha two\nalpha three\n",
+        encoding="utf-8",
+    )
     store = MarkdownMemoryStore(tmp_path)
 
-    all_hits = store.search("alpha", limit=2)
-    index_hits = store.search("alpha", kind=MemoryKind.INDEX, limit=5)
-    knowledge_hits = store.search("alpha", kind=MemoryKind.KNOWLEDGE, limit=5)
-
-    assert [hit.kind for hit in all_hits] == [MemoryKind.KNOWLEDGE]
-    assert [hit.kind for hit in index_hits] == [MemoryKind.INDEX]
-    assert [hit.kind for hit in knowledge_hits] == [MemoryKind.KNOWLEDGE]
+    hits = store.search("alpha", limit=2)
+    assert len(hits) == 2
+    assert hits[0].text == "alpha one"
+    assert hits[1].text == "alpha two"
 
 
 def test_search_ranks_heading_matches_before_body_matches(tmp_path: Path):
@@ -62,7 +59,7 @@ def test_search_ranks_heading_matches_before_body_matches(tmp_path: Path):
     )
     store = MarkdownMemoryStore(tmp_path)
 
-    hits = store.search("tmdb", kind=MemoryKind.KNOWLEDGE, limit=5)
+    hits = store.search("tmdb", limit=5)
 
     assert [hit.match_type for hit in hits] == ["heading", "body"]
     assert hits[0].score > hits[1].score
@@ -80,7 +77,7 @@ def test_search_returns_context_lines(tmp_path: Path):
     )
     store = MarkdownMemoryStore(tmp_path)
 
-    hits = store.search("alpha", kind=MemoryKind.KNOWLEDGE, limit=1)
+    hits = store.search("alpha", limit=1)
 
     assert hits[0].context is not None
     assert [(line.line_number, line.text) for line in hits[0].context] == [
@@ -120,9 +117,8 @@ def test_format_user_profile_prompt_compacts_blank_lines(tmp_path: Path):
 def test_format_user_profile_prompt_ignores_heading_only_template(tmp_path: Path):
     (tmp_path / "user_profile.md").write_text(
         "# User Profile\n\n"
-        "## Media Preferences\n\n"
-        "## Download Preferences\n\n"
-        "## Operating Preferences\n",
+        "## Communication Style\n\n"
+        "## Tool Preferences\n\n",
         encoding="utf-8",
     )
     store = MarkdownMemoryStore(tmp_path)
@@ -146,9 +142,9 @@ def test_ensure_template_files_creates_missing_files(tmp_path: Path):
     store = MarkdownMemoryStore(tmp_path)
     store.ensure_template_files()
 
-    assert (tmp_path / "memory.md").read_text(encoding="utf-8").startswith("# NasClawBot Agent Memory")
     assert (tmp_path / "user_profile.md").read_text(encoding="utf-8").startswith("# User Profile")
     assert (tmp_path / "knowledge.md").read_text(encoding="utf-8").startswith("# Knowledge")
+    assert not (tmp_path / "memory.md").exists()
 
 
 def test_ensure_template_files_never_overwrites_existing_files(tmp_path: Path):

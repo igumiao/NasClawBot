@@ -9,7 +9,6 @@ from enum import Enum
 class MemoryKind(str, Enum):
     """Supported read-only markdown memory documents."""
 
-    INDEX = "index"
     USER_PROFILE = "user_profile"
     KNOWLEDGE = "knowledge"
 
