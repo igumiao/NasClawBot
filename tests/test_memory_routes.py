@@ -191,3 +191,100 @@ def test_full_curation_flow(monkeypatch, tmp_path: Path):
     assert "恐怖片" in user_profile
     knowledge = (memory_dir / "knowledge.md").read_text(encoding="utf-8")
     assert "IMDb" in knowledge
+
+
+def test_apply_modify_replaces_line(monkeypatch, tmp_path: Path):
+    memory_dir = _setup_memory_files(tmp_path)
+    (memory_dir / "knowledge.md").write_text(
+        "# Knowledge\n\n## TMDB\n- old tip\n\n## M-Team\n- another\n\n## Other\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.api.memory_routes._MEMORY_DIR", memory_dir)
+    client = TestClient(app)
+
+    response = client.patch("/memory/curate/apply", json={
+        "inbox_entry_count": 0,
+        "decisions": [
+            {"action": "modify", "destination": "knowledge", "existing_text": "- old tip", "new_text": "- updated tip"},
+        ],
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["modified"] == 1
+
+    knowledge = (memory_dir / "knowledge.md").read_text(encoding="utf-8")
+    assert "- updated tip" in knowledge
+    assert "- old tip" not in knowledge
+
+
+def test_apply_delete_removes_line(monkeypatch, tmp_path: Path):
+    memory_dir = _setup_memory_files(tmp_path)
+    (memory_dir / "knowledge.md").write_text(
+        "# Knowledge\n\n## TMDB\n- stale entry\n\n## M-Team\n- keep this\n\n## Other\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.api.memory_routes._MEMORY_DIR", memory_dir)
+    client = TestClient(app)
+
+    response = client.patch("/memory/curate/apply", json={
+        "inbox_entry_count": 0,
+        "decisions": [
+            {"action": "delete", "destination": "knowledge", "existing_text": "- stale entry"},
+        ],
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["deleted"] == 1
+
+    knowledge = (memory_dir / "knowledge.md").read_text(encoding="utf-8")
+    assert "- stale entry" not in knowledge
+    assert "- keep this" in knowledge
+
+
+def test_apply_rejects_unmatched_existing_text(monkeypatch, tmp_path: Path):
+    memory_dir = _setup_memory_files(tmp_path)
+    monkeypatch.setattr("app.api.memory_routes._MEMORY_DIR", memory_dir)
+    client = TestClient(app)
+
+    response = client.patch("/memory/curate/apply", json={
+        "inbox_entry_count": 0,
+        "decisions": [
+            {"action": "modify", "destination": "knowledge", "existing_text": "- not in file", "new_text": "- will fail"},
+        ],
+    })
+    assert response.status_code == 400
+    assert "无法定位原文片段" in response.json()["detail"]
+
+
+def test_apply_mix_keep_modify_delete(monkeypatch, tmp_path: Path):
+    memory_dir = _setup_memory_files(
+        tmp_path,
+        "## 2026-06-12 10:17 | 知识\n\n新知识点。\n\n---\n",
+    )
+    (memory_dir / "knowledge.md").write_text(
+        "# Knowledge\n\n## TMDB\n- stale line\n\n## M-Team\n- keep this\n\n## Other\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.api.memory_routes._MEMORY_DIR", memory_dir)
+    client = TestClient(app)
+
+    response = client.patch("/memory/curate/apply", json={
+        "inbox_entry_count": 1,
+        "decisions": [
+            {"action": "keep", "inbox_index": 0, "destination": "knowledge", "section": "TMDB", "text": "新知识点。"},
+            {"action": "modify", "destination": "knowledge", "existing_text": "- stale line", "new_text": "- fresh line"},
+            {"action": "delete", "destination": "knowledge", "existing_text": "- keep this"},
+        ],
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["applied"] == 1
+    assert data["modified"] == 1
+    assert data["deleted"] == 1
+    assert data["remaining"] == 0
+
+    knowledge = (memory_dir / "knowledge.md").read_text(encoding="utf-8")
+    assert "新知识点" in knowledge
+    assert "- fresh line" in knowledge
+    assert "- keep this" not in knowledge
+    assert "- stale line" not in knowledge
