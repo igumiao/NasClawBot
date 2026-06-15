@@ -7,8 +7,7 @@ This file provides guidance to Claude Code when working in this repository.
 NasClawBot is a single-user NAS/PT media assistant. The active implementation is intentionally simple:
 
 ```text
-/chat     -> readonly M-Team search -> search results
-/chat/agent -> experimental NasClawAgentRunner + ToolCallingAgent + gated download approvals + JSON checkpoints
+/chat/agent -> NasClawAgentRunner + ToolCallingAgent + gated download approvals + JSON checkpoints
 /download -> explicit user action -> qB add paused
 /qb/*     -> qB task management
 /mteam/free-topped -> topped free torrent browser for ratio boosting
@@ -26,8 +25,7 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - There is no `HelloAgentWorkflowRunner`.
 - There is no `SequentialWorkflow`.
 - There is no active workflow runtime.
-- `/chat` still calls `MTeamSearchTool` directly and does not use LLM/session history.
-- `/chat/agent` is the experimental Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with 16 tools: `current_time`, `mteam_search`, `tavily_search`, 4 TMDB tools (`tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`), `member_profile`, and 8 qB tools (`qb_add_torrent`, `qb_add_torrents`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`). Read-only tools execute immediately; action tools (`qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_*_speed`) require user approval unless covered by an active session download authorization grant. Supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
+- `/chat/agent` is the active Agent route. It delegates to `NasClawAgentRunner`, currently uses `ToolCallingAgent` with 16 tools: `current_time`, `mteam_search`, `tavily_search`, 4 TMDB tools (`tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`), `member_profile`, and 8 qB tools (`qb_add_torrent`, `qb_add_torrents`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`). Read-only tools execute immediately; action tools (`qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_*_speed`) require user approval unless covered by an active session download authorization grant. Supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
 - `GET /chat/agent/sessions` lists persisted Agent checkpoint summaries without calling an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}` returns one persisted Agent checkpoint with renderable message history, also without calling an LLM or tools.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` approves a pending Agent tool call (`qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_global_speed`, or `qb_set_torrent_speed`). Optional body `{"decision":"approve_once"}` or `{"decision":"approve_and_grant_session"}` controls whether an eligible download-add approval also creates a session grant. For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, and resumes the normal tool loop with `tool_choice="auto"`. If the resumed model asks for another gated action, the response includes a new `pending_approvals` entry and the checkpoint stores a fresh `paused_loop`. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
@@ -35,7 +33,7 @@ The project is building a minimal context-aware Agent loop from this baseline. D
 - `PATCH /chat/agent/sessions/{session_id}`: updates a session checkpoint. Currently supports `title` in `metadata.title` for session renaming.
 - `DELETE /chat/agent/sessions/{session_id}`: deletes a persisted session checkpoint (HTTP 204 on success).
 - `GET /settings/download-authorization` and `PUT /settings/download-authorization` read and write the Settings-backed download authorization policy used by the "本会话内允许" approval action.
-- The browser Chat tab now uses `/chat/agent` as its active experience path. It renders Agent tool-call summaries, search candidates, and gated download approval cards; `/download` remains available as the stable explicit API but is not called by the Chat result button.
+- The Chat tab uses `/chat/agent` as its active experience path. It renders Agent tool-call summaries, search candidates, and gated download approval cards. `/download` remains available as the stable explicit API for direct download actions.
 - `hello_agents/checkpoints/` defines the thin `ConversationCheckpointStore` boundary and the current JSON implementation.
 - Tool wrappers live in `app/tools/` (per-tool modules, re-exported via `__init__.py`).
 - M-Team and qB integration lives behind adapters in `app/adapters/`.
@@ -72,7 +70,6 @@ There is no formal Python formatter configured yet.
 
 `app/api/chat_routes.py` owns the current interaction surface:
 
-- `POST /chat`: trims the user message, calls `MTeamSearchTool`, returns `ChatResponse.results`.
 - `POST /chat/agent`: validates the request, delegates to `NasClawAgentRunner`, and returns a normal `ChatResponse`.
 - `GET /chat/agent/sessions`: lists persisted Agent conversation summaries.
 - `GET /chat/agent/sessions/{session_id}`: loads one persisted Agent conversation checkpoint.
@@ -204,7 +201,7 @@ POST /chat/agent
   -> save JSON checkpoint
 ```
 
-`/chat` remains the stable no-LLM route. Do not replace it until the Agent path is proven.
+`/chat/agent` is the sole chat interaction path.
 
 ## Safety Rules
 
@@ -217,7 +214,7 @@ POST /chat/agent
 
 ## Next Direction
 
-Continue evolving the gated Agent loop while keeping `/chat` stable.
+Continue evolving the gated Agent loop.
 
 - Keep `qb_add_torrent` and `qb_add_torrents` behind approval gating unless covered by an active session download authorization grant.
 - Keep `/download` as the stable explicit user action.

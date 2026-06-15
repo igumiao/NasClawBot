@@ -1015,8 +1015,9 @@ class NasClawAgentRunner:
     def _agent_tool_calls(agent: ToolCallingAgent) -> list[dict[str, Any]]:
         if not agent.last_result:
             return []
-        return [
-            {
+        entries: list[dict[str, Any]] = []
+        for observation in agent.last_result.tool_observations:
+            entry: dict[str, Any] = {
                 "tool": observation.tool_name,
                 "tool_call_id": observation.tool_call_id,
                 "arguments": observation.arguments,
@@ -1028,8 +1029,12 @@ class NasClawAgentRunner:
                 "gate_reason": observation.gate_reason,
                 "approval_id": observation.approval_id,
             }
-            for observation in agent.last_result.tool_observations
-        ]
+            if observation.tool_name == "mteam_search":
+                candidates = observation.response.data.get("candidates", [])
+                if candidates:
+                    entry["results"] = candidates
+            entries.append(entry)
+        return entries
 
     def _agent_pending_approvals(self, agent: ToolCallingAgent, session_id: str) -> list[dict[str, Any]]:
         if not agent.last_result:
