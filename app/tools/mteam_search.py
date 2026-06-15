@@ -11,6 +11,33 @@ from hello_agents.tools.response import ToolResponse
 from app.adapters.mteam import MTeamAdapter
 from app.domain.models import ResourceCandidate
 
+# ── Chinese subtitle detection patterns ──────────────────────────────
+# Each tuple: (flag_name, regex). All patterns matched case-insensitively
+# against smallDescr + name. Flags are independent and can coexist.
+_SUBTITLE_PATTERNS: list[tuple[str, str]] = [
+    # ── 中字: Chinese subtitles present ──
+    ("中字", r"中字|中文字幕|含中字|带中字|有中字"),
+    ("中字", r"简中|繁中|简繁|简体|繁体"),
+    ("中字", r"内嵌中[文字]|内封中[文字]|原盘中[文字]|封装中[文字]|自带中[文字]"),
+    ("中字", r"官[方翻]中[文字幕]|港版中[文字幕]|台版中[文字幕]|国[粤日英]语?中字"),
+    ("中字", r"中英(字幕|双语|双[字幕]|对照|特效)"),
+    ("中字", r"双语(字幕|特效|双[字幕]|对照)"),
+    ("中字", r"简[英繁]双语|繁[英简]双语|英简繁|英繁简"),
+    ("中字", r"[Cc][Hh][Ii].*[Ss][Uu][Bb]|[Cc][Hh][Ss]|[Cc][Hh][Tt]"),
+    ("中字", r"SUP(字幕|中字|简[繁中])|PGS(字幕|中字|简[繁中])"),
+    # ── 中英: bilingual Chinese + English subtitles ──
+    ("中英", r"中英(字幕|双语|双[字幕]|对照|特效)"),
+    ("中英", r"双语(字幕|特效|双[字幕]|对照)"),
+    ("中英", r"简[英繁]双语|繁[英简]双语"),
+    ("中英", r"简英|繁英|英简|英繁\b"),
+    ("中英", r"中英文"),
+    ("中英", r"CH[SIT]\s*[+&/]\s*ENG?|ENG?\s*[+&/]\s*CH[SIT]"),
+    # ── 特效: special-effect subtitles ──
+    ("特效", r"特效(字幕|图形)?|[Kk]ara[Oo][Kk][Ee]\s*(字幕|特效)"),
+    ("特效", r"动态字幕|图形字幕|动画字幕"),
+    ("特效", r"特效SUP|SUP特效|特效PGS|PGS特效"),
+]
+
 
 class MTeamSearchTool(Tool):
     """Search M-Team and return a compact list of structured candidates."""
@@ -113,6 +140,8 @@ class MTeamSearchTool(Tool):
             raw = row.get("raw", {})
             standard = str(raw.get("standard", "")).strip() if isinstance(raw, dict) else None
             resolution_source = row.get("small_description") or row.get("name") or title
+            small_description = str(row.get("small_description")).strip() if row.get("small_description") else None
+            name = str(row.get("name") or "").strip()
             candidates.append(
                 ResourceCandidate(
                     id=str(row.get("id")),
@@ -127,6 +156,8 @@ class MTeamSearchTool(Tool):
                     size=str(row.get("size", "unknown")),
                     size_bytes=int(row["size_bytes"]) if row.get("size_bytes") is not None else None,
                     source="mteam",
+                    small_description=small_description,
+                    subtitle_flags=self._detect_subtitle_flags(name=name, small_description=small_description or ""),
                 )
             )
         return ToolResponse.success(
@@ -184,3 +215,23 @@ class MTeamSearchTool(Tool):
         if "720p" in lowered_text:
             return "720p"
         return None
+
+    @classmethod
+    def _detect_subtitle_flags(cls, *, name: str, small_description: str) -> list[str]:
+        """Detect subtitle flags from M-Team name + smallDescr text.
+
+        Returns an ordered list of matching flags (中字 / 中英 / 特效),
+        preserving detector order and deduplicating.
+        """
+        source_text = f"{name}  {small_description}"
+        if not source_text.strip():
+            return []
+        seen: set[str] = set()
+        flags: list[str] = []
+        for flag_name, pattern in _SUBTITLE_PATTERNS:
+            if flag_name in seen:
+                continue
+            if re.search(pattern, source_text, re.IGNORECASE):
+                flags.append(flag_name)
+                seen.add(flag_name)
+        return flags

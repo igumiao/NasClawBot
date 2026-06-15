@@ -12,6 +12,8 @@ export type ResourceCandidate = {
   size: string;
   size_bytes: number | null;
   source: string;
+  small_description: string | null;
+  subtitle_flags: string[];
 };
 
 export type AgentToolCall = {
@@ -25,6 +27,7 @@ export type AgentToolCall = {
   gate_result: "allow" | "deny" | "ask_user" | null;
   gate_reason: string | null;
   approval_id: string | null;
+  results?: ResourceCandidate[];
 };
 
 export type ApprovalRisk = {

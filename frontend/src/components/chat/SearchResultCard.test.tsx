@@ -16,7 +16,9 @@ const result = {
   douban: "35575567",
   size: "42 GB",
   size_bytes: 42_000_000_000,
-  source: "mteam"
+  source: "mteam",
+  small_description: "中英双语特效字幕",
+  subtitle_flags: ["中字", "中英", "特效"],
 };
 
 describe("SearchResultCard", () => {
@@ -26,6 +28,9 @@ describe("SearchResultCard", () => {
 
     render(<SearchResultCard results={[result]} isSubmitting={false} onDownload={onDownload} />);
 
+    // Card is collapsed by default — expand first.
+    await user.click(screen.getByRole("button", { name: "展开 ▼" }));
+
     expect(screen.getByText("2160p")).toBeInTheDocument();
     expect(screen.getByText("42 GB")).toBeInTheDocument();
     expect(screen.getByText("88 seeders")).toBeInTheDocument();
@@ -34,14 +39,21 @@ describe("SearchResultCard", () => {
     expect(screen.getByText("IMDb tt15239678")).toBeInTheDocument();
     expect(screen.getByText("豆瓣 35575567")).toBeInTheDocument();
     expect(screen.getByText("Torrent ID 123")).toBeInTheDocument();
+    expect(screen.getByText("中字")).toBeInTheDocument();
+    expect(screen.getByText("中英")).toBeInTheDocument();
+    expect(screen.getByText("特效")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "请求下载" }));
 
     expect(onDownload).toHaveBeenCalledWith("123");
   });
 
-  it("disables download requests while another request is submitting", () => {
+  it("disables download requests while another request is submitting", async () => {
+    const user = userEvent.setup();
     render(<SearchResultCard results={[result]} isSubmitting onDownload={vi.fn()} />);
+
+    // Card is collapsed by default — expand first.
+    await user.click(screen.getByRole("button", { name: "展开 ▼" }));
 
     expect(screen.getByRole("button", { name: "请求中" })).toBeDisabled();
   });

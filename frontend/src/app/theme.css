@@ -661,6 +661,32 @@ textarea {
   line-height: 1.45;
 }
 
+.toggle-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.toggle-button:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.chat-card[data-expanded="false"] {
+  padding-bottom: 12px;
+}
+
 .status-pill,
 .candidate-badge {
   display: inline-flex;
@@ -675,6 +701,37 @@ textarea {
   font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
+}
+
+.subtitle-flag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.subtitle-flag--中字 {
+  background: rgba(45, 138, 210, 0.1);
+  border: 1px solid rgba(45, 138, 210, 0.28);
+  color: #2d8ad2;
+}
+
+.subtitle-flag--中英 {
+  background: rgba(138, 79, 210, 0.1);
+  border: 1px solid rgba(138, 79, 210, 0.28);
+  color: #8a4fd2;
+}
+
+.subtitle-flag--特效 {
+  background: rgba(210, 150, 45, 0.1);
+  border: 1px solid rgba(210, 150, 45, 0.28);
+  color: #c98a20;
 }
 
 .status-pill[data-status="expired"],
