@@ -45,17 +45,19 @@ def _build_curator_llm():
 
 
 def _build_prompt(entries: list[dict], user_profile: str, knowledge: str, sections: dict) -> str:
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     entries_text = "\n\n---\n\n".join(
         f"[索引 {e['index']}] {e['timestamp']}\n{e['text']}" for e in entries
     )
     user_sections = "\n".join(f"- {s}" for s in sections.get("user_profile", []))
     knowledge_sections = "\n".join(f"- {s}" for s in sections.get("knowledge", []))
 
-    return f"""你是 NasClawBot 的记忆整理助手。分析以下收件箱条目，判断每条应该保留还是丢弃。
+    return f"""当前日期：{now}（UTC）。用这个日期判断信息是否过时。
 
-## 收件箱条目
-
-{entries_text}
+你是 NasClawBot 的记忆整理助手。分析收件箱条目和已有记忆，判断每条应该保留、丢弃、修改还是删除。
 
 ## 现有用户画像 (user_profile.md)
 
@@ -64,6 +66,10 @@ def _build_prompt(entries: list[dict], user_profile: str, knowledge: str, sectio
 ## 现有知识库 (knowledge.md)
 
 {knowledge if knowledge.strip() else "（空）"}
+
+## 收件箱条目
+
+{entries_text if entries_text.strip() else "（空）"}
 
 ## 可用的章节
 
@@ -75,11 +81,23 @@ knowledge 可用章节：
 
 ## 判定规则
 
-- **user_profile** 适合：个人偏好、沟通风格、身份、操作习惯、禁止事项。这类信息影响 Agent 的行为方式。
-- **knowledge** 适合：领域技巧、操作经验、事实性环境信息。这类信息在特定场景下按需搜索。
+### inbox 条目（keep / discard）
+- **user_profile** 适合：个人偏好、沟通风格、身份、操作习惯、禁止事项。
+- **knowledge** 适合：领域技巧、操作经验、事实性环境信息。
 - 如果条目和已有内容高度重复，标记为 discard。
-- 如果条目没有长期保留价值（如单次搜索结果），标记为 discard。
-- 润色文本：修正错别字、精简表达、补充必要上下文，但保持原意不变。
+- 如果条目没有长期保留价值，标记为 discard。
+- 润色文本：修正错别字、精简表达、补充必要上下文，保持原意不变。
+
+### 已有条目（modify / delete）
+- **矛盾检测**：如果 inbox 新条目和已有条目矛盾，标记 modify 旧条目（用新信息替代旧信息）。如果已有条目之间互相矛盾，modify 过时的、保留最新的。
+- **过时检测**：如果已有条目明显过时或无效（结合日期判断），标记 delete。
+- **重复检测**：如果 inbox 条目和已有条目高度重复，discard inbox 条目即可（不需要 modify 已有条目）。
+
+### modify / delete 输出要求
+- `existing_text`：文件中的**精确原文**，一字不差。后端用它定位要修改/删除的行。
+- `new_text`（modify）：替换后的完整行内容，保持 markdown 格式。
+- `reason`：简要说明为什么要修改或删除这条信息。
+- 不要凭空创造 modify/delete——只有当已有内容确实需要变更时才输出。
 
 ## 输出要求
 
@@ -88,12 +106,15 @@ knowledge 可用章节：
 {{"suggestions": [...], "inbox_entry_count": {len(entries)}}}
 
 每条 suggestion：
-- inbox_index: 整数
-- preview: 原文前30字
-- action: "keep" 或 "discard"
+- inbox_index: 整数（modify/delete 时为 null）
+- preview: 原文前30字（modify/delete 时为空字符串）
+- action: "keep" / "discard" / "modify" / "delete"
 - destination: "user_profile" 或 "knowledge"（discard 时为 null）
 - section: 章节名（discard 时为 null）
-- edited_text: 润色后文本（discard 时为 null）"""
+- edited_text: 润色后文本（discard/modify/delete 时为 null）
+- existing_text: 文件中的精确原文（仅 modify/delete 需要，必须一字不差）
+- new_text: 替换后的行内容（仅 modify 需要）
+- reason: 修改/删除的原因（仅 modify/delete 需要）"""
 
 
 def run_curation(store: MarkdownMemoryStore) -> CuratorResult:
