@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -120,7 +121,8 @@ class MarkdownMemoryStore:
 
         target_heading = f"## {section.strip()}"
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        entry_line = f"- [{today}] {text}"
+        clean_text = _strip_date_prefix(text)
+        entry_line = f"- [{today}] {clean_text}"
 
         with self._inbox_lock:
             path = self._path_for(kind)
@@ -364,3 +366,11 @@ def _context_lines(lines: list[str], line_number: int) -> list[MemoryContextLine
             continue
         context.append(MemoryContextLine(line_number=current_line_number, text=text))
     return context
+
+
+_DATE_PREFIX_RE = re.compile(r"^- \[\d{4}-\d{2}-\d{2}\] ")
+
+
+def _strip_date_prefix(text: str) -> str:
+    """Strip a leading '- [YYYY-MM-DD] ' prefix so append_to_section can add its own."""
+    return _DATE_PREFIX_RE.sub("", text, count=1)
