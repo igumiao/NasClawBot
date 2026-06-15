@@ -15,7 +15,9 @@ const searchResult = {
   resolution: "2160p",
   size: "60 GB",
   size_bytes: null,
-  source: "mteam"
+  source: "mteam",
+  small_description: null,
+  subtitle_flags: [],
 };
 
 const pendingApproval: PendingApproval = {
@@ -55,7 +57,8 @@ function agentResponse(overrides: Partial<ChatResponse> = {}): ChatResponse {
       observation_stats: {},
       gate_result: "allow",
       gate_reason: null,
-      approval_id: null
+      approval_id: null,
+      results: [searchResult],
     }],
     pending_approvals: [],
     error: null,

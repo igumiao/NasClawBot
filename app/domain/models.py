@@ -27,3 +27,5 @@ class ResourceCandidate(BaseModel):
     size: str
     size_bytes: int | None = None
     source: str
+    small_description: str | None = None
+    subtitle_flags: list[str] = []
