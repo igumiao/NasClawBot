@@ -10,7 +10,7 @@ vi.mock("../../api/chatApi", () => ({
 
 describe("MemoryPanel", () => {
   it("shows empty state when inbox is empty", async () => {
-    render(<MemoryPanel />);
+    render(<MemoryPanel visible={true} />);
     expect(await screen.findByText(/暂无待整理记忆/)).toBeTruthy();
   });
 });
