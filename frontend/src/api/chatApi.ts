@@ -103,12 +103,15 @@ export interface MemoryInboxResponse {
 }
 
 export interface CurationSuggestion {
-  inbox_index: number;
+  inbox_index: number | null;
   preview: string;
-  action: "keep" | "discard";
+  action: "keep" | "discard" | "modify" | "delete";
   destination: "user_profile" | "knowledge" | null;
   section: string | null;
   edited_text: string | null;
+  existing_text: string | null;
+  new_text: string | null;
+  reason: string | null;
 }
 
 export interface CurationResponse {
@@ -121,16 +124,20 @@ export interface CurationResponse {
 }
 
 export interface CuratorApplyDecision {
-  inbox_index: number;
-  action: "keep" | "discard";
+  action: "keep" | "discard" | "modify" | "delete";
+  inbox_index?: number | null;
   destination?: "user_profile" | "knowledge";
   section?: string;
   text?: string;
+  existing_text?: string;
+  new_text?: string;
 }
 
 export interface CuratorApplyResponse {
   applied: number;
   discarded: number;
+  modified: number;
+  deleted: number;
   remaining: number;
 }
 
