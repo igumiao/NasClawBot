@@ -119,11 +119,19 @@ All new methods live under `_inbox_lock` for thread safety.
 ### Time awareness
 
 The curator call is a one-shot LLM invocation — it has no access to the `current_time`
-tool.  `_build_prompt()` must inject a date line at the top of the prompt:
+tool.  `_build_prompt()` must compute the current UTC date at call time
+(`datetime.now(timezone.utc)`) and inject it as the first line of the prompt,
+exactly like how the Agent system prompt gets a dynamic date line from `APP_TIMEZONE`:
 
-```text
-当前日期：2026-06-15（UTC）。用这个日期判断信息是否过时。
+```python
+from datetime import datetime, timezone
+
+now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+prompt = f"当前日期：{now}（UTC）。用这个日期判断信息是否过时。\n\n" + rest
 ```
+
+This is NOT a hardcoded literal — the date is computed fresh each time
+`_build_prompt()` is called.
 
 ### Additional inputs
 
