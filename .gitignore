@@ -53,3 +53,4 @@ report
 
 .claude/settings.local.json
 ref/user-experience.md
+node_modules/
