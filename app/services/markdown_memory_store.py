@@ -150,8 +150,30 @@ class MarkdownMemoryStore:
         """Return the resolved path for a memory kind file."""
         return self._path_for(kind)
 
+    def find_line_index(self, lines: list[str], needle: str) -> int | None:
+        """Return the index of the first line matching `needle`, or None.
+
+        Two-pass matching so the LLM doesn't have to copy whitespace perfectly:
+        1. Exact .strip() match (fast, precise).
+        2. Whitespace-stripped match — remove ALL whitespace from both sides and compare.
+        """
+        needle = needle.strip()
+        # Pass 1: exact strip match
+        for i, line in enumerate(lines):
+            if line.strip() == needle:
+                return i
+        # Pass 2: whitespace-stripped match (handles LLM dropping/adding spaces)
+        needle_no_ws = "".join(needle.split())
+        for i, line in enumerate(lines):
+            if "".join(line.strip().split()) == needle_no_ws:
+                return i
+        return None
+
     def replace_in_section(self, kind: MemoryKind, existing_text: str, new_text: str) -> bool:
-        """Replace the first line whose .strip() equals existing_text.strip() with new_text.
+        """Replace the first line matching `existing_text` with `new_text`.
+
+        Uses two-pass matching so minor whitespace differences from the LLM
+        (e.g. "我叫 IGUMIAO" vs "我叫IGUMIAO") still resolve correctly.
 
         Returns True if found and replaced, False otherwise.
         """
@@ -161,17 +183,17 @@ class MarkdownMemoryStore:
                 return False
             content = path.read_text(encoding="utf-8")
             lines = content.splitlines()
-            needle = existing_text.strip()
-            for i, line in enumerate(lines):
-                if line.strip() == needle:
-                    lines[i] = new_text
-                    path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
-                    return True
-            return False
+            idx = self.find_line_index(lines, existing_text)
+            if idx is None:
+                return False
+            lines[idx] = new_text
+            path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
+            return True
 
     def delete_from_section(self, kind: MemoryKind, existing_text: str) -> bool:
-        """Remove the first line whose .strip() equals existing_text.strip().
+        """Remove the first line matching `existing_text`.
 
+        Uses two-pass matching (same as replace_in_section).
         Also removes the following blank line if present. Returns True if found and removed.
         """
         with self._inbox_lock:
@@ -180,15 +202,33 @@ class MarkdownMemoryStore:
                 return False
             content = path.read_text(encoding="utf-8")
             lines = content.splitlines()
-            needle = existing_text.strip()
-            for i, line in enumerate(lines):
-                if line.strip() == needle:
-                    del lines[i]
-                    if i < len(lines) and lines[i].strip() == "":
-                        del lines[i]
-                    path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
-                    return True
-            return False
+            idx = self.find_line_index(lines, existing_text)
+            if idx is None:
+                return False
+            del lines[idx]
+            if idx < len(lines) and lines[idx].strip() == "":
+                del lines[idx]
+            path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
+            return True
+
+    @staticmethod
+    def _find_similar_lines(lines: list[str], needle: str, top_n: int = 3) -> list[str]:
+        """Return up to `top_n` lines whose whitespace-stripped content overlaps with the needle.
+
+        Used to provide helpful context in "cannot locate" error messages.
+        """
+        needle_chars = set("".join(needle.split()))
+        scored: list[tuple[int, str]] = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            line_chars = set("".join(stripped.split()))
+            overlap = len(needle_chars & line_chars)
+            if overlap > 0:
+                scored.append((overlap, stripped))
+        scored.sort(key=lambda x: -x[0])
+        return [line for _, line in scored[:top_n]]
 
     def format_user_profile_prompt(self) -> str:
         """Return compact prompt text for the user profile memory, or empty string."""
