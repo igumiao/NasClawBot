@@ -29,3 +29,4 @@ class ResourceCandidate(BaseModel):
     source: str
     small_description: str | None = None
     subtitle_flags: list[str] = []
+    labels_new: list[str] = []

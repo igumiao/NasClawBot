@@ -142,6 +142,9 @@ class MTeamSearchTool(Tool):
             resolution_source = row.get("small_description") or row.get("name") or title
             small_description = str(row.get("small_description")).strip() if row.get("small_description") else None
             name = str(row.get("name") or "").strip()
+            labels_new: list[str] = [
+                str(tag).strip() for tag in raw.get("labelsNew", [])
+            ] if isinstance(raw, dict) and isinstance(raw.get("labelsNew"), list) else []
             candidates.append(
                 ResourceCandidate(
                     id=str(row.get("id")),
@@ -157,7 +160,12 @@ class MTeamSearchTool(Tool):
                     size_bytes=int(row["size_bytes"]) if row.get("size_bytes") is not None else None,
                     source="mteam",
                     small_description=small_description,
-                    subtitle_flags=self._detect_subtitle_flags(name=name, small_description=small_description or ""),
+                    labels_new=labels_new,
+                    subtitle_flags=self._detect_subtitle_flags(
+                        name=name,
+                        small_description=small_description or "",
+                        labels_new=labels_new,
+                    ),
                 )
             )
         return ToolResponse.success(
@@ -217,21 +225,31 @@ class MTeamSearchTool(Tool):
         return None
 
     @classmethod
-    def _detect_subtitle_flags(cls, *, name: str, small_description: str) -> list[str]:
-        """Detect subtitle flags from M-Team name + smallDescr text.
+    def _detect_subtitle_flags(
+        cls, *, name: str, small_description: str, labels_new: list[str],
+    ) -> list[str]:
+        """Detect subtitle flags from M-Team metadata.
 
-        Returns an ordered list of matching flags (中字 / 中英 / 特效),
-        preserving detector order and deduplicating.
+        Priority: labelsNew (official uploader tags) → keyword match on
+        name + smallDescr (fallback for older torrents without labelsNew).
+        Returns an ordered deduplicated list of flags (中字 / 中英 / 特效).
         """
-        source_text = f"{name}  {small_description}"
-        if not source_text.strip():
-            return []
         seen: set[str] = set()
         flags: list[str] = []
-        for flag_name, pattern in _SUBTITLE_PATTERNS:
-            if flag_name in seen:
-                continue
-            if re.search(pattern, source_text, re.IGNORECASE):
-                flags.append(flag_name)
-                seen.add(flag_name)
+
+        # Tier 1: labelsNew — authoritative for 中字 on newer uploads.
+        if "中字" in labels_new:
+            flags.append("中字")
+            seen.add("中字")
+
+        # Tier 2: keyword matching on name + smallDescr as fallback.
+        source_text = f"{name}  {small_description}"
+        if source_text.strip():
+            for flag_name, pattern in _SUBTITLE_PATTERNS:
+                if flag_name in seen:
+                    continue
+                if re.search(pattern, source_text, re.IGNORECASE):
+                    flags.append(flag_name)
+                    seen.add(flag_name)
+
         return flags
