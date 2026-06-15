@@ -110,10 +110,9 @@ function appendChatResponse(messages: ChatMessage[], response: ChatResponse): Ch
 
   for (const toolCall of response.tool_calls) {
     next.push({ id: id("tool"), kind: "tool_activity", toolCall });
-  }
-
-  if (response.results.length > 0) {
-    next.push({ id: id("results"), kind: "search_results", results: response.results.slice(0, 5) });
+    if (Array.isArray(toolCall.results) && toolCall.results.length > 0) {
+      next.push({ id: id("results"), kind: "search_results", results: toolCall.results.slice(0, 5) });
+    }
   }
 
   for (const approval of response.pending_approvals) {

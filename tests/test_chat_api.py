@@ -126,19 +126,6 @@ def test_index_page_is_served():
     assert "<html" in response.lower() or "<!doctype html" in response.lower()
 
 
-def test_chat_endpoint_returns_search_results(monkeypatch: pytest.MonkeyPatch):
-    _patch_chat_adapters(monkeypatch)
-    endpoint = _route_for(create_app(), "/chat", "POST").endpoint
-
-    body = endpoint(ChatRequest(session_id="s1", message="Dune"))
-
-    assert body.status == "completed"
-    assert body.message == "找到 2 个搜索结果。"
-    assert body.results[0].id == "123"
-    assert body.results[0].title == "Dune 2160p"
-    assert body.tool_calls[0]["tool"] == "mteam_search"
-
-
 def test_download_authorization_settings_roundtrip(tmp_path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(chat_routes, "_SETTINGS_DIR", tmp_path)
     app = create_app()

@@ -148,7 +148,8 @@ describe("ChatPanel", () => {
           observation_stats: {},
           gate_result: "allow",
           gate_reason: null,
-          approval_id: null
+          approval_id: null,
+          results: [searchResult],
         }],
         pending_approvals: [],
         error: null
@@ -160,7 +161,10 @@ describe("ChatPanel", () => {
     await user.type(screen.getByRole("textbox", { name: "媒体需求" }), "找做种最多的 Dune 电影");
     await user.click(screen.getByRole("button", { name: "发送" }));
 
-    expect(await screen.findByText("Dune 4K")).toBeInTheDocument();
+    // Search card is collapsed by default — expand to inspect content.
+    await user.click(await screen.findByRole("button", { name: "展开 ▼" }));
+
+    expect(screen.getByText("Dune 4K")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "mteam_search" })).toBeInTheDocument();
     expect(screen.getByText("most_seeded")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "请求下载" })).toBeInTheDocument();
@@ -206,8 +210,20 @@ describe("ChatPanel", () => {
           session_id: "session-1",
           status: "completed",
           message: "找到结果。",
-          results: [searchResult],
-          tool_calls: [],
+          results: [],
+          tool_calls: [{
+            tool: "mteam_search",
+            tool_call_id: "call-search",
+            arguments: { keyword: "沙丘" },
+            status: "success",
+            stats: {},
+            truncated: false,
+            observation_stats: {},
+            gate_result: "allow",
+            gate_reason: null,
+            approval_id: null,
+            results: [searchResult],
+          }],
           pending_approvals: [],
           error: null
         }),
@@ -249,6 +265,9 @@ describe("ChatPanel", () => {
 
     await user.type(screen.getByRole("textbox", { name: "媒体需求" }), "我想看沙丘");
     await user.click(screen.getByRole("button", { name: "发送" }));
+
+    // Search card is collapsed by default — expand to access download button.
+    await user.click(await screen.findByRole("button", { name: "展开 ▼" }));
     await user.click(await screen.findByRole("button", { name: "请求下载" }));
 
     expect(await screen.findByRole("button", { name: "仅批准本次" })).toBeInTheDocument();

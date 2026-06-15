@@ -32,7 +32,7 @@ from app.domain.authorization import DownloadAuthorizationPolicy
 from app.domain.download_defaults import DownloadDefaults
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
 from app.services.download_defaults_store import DownloadDefaultsStore
-from app.tools import MTeamSearchTool, QBAddTorrentTool
+from app.tools import QBAddTorrentTool
 from hello_agents.checkpoints import JSONConversationCheckpointStore
 
 _FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
@@ -185,45 +185,6 @@ def build_router() -> APIRouter:
         """Persist the user-configured download defaults."""
 
         return _download_defaults_store().save(body)
-
-    @router.post("/chat", response_model=ChatResponse)
-    def chat(request: ChatRequest) -> ChatResponse:
-        """Run a minimal readonly search through the M-Team tool."""
-
-        query = request.message.strip()
-        if not query:
-            return ChatResponse(
-                session_id=request.session_id,
-                status="error",
-                message="请输入搜索关键词。",
-                error="message is required",
-            )
-
-        search_tool = MTeamSearchTool(_build_mteam_adapter())
-        response = search_tool.run_with_timing({"keyword": query})
-        tool_call = {
-            "tool": search_tool.name,
-            "status": response.status.value,
-            "stats": response.stats or {},
-        }
-
-        if response.status.value == "error":
-            return ChatResponse(
-                session_id=request.session_id,
-                status="error",
-                message=response.text,
-                tool_calls=[tool_call],
-                error=response.text,
-            )
-
-        results = response.data.get("candidates", [])
-        return ChatResponse(
-            session_id=request.session_id,
-            status="completed",
-            message=f"找到 {len(results)} 个搜索结果。",
-            results=results,
-            tool_calls=[tool_call],
-        )
 
     @router.post("/chat/agent", response_model=ChatResponse)
     def chat_agent(request: ChatRequest) -> ChatResponse:
