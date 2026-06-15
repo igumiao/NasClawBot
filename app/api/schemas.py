@@ -199,12 +199,15 @@ class MemoryInboxResponse(BaseModel):
 
 
 class CurationSuggestion(BaseModel):
-    inbox_index: int
-    preview: str
-    action: Literal["keep", "discard"]
+    inbox_index: int | None = None
+    preview: str = ""
+    action: Literal["keep", "discard", "modify", "delete"]
     destination: Literal["user_profile", "knowledge"] | None = None
     section: str | None = None
     edited_text: str | None = None
+    existing_text: str | None = None
+    new_text: str | None = None
+    reason: str | None = None
 
 
 class CurationSections(BaseModel):
@@ -219,11 +222,13 @@ class CurationResponse(BaseModel):
 
 
 class CuratorApplyDecision(BaseModel):
-    inbox_index: int
-    action: Literal["keep", "discard"]
+    action: Literal["keep", "discard", "modify", "delete"]
+    inbox_index: int | None = None
     destination: Literal["user_profile", "knowledge"] | None = None
     section: str | None = None
     text: str | None = None
+    existing_text: str | None = None
+    new_text: str | None = None
 
 
 class CuratorApplyRequest(BaseModel):
@@ -234,4 +239,6 @@ class CuratorApplyRequest(BaseModel):
 class CuratorApplyResponse(BaseModel):
     applied: int
     discarded: int
+    modified: int
+    deleted: int
     remaining: int
