@@ -82,3 +82,33 @@ def test_run_curation_with_mock_llm(tmp_path: Path):
     assert result.suggestions[0].action == "keep"
     assert result.suggestions[0].destination == "knowledge"
     assert result.suggestions[0].section == "M-Team"
+
+
+def test_curator_suggestion_modify_accepts_new_fields():
+    suggestion = CuratorSuggestion(
+        inbox_index=None,
+        preview="",
+        action="modify",
+        destination="user_profile",
+        section="Identity",
+        existing_text="我叫 IGUMIAO-NAS",
+        new_text="- [2026-06-15] 用户称呼为 Maifa",
+        reason="称呼已更新",
+    )
+    assert suggestion.action == "modify"
+    assert suggestion.inbox_index is None
+    assert suggestion.existing_text == "我叫 IGUMIAO-NAS"
+
+
+def test_curator_suggestion_delete_accepts_new_fields():
+    suggestion = CuratorSuggestion(
+        inbox_index=None,
+        preview="",
+        action="delete",
+        destination="knowledge",
+        section="Other",
+        existing_text="过时提示",
+        reason="信息不再适用",
+    )
+    assert suggestion.action == "delete"
+    assert suggestion.new_text is None

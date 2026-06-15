@@ -14,12 +14,19 @@ from hello_agents.core.llm import HelloAgentsLLM
 
 
 class CuratorSuggestion(BaseModel):
-    inbox_index: int
-    preview: str
-    action: Literal["keep", "discard"]
+    inbox_index: int | None = None   # null for modify / delete
+    preview: str = ""                # empty for modify/delete
+    action: Literal["keep", "discard", "modify", "delete"]
+
+    # keep-specific
     destination: Literal["user_profile", "knowledge"] | None = None
     section: str | None = None
     edited_text: str | None = None
+
+    # modify / delete-specific
+    existing_text: str | None = None  # exact original line from the file to match
+    new_text: str | None = None       # replacement line (modify only)
+    reason: str | None = None         # why this change is needed
 
 
 class CuratorResult(BaseModel):
