@@ -58,6 +58,9 @@ def build_memory_router() -> APIRouter:
                     "destination": s.destination,
                     "section": s.section,
                     "edited_text": s.edited_text,
+                    "existing_text": s.existing_text,
+                    "new_text": s.new_text,
+                    "reason": s.reason,
                 }
                 for s in result.suggestions
             ],
@@ -78,15 +81,38 @@ def build_memory_router() -> APIRouter:
                 detail=f"Inbox changed: expected {request.inbox_entry_count} entries, found {len(entries)}.",
             )
 
+        # Pre-validate all modify/delete decisions — check existing_text exists before applying anything
+        kind_map = {
+            "user_profile": MemoryKind.USER_PROFILE,
+            "knowledge": MemoryKind.KNOWLEDGE,
+        }
+        for decision in request.decisions:
+            if decision.action in ("modify", "delete"):
+                if not decision.destination or not decision.existing_text:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="modify/delete requires destination and existing_text.",
+                    )
+                kind = kind_map[decision.destination]
+                path = store.path_for(kind)
+                if not path.exists():
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"无法定位原文片段: {decision.existing_text}",
+                    )
+                content = path.read_text(encoding="utf-8")
+                needle = decision.existing_text.strip()
+                if not any(line.strip() == needle for line in content.splitlines()):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"无法定位原文片段: {decision.existing_text}",
+                    )
+
         applied = 0
         discarded = 0
         modified = 0
         deleted = 0
         processed: set[int] = set()
-        kind_map = {
-            "user_profile": MemoryKind.USER_PROFILE,
-            "knowledge": MemoryKind.KNOWLEDGE,
-        }
 
         for decision in request.decisions:
             processed.add(decision.inbox_index)
