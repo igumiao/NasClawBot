@@ -185,9 +185,7 @@ export function AppShell() {
           />
         </div>
         <div style={panelStyle(activeTab === "memory")}>
-          <section role="tabpanel" id="workspace-panel-memory" aria-labelledby="workspace-tab-memory">
-            <MemoryPanel />
-          </section>
+          <MemoryPanel />
         </div>
       </main>
     </div>
