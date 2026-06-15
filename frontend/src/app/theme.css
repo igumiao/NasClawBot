@@ -1724,17 +1724,24 @@ textarea {
   transition: border-color 0.2s;
 }
 
-.memory-card.pending {
-  border-left-color: var(--warning);
-}
-
-.memory-card.applied {
+.memory-card.keep {
   border-left-color: var(--success);
 }
 
-.memory-card.discarded {
+.memory-card.discard {
+  border-left-color: var(--warning);
+}
+
+.memory-card.modify {
+  border-left-color: #3b82f6;
+}
+
+.memory-card.delete {
   border-left-color: var(--danger);
-  opacity: 0.6;
+}
+
+.memory-card.skipped {
+  opacity: 0.45;
 }
 
 .memory-card-header {
@@ -1819,14 +1826,29 @@ textarea {
   border-radius: var(--radius);
 }
 
-.memory-status-badge.applied {
+.memory-status-badge.keep {
   color: var(--success);
   background: rgba(47, 122, 84, 0.08);
 }
 
-.memory-status-badge.discarded {
+.memory-status-badge.discard {
+  color: var(--warning);
+  background: rgba(198, 133, 54, 0.08);
+}
+
+.memory-status-badge.modify {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.memory-status-badge.delete {
   color: var(--danger);
   background: rgba(198, 95, 54, 0.08);
+}
+
+.memory-status-badge.skipped {
+  color: var(--muted);
+  background: var(--surface-soft);
 }
 
 .memory-panel-footer {
@@ -1860,14 +1882,6 @@ textarea {
 .memory-apply-all-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.memory-card.modify {
-  border-left-color: #3b82f6;
-}
-
-.memory-card.delete {
-  border-left-color: var(--danger);
 }
 
 .memory-card-existing {
@@ -1907,16 +1921,6 @@ textarea {
   color: var(--muted);
   margin-bottom: 0.5rem;
   font-style: italic;
-}
-
-.memory-status-badge.modify {
-  color: #3b82f6;
-  background: rgba(59, 130, 246, 0.08);
-}
-
-.memory-status-badge.delete {
-  color: var(--danger);
-  background: rgba(198, 95, 54, 0.08);
 }
 
 .memory-card-controls button.skip-btn {

@@ -8,7 +8,7 @@ import {
   type CuratorApplyDecision,
 } from "../../api/chatApi";
 
-type CardStatus = "pending" | "keep" | "discard" | "modify" | "delete";
+type CardStatus = "keep" | "discard" | "modify" | "delete" | "skipped";
 
 type CardState = {
   suggestion: CurationSuggestion;
@@ -63,7 +63,7 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
         const entry = s.inbox_index != null
           ? entries.find((e) => e.index === s.inbox_index) ?? null
           : null;
-        let status: CardStatus = "pending";
+        let status: CardStatus;
         let editedText = "";
         if (s.action === "modify") {
           status = "modify";
@@ -71,9 +71,13 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
         } else if (s.action === "delete") {
           status = "delete";
           editedText = "";
-        } else {
-          status = "pending";
+        } else if (s.action === "keep") {
+          status = "keep";
           editedText = s.edited_text ?? entry?.text ?? "";
+        } else {
+          // discard
+          status = "discard";
+          editedText = entry?.text ?? "";
         }
         cards.push({
           suggestion: s,
@@ -97,7 +101,7 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
   const applyDecisions = async () => {
     const decisions: CuratorApplyDecision[] = [];
     for (const card of cardStates) {
-      if (card.status === "pending") continue;
+      if (card.status === "skipped") continue;
       if (card.status === "keep") {
         decisions.push({
           action: "keep",
@@ -158,17 +162,21 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
     });
   };
 
-  const markKeep = (index: number) => updateCard(index, { status: "keep" });
-  const markDiscard = (index: number) => updateCard(index, { status: "discard" });
-  const markModify = (index: number) => updateCard(index, { status: "modify" });
-  const markDelete = (index: number) => updateCard(index, { status: "delete" });
+  const skipCard = (index: number) => updateCard(index, { status: "skipped" });
+  const unskipCard = (index: number) => {
+    // restore the original action
+    const original = cardStates[index].suggestion.action;
+    if (original === "keep" || original === "discard" || original === "modify" || original === "delete") {
+      updateCard(index, { status: original });
+    }
+  };
 
-  const pendingCount = cardStates.filter((c) => c.status === "pending").length;
   const keepCount = cardStates.filter((c) => c.status === "keep").length;
   const discardCount = cardStates.filter((c) => c.status === "discard").length;
   const modifyCount = cardStates.filter((c) => c.status === "modify").length;
   const deleteCount = cardStates.filter((c) => c.status === "delete").length;
-  const totalDecided = keepCount + discardCount + modifyCount + deleteCount;
+  const skippedCount = cardStates.filter((c) => c.status === "skipped").length;
+  const totalActive = keepCount + discardCount + modifyCount + deleteCount;
 
   return (
     <div className="memory-panel" id={panelId}>
@@ -203,7 +211,9 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
             const isInbox = card.suggestion.action === "keep" || card.suggestion.action === "discard";
             const isModify = card.suggestion.action === "modify";
             const isDelete = card.suggestion.action === "delete";
-            const isDecided = card.status !== "pending";
+            const isSkipped = card.status === "skipped";
+            const isActive = !isSkipped;
+            const hasReason = !!card.suggestion.reason;
 
             return (
               <div key={idx} className={`memory-card ${card.status}`}>
@@ -220,20 +230,28 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
                   )}
                 </header>
 
-                {card.suggestion.reason && (isModify || isDelete) && (
+                {/* Reason — show for all cards that have one */}
+                {hasReason && (
                   <p className="memory-card-reason">原因：{card.suggestion.reason}</p>
                 )}
 
-                {isInbox && (
+                {/* Keep card: editable textarea */}
+                {card.suggestion.action === "keep" && (
                   <textarea
                     className="memory-card-textarea"
                     value={card.editedText}
                     onChange={(e) => updateCard(idx, { editedText: e.target.value })}
-                    disabled={isDecided}
+                    disabled={isSkipped}
                     rows={4}
                   />
                 )}
 
+                {/* Discard card: read-only preview */}
+                {card.suggestion.action === "discard" && (
+                  <div className="memory-card-existing">{card.editedText}</div>
+                )}
+
+                {/* Modify card: strikethrough existing + editable new */}
                 {isModify && card.suggestion.existing_text && (
                   <>
                     <div className="memory-card-existing">{card.suggestion.existing_text}</div>
@@ -241,59 +259,66 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
                       className="memory-card-new-textarea"
                       value={card.editedText}
                       onChange={(e) => updateCard(idx, { editedText: e.target.value })}
-                      disabled={isDecided}
+                      disabled={isSkipped}
                       rows={3}
                     />
                   </>
                 )}
 
+                {/* Delete card: strikethrough existing */}
                 {isDelete && card.suggestion.existing_text && (
                   <div className="memory-card-existing">{card.suggestion.existing_text}</div>
                 )}
 
                 <div className="memory-card-controls">
+                  {/* Destination dropdown (not for delete) */}
                   {(isInbox || isModify) && (
                     <select
                       value={card.destination}
                       onChange={(e) =>
                         updateCard(idx, { destination: e.target.value as "user_profile" | "knowledge" })
                       }
-                      disabled={isDecided}
+                      disabled={isSkipped}
                     >
                       <option value="user_profile">user_profile</option>
                       <option value="knowledge">knowledge</option>
                     </select>
                   )}
 
+                  {/* Section dropdown (not for delete) */}
                   <select
                     value={card.section}
                     onChange={(e) => updateCard(idx, { section: e.target.value })}
-                    disabled={isDecided || isDelete}
+                    disabled={isSkipped || isDelete}
                   >
                     {(sections[card.destination] ?? []).map((sec) => (
                       <option key={sec} value={sec}>{sec}</option>
                     ))}
                   </select>
 
-                  {isInbox && card.status === "pending" && (
-                    <>
-                      <button onClick={() => markKeep(idx)}>应用</button>
-                      <button onClick={() => markDiscard(idx)}>丢弃</button>
-                    </>
+                  {/* Status badge */}
+                  {isActive && (
+                    <span className={`memory-status-badge ${card.status}`}>
+                      {card.status === "keep" && "将被应用"}
+                      {card.status === "discard" && "将被丢弃"}
+                      {card.status === "modify" && "将被修改"}
+                      {card.status === "delete" && "将被删除"}
+                    </span>
                   )}
-                  {isInbox && card.status === "keep" && (
-                    <span className="memory-status-badge applied">✓ 待应用</span>
-                  )}
-                  {isInbox && card.status === "discard" && (
-                    <span className="memory-status-badge discarded">✗ 已丢弃</span>
-                  )}
-
-                  {isModify && card.status === "modify" && (
-                    <span className="memory-status-badge modify">✓ 待应用修改</span>
+                  {isSkipped && (
+                    <span className="memory-status-badge skipped">已跳过</span>
                   )}
 
-                  {isDelete && card.status === "delete" && (
-                    <span className="memory-status-badge delete">✗ 待删除</span>
+                  {/* Skip / Undo button */}
+                  {isActive && (
+                    <button className="skip-btn" onClick={() => skipCard(idx)}>
+                      跳过
+                    </button>
+                  )}
+                  {isSkipped && (
+                    <button className="skip-btn" onClick={() => unskipCard(idx)}>
+                      撤销
+                    </button>
                   )}
                 </div>
               </div>
@@ -302,18 +327,18 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
         </div>
       )}
 
-      {cardStates.length > 0 && (totalDecided > 0 || pendingCount > 0) && (
+      {cardStates.length > 0 && (
         <footer className="memory-panel-footer">
           <span>
-            已选 {keepCount} 条应用 · {modifyCount} 条修改 · {deleteCount}{" "}
-            条删除 · {discardCount} 条丢弃 · {pendingCount} 条未处理
+            共 {cardStates.length} 条建议：{keepCount} 应用 · {modifyCount} 修改 · {deleteCount}{" "}
+            删除 · {discardCount} 丢弃{skippedCount > 0 ? ` · ${skippedCount} 跳过` : ""}
           </span>
           <button
             className="memory-apply-all-btn"
             onClick={applyDecisions}
-            disabled={applying || totalDecided === 0}
+            disabled={applying || totalActive === 0}
           >
-            {applying ? "应用中..." : `全部应用 (${totalDecided})`}
+            {applying ? "应用中..." : `全部应用 (${totalActive})`}
           </button>
         </footer>
       )}
