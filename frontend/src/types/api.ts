@@ -14,6 +14,7 @@ export type ResourceCandidate = {
   source: string;
   small_description: string | null;
   subtitle_flags: string[];
+  labels_new: string[];
 };
 
 export type AgentToolCall = {

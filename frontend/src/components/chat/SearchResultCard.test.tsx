@@ -19,6 +19,7 @@ const result = {
   source: "mteam",
   small_description: "中英双语特效字幕",
   subtitle_flags: ["中字", "中英", "特效"],
+  labels_new: ["中字"],
 };
 
 describe("SearchResultCard", () => {

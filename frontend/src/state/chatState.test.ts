@@ -18,6 +18,7 @@ const searchResult = {
   source: "mteam",
   small_description: null,
   subtitle_flags: [],
+  labels_new: [],
 };
 
 const pendingApproval: PendingApproval = {
