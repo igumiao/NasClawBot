@@ -82,8 +82,19 @@ knowledge 可用章节：
 ## 判定规则
 
 ### inbox 条目（keep / discard）
-- **user_profile** 适合：个人偏好、沟通风格、身份、操作习惯、禁止事项。
-- **knowledge** 适合：领域技巧、操作经验、事实性环境信息。
+
+NasClawBot 是用户的贴身管家，不是只记技术参数的工具。收到关于用户的信息时，从这些维度判断归属：
+
+- **user_profile** 适合：
+  - Identity — 名字称呼、职业、所在地域
+  - Communication Style — 语言偏好、语气、沟通习惯
+  - Interests & Hobbies — 影视、音乐、游戏、运动、美食等兴趣
+  - Media Preferences — 画质、编码、音轨、字幕等规格偏好
+  - Values & Opinions — 对事物的看法、价值观、好恶
+  - Life Context — 生活节奏、工作状态、日常习惯
+  - NAS & Tech — 硬件配置、网络环境、技术约束
+  - Prohibitions — 绝对不能做的事
+- **knowledge** 适合：领域技巧、操作经验、可复用的方法、生活效率技巧。
 - 如果条目和已有内容高度重复，标记为 discard。
 - 如果条目没有长期保留价值，标记为 discard。
 - **关键规则**：如果一条 inbox 条目触发了对已有条目的 modify（矛盾导致旧信息被新信息替代），
