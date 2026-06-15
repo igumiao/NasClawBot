@@ -80,6 +80,8 @@ def build_memory_router() -> APIRouter:
 
         applied = 0
         discarded = 0
+        modified = 0
+        deleted = 0
         processed: set[int] = set()
         kind_map = {
             "user_profile": MemoryKind.USER_PROFILE,
@@ -95,6 +97,19 @@ def build_memory_router() -> APIRouter:
                     text=decision.text,
                 )
                 applied += 1
+            elif decision.action == "modify" and decision.destination and decision.existing_text and decision.new_text:
+                store.replace_in_section(
+                    kind=kind_map[decision.destination],
+                    existing_text=decision.existing_text,
+                    new_text=decision.new_text,
+                )
+                modified += 1
+            elif decision.action == "delete" and decision.destination and decision.existing_text:
+                store.delete_from_section(
+                    kind=kind_map[decision.destination],
+                    existing_text=decision.existing_text,
+                )
+                deleted += 1
             else:
                 discarded += 1
 
@@ -114,6 +129,8 @@ def build_memory_router() -> APIRouter:
         return CuratorApplyResponse(
             applied=applied,
             discarded=discarded,
+            modified=modified,
+            deleted=deleted,
             remaining=len(remaining),
         )
 

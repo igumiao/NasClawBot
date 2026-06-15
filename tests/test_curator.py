@@ -50,9 +50,18 @@ def test_run_curation_empty_inbox(tmp_path: Path):
 
 
 def test_run_curation_with_mock_llm(tmp_path: Path):
-    """Mock LLM returns structured JSON, verify curator parses it."""
+    """Mock LLM returns JSON with keep/discard/modify/delete, verify curator parses all."""
     (tmp_path / "memory_inbox.md").write_text(
-        "## 2026-06-12 10:17 | 知识\n\n用户偏好：华语片用中文名搜索。\n\n---\n",
+        "## 2026-06-12 10:17 | 知识\n\n用户偏好：华语片用中文名搜索。\n\n---\n"
+        "## 2026-06-15 10:00 | 知识\n\n用户现在叫 Maifa。\n\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "user_profile.md").write_text(
+        "# User Profile\n\n## Identity\n- 我叫 IGUMIAO-NAS\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n## TMDB\n- old tip\n\n## M-Team\n- another\n\n## Other\n",
         encoding="utf-8",
     )
     store = MarkdownMemoryStore(tmp_path)
@@ -68,9 +77,33 @@ def test_run_curation_with_mock_llm(tmp_path: Path):
                     "destination": "knowledge",
                     "section": "M-Team",
                     "edited_text": "华语片用中文名搜索，非华语片用英文原名。",
-                }
+                },
+                {
+                    "inbox_index": 1,
+                    "preview": "用户现在叫 Maifa",
+                    "action": "discard",
+                },
+                {
+                    "inbox_index": None,
+                    "preview": "",
+                    "action": "modify",
+                    "destination": "user_profile",
+                    "section": "Identity",
+                    "existing_text": "- 我叫 IGUMIAO-NAS",
+                    "new_text": "- [2026-06-15] 用户称呼为 Maifa / M大人",
+                    "reason": "称呼已更新",
+                },
+                {
+                    "inbox_index": None,
+                    "preview": "",
+                    "action": "delete",
+                    "destination": "knowledge",
+                    "section": "TMDB",
+                    "existing_text": "- old tip",
+                    "reason": "该信息已过时",
+                },
             ],
-            "inbox_entry_count": 1,
+            "inbox_entry_count": 2,
         }
     )
 
@@ -78,10 +111,22 @@ def test_run_curation_with_mock_llm(tmp_path: Path):
         mock_llm.return_value.invoke.return_value = mock_response
         result = run_curation(store)
 
-    assert result.inbox_entry_count == 1
-    assert result.suggestions[0].action == "keep"
-    assert result.suggestions[0].destination == "knowledge"
-    assert result.suggestions[0].section == "M-Team"
+    assert result.inbox_entry_count == 2
+    assert len(result.suggestions) == 4
+
+    keep = [s for s in result.suggestions if s.action == "keep"]
+    assert len(keep) == 1
+    assert keep[0].destination == "knowledge"
+
+    modify = [s for s in result.suggestions if s.action == "modify"]
+    assert len(modify) == 1
+    assert modify[0].existing_text == "- 我叫 IGUMIAO-NAS"
+    assert modify[0].new_text is not None
+
+    delete = [s for s in result.suggestions if s.action == "delete"]
+    assert len(delete) == 1
+    assert delete[0].existing_text == "- old tip"
+    assert delete[0].reason is not None
 
 
 def test_curator_suggestion_modify_accepts_new_fields():
@@ -112,3 +157,31 @@ def test_curator_suggestion_delete_accepts_new_fields():
     )
     assert suggestion.action == "delete"
     assert suggestion.new_text is None
+
+
+def test_build_prompt_includes_current_date_and_evolution_rules(monkeypatch):
+    """Verify the curator prompt includes the current UTC date and evolution instructions."""
+    from app.services.curator import _build_prompt
+    from unittest.mock import MagicMock
+    import datetime as dt
+
+    frozen_date = dt.datetime(2026, 6, 15, 12, 0, 0, tzinfo=dt.timezone.utc)
+
+    # Patch datetime.datetime (the class) at the stdlib level, since _build_prompt
+    # does a local "from datetime import datetime" inside the function.
+    mock_class = MagicMock()
+    mock_class.now.return_value = frozen_date
+    mock_class.timezone = dt.timezone
+    monkeypatch.setattr("datetime.datetime", mock_class)
+
+    prompt = _build_prompt(
+        entries=[{"index": 0, "timestamp": "2026-06-15", "text": "test"}],
+        user_profile="# User Profile\n\n## Identity\n- old info\n",
+        knowledge="# Knowledge\n\n## TMDB\n- some tip\n",
+        sections={"user_profile": ["Identity"], "knowledge": ["TMDB"]},
+    )
+    assert "当前日期：2026-06-15" in prompt
+    assert "UTC" in prompt
+    assert "modify" in prompt.lower()
+    assert "delete" in prompt.lower()
+    assert "existing_text" in prompt
