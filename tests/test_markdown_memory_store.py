@@ -259,3 +259,89 @@ def test_append_to_section_creates_section_if_missing(tmp_path: Path):
     content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
     assert "## NewSection" in content
     assert "first item" in content
+
+
+# ---------------------------------------------------------------------------
+# replace_in_section
+# ---------------------------------------------------------------------------
+
+
+def test_replace_in_section_replaces_correct_line(tmp_path: Path):
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n## TMDB\n- old tip\n\n## M-Team\n- another\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    result = store.replace_in_section(MemoryKind.KNOWLEDGE, "- old tip", "- new improved tip")
+    assert result is True
+    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
+    assert "- new improved tip" in content
+    assert "- old tip" not in content
+
+
+def test_replace_in_section_returns_false_when_no_match(tmp_path: Path):
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n## TMDB\n- tip one\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    result = store.replace_in_section(MemoryKind.KNOWLEDGE, "- nonexistent line", "- new")
+    assert result is False
+    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
+    assert "- tip one" in content
+
+
+def test_replace_in_section_match_is_strip_only(tmp_path: Path):
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n  - padded tip  \n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    result = store.replace_in_section(MemoryKind.KNOWLEDGE, "- padded tip", "- clean tip")
+    assert result is True
+    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
+    assert "- clean tip" in content
+    assert "- padded tip" not in content
+
+
+# ---------------------------------------------------------------------------
+# delete_from_section
+# ---------------------------------------------------------------------------
+
+
+def test_delete_from_section_removes_correct_line(tmp_path: Path):
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n## TMDB\n- stale tip\n- keep tip\n\n## M-Team\n- another\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    result = store.delete_from_section(MemoryKind.KNOWLEDGE, "- stale tip")
+    assert result is True
+    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
+    assert "- stale tip" not in content
+    assert "- keep tip" in content
+
+
+def test_delete_from_section_removes_trailing_blank_line(tmp_path: Path):
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n## TMDB\n- only entry\n\n## M-Team\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    result = store.delete_from_section(MemoryKind.KNOWLEDGE, "- only entry")
+    assert result is True
+    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
+    assert "- only entry" not in content
+    assert "\n\n\n" not in content
+
+
+def test_delete_from_section_returns_false_when_no_match(tmp_path: Path):
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n## TMDB\n- tip one\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    result = store.delete_from_section(MemoryKind.KNOWLEDGE, "- nonexistent")
+    assert result is False
+    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
+    assert "- tip one" in content

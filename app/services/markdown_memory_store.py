@@ -146,6 +146,50 @@ class MarkdownMemoryStore:
             new_lines = lines[:insert_at] + [entry_line, ""] + lines[insert_at:]
             path.write_text("\n".join(new_lines).rstrip("\n") + "\n", encoding="utf-8")
 
+    def path_for(self, kind: MemoryKind) -> Path:
+        """Return the resolved path for a memory kind file."""
+        return self._path_for(kind)
+
+    def replace_in_section(self, kind: MemoryKind, existing_text: str, new_text: str) -> bool:
+        """Replace the first line whose .strip() equals existing_text.strip() with new_text.
+
+        Returns True if found and replaced, False otherwise.
+        """
+        with self._inbox_lock:
+            path = self._path_for(kind)
+            if not path.exists():
+                return False
+            content = path.read_text(encoding="utf-8")
+            lines = content.splitlines()
+            needle = existing_text.strip()
+            for i, line in enumerate(lines):
+                if line.strip() == needle:
+                    lines[i] = new_text
+                    path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
+                    return True
+            return False
+
+    def delete_from_section(self, kind: MemoryKind, existing_text: str) -> bool:
+        """Remove the first line whose .strip() equals existing_text.strip().
+
+        Also removes the following blank line if present. Returns True if found and removed.
+        """
+        with self._inbox_lock:
+            path = self._path_for(kind)
+            if not path.exists():
+                return False
+            content = path.read_text(encoding="utf-8")
+            lines = content.splitlines()
+            needle = existing_text.strip()
+            for i, line in enumerate(lines):
+                if line.strip() == needle:
+                    del lines[i]
+                    if i < len(lines) and lines[i].strip() == "":
+                        del lines[i]
+                    path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
+                    return True
+            return False
+
     def format_user_profile_prompt(self) -> str:
         """Return compact prompt text for the user profile memory, or empty string."""
 
