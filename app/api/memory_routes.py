@@ -100,12 +100,15 @@ def build_memory_router() -> APIRouter:
                         status_code=400,
                         detail=f"无法定位原文片段: {decision.existing_text}",
                     )
-                content = path.read_text(encoding="utf-8")
-                needle = decision.existing_text.strip()
-                if not any(line.strip() == needle for line in content.splitlines()):
+                lines = path.read_text(encoding="utf-8").splitlines()
+                if store.find_line_index(lines, decision.existing_text) is None:
+                    similar = store._find_similar_lines(lines, decision.existing_text)
+                    hint = ""
+                    if similar:
+                        hint = f" 文件中的相似行: {similar}"
                     raise HTTPException(
                         status_code=400,
-                        detail=f"无法定位原文片段: {decision.existing_text}",
+                        detail=f"无法定位原文片段: {decision.existing_text}.{hint}",
                     )
 
         applied = 0

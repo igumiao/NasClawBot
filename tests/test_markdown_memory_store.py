@@ -304,6 +304,63 @@ def test_replace_in_section_match_is_strip_only(tmp_path: Path):
     assert "- padded tip" not in content
 
 
+def test_replace_in_section_missing_whitespace_fallback(tmp_path: Path):
+    """LLM drops a space: '我叫 IGUMIAO' vs '我叫IGUMIAO'."""
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n- 我叫 IGUMIAO-NAS，也叫\"大人\"\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    # LLM returned version with space missing between Chinese and English
+    result = store.replace_in_section(
+        MemoryKind.KNOWLEDGE,
+        "- 我叫IGUMIAO-NAS，也叫\"大人\"",
+        "- 我叫 Maifa，也叫\"M大人\"",
+    )
+    assert result is True
+    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
+    assert "Maifa" in content
+    assert "IGUMIAO" not in content
+
+
+def test_replace_in_section_extra_whitespace_fallback(tmp_path: Path):
+    """LLM adds extra spaces."""
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n- hello world\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    result = store.replace_in_section(
+        MemoryKind.KNOWLEDGE,
+        "- hello   world",
+        "- hello universe",
+    )
+    assert result is True
+    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
+    assert "hello universe" in content
+
+
+def test_find_line_index_exact_match(tmp_path: Path):
+    store = MarkdownMemoryStore(tmp_path)
+    idx = store.find_line_index(["- a", "- b", "- c"], "- b")
+    assert idx == 1
+
+
+def test_find_line_index_whitespace_fallback(tmp_path: Path):
+    store = MarkdownMemoryStore(tmp_path)
+    idx = store.find_line_index(
+        ["- 我叫 IGUMIAO-NAS", "- another line"],
+        "- 我叫IGUMIAO-NAS",
+    )
+    assert idx == 0
+
+
+def test_find_line_index_none_when_no_match(tmp_path: Path):
+    store = MarkdownMemoryStore(tmp_path)
+    idx = store.find_line_index(["- a", "- b"], "- completely different")
+    assert idx is None
+
+
 # ---------------------------------------------------------------------------
 # delete_from_section
 # ---------------------------------------------------------------------------
@@ -345,3 +402,44 @@ def test_delete_from_section_returns_false_when_no_match(tmp_path: Path):
     assert result is False
     content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
     assert "- tip one" in content
+
+
+def test_delete_from_section_whitespace_fallback(tmp_path: Path):
+    """LLM drops spaces: delete still works."""
+    (tmp_path / "knowledge.md").write_text(
+        "# Knowledge\n\n- 我叫 IGUMIAO-NAS，也叫\"大人\"\n",
+        encoding="utf-8",
+    )
+    store = MarkdownMemoryStore(tmp_path)
+    result = store.delete_from_section(
+        MemoryKind.KNOWLEDGE,
+        "- 我叫IGUMIAO-NAS，也叫\"大人\"",
+    )
+    assert result is True
+    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
+    assert "IGUMIAO" not in content
+
+
+# ---------------------------------------------------------------------------
+# _find_similar_lines
+# ---------------------------------------------------------------------------
+
+
+def test_find_similar_lines_returns_overlapping_lines():
+    lines = [
+        "# header",
+        "- 我叫 IGUMIAO-NAS，也叫\"大人\"",
+        "- completely unrelated",
+        "",
+    ]
+    similar = MarkdownMemoryStore._find_similar_lines(
+        lines, "- 我叫IGUMIAO-NAS，也叫\"大人\""
+    )
+    assert len(similar) >= 1
+    assert "IGUMIAO" in similar[0]
+
+
+def test_find_similar_lines_skips_headings_and_blanks():
+    lines = ["# header", "", "## section", "- actual content"]
+    similar = MarkdownMemoryStore._find_similar_lines(lines, "content")
+    assert similar == ["- actual content"]
