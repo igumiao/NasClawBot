@@ -53,8 +53,8 @@ export function ChatPanel({
   const handleKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter") return;
 
-    if (event.ctrlKey || event.metaKey) {
-      // Ctrl+Enter / Cmd+Enter: insert newline at cursor
+    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+      // Ctrl+Enter / Cmd+Enter / Shift+Enter: insert newline at cursor
       event.preventDefault();
       const textarea = event.currentTarget;
       const { selectionStart, selectionEnd } = textarea;
@@ -149,7 +149,7 @@ export function ChatPanel({
         <textarea
           ref={textareaRef}
           aria-label="媒体需求"
-          placeholder={state.pendingApproval ? "请先批准或拒绝当前下载请求" : "输入媒体需求，Enter 发送，Ctrl+Enter 换行"}
+          placeholder={state.pendingApproval ? "请先批准或拒绝当前下载请求" : "输入媒体需求，Enter 发送，Ctrl/Shift+Enter 换行"}
           value={draft}
           disabled={inputBlocked}
           onChange={(event) => setDraft(event.target.value)}

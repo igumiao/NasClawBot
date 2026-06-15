@@ -111,7 +111,7 @@ export function AppShell() {
     }
 
     check();
-    const interval = setInterval(check, 30_000);
+    const interval = setInterval(check, 300_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -185,7 +185,7 @@ export function AppShell() {
           />
         </div>
         <div style={panelStyle(activeTab === "memory")}>
-          <MemoryPanel />
+          <MemoryPanel visible={activeTab === "memory"} />
         </div>
       </main>
     </div>

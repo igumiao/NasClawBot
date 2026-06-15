@@ -19,7 +19,7 @@ type CardState = {
   status: CardStatus;
 };
 
-export function MemoryPanel() {
+export function MemoryPanel({ visible }: { visible: boolean }) {
   const panelId = useId();
   const [entries, setEntries] = useState<MemoryInboxEntry[]>([]);
   const [cardStates, setCardStates] = useState<CardState[]>([]);
@@ -48,8 +48,10 @@ export function MemoryPanel() {
   }, []);
 
   useEffect(() => {
-    loadInbox();
-  }, [loadInbox]);
+    if (visible) {
+      loadInbox();
+    }
+  }, [visible, loadInbox]);
 
   const runCuration = async () => {
     setLoading(true);
