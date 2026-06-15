@@ -116,11 +116,24 @@ All new methods live under `_inbox_lock` for thread safety.
 
 ## Curator Prompt Changes
 
+### Time awareness
+
+The curator call is a one-shot LLM invocation — it has no access to the `current_time`
+tool.  `_build_prompt()` must inject a date line at the top of the prompt:
+
+```text
+当前日期：2026-06-15（UTC）。用这个日期判断信息是否过时。
+```
+
 ### Additional inputs
 
 The prompt now includes the **full text** of `user_profile.md` and `knowledge.md`
 as plain markdown (no line numbers, no escaping).  The LLM reads the exact content
 and copies the line it wants to modify into `existing_text`.
+
+Each entry in those files is already date-stamped (`- [YYYY-MM-DD] ...`) by
+`append_to_section`.  With the current date injected above, the LLM can compare
+dates and flag old entries as stale.
 
 ### New section in the prompt
 
@@ -147,6 +160,7 @@ and copies the line it wants to modify into `existing_text`.
 
 The final prompt layout:
 
+0. **当前日期** — 注入 UTC 日期，用于判断过时
 1. 现有用户画像 (full user_profile.md)
 2. 现有知识库 (full knowledge.md)
 3. 收件箱条目
@@ -285,6 +299,7 @@ Collects all non-pending cards: applied → keep, modified → modify, deleted �
 
 - `run_curation` with mock LLM returns modify/delete suggestions with correct shape
 - `run_curation` with contradictory profile entries produces modify suggestions
+- Curator prompt includes current UTC date for time awareness
 - Pydantic validation: modify requires existing_text/new_text/destination/section/reason
 - Pydantic validation: delete requires existing_text/destination/section/reason
 
