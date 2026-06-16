@@ -207,7 +207,7 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 Two independent layers, no `ToolPermission` enum:
 
 - **Filter** (`hello_agents/tools/filter.py`): runs **before** tools are sent to the LLM. Narrows the tool list to control context window usage and sub-agent capability scope. Currently allows 20 base tools plus any dynamically registered MCP tools.
-- **Gate** (`hello_agents/tools/gate.py`): runs **after** LLM returns a tool call, **before** `tool.run()`. Three gates: deny_rules → confirm_rules → default allow. Works on `ToolCall` (tool_name + params), so decisions can be parameter-aware. Currently confirms: `qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`.
+- **Gate** (`hello_agents/tools/gate.py`): runs **after** LLM returns a tool call, **before** `tool.run()`. Three gates: deny_rules → confirm_rules → default allow. Works on `ToolCall` (tool_name + params), so decisions can be parameter-aware. Currently confirms: all 5 qB action tools, plus `mcp_filesystem_write_file` and `mcp_filesystem_edit_file`. Read-only MCP tools and `mcp_filesystem_move_file`/`create_directory` default to ALLOW (directory confinement is the primary safety boundary for organization operations).
 
 Factory functions for common deny rules: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
 

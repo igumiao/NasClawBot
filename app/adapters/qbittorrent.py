@@ -180,10 +180,10 @@ class QBittorrentAdapter:
         payload.update(extra_kwargs)
         logger.info(
             "qB add torrent started category=%s paused=%s tag_count=%s rename_chars=%s",
-            payload["category"],
+            payload.get("category", ""),
             paused,
             len(payload.get("tags", [])),
-            len(payload["rename"]),
+            len(payload.get("rename", "")),
         )
         raw_response = client.torrents_add(**payload)
         body = str(raw_response).strip().lower()

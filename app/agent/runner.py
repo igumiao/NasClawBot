@@ -264,6 +264,9 @@ class NasClawAgentRunner:
             lambda call: call.tool_name == "qb_control_torrent",
             lambda call: call.tool_name == "qb_set_global_speed",
             lambda call: call.tool_name == "qb_set_torrent_speed",
+            # MCP filesystem — gating destructive write/edit; move + mkdir are ALLOW
+            lambda call: call.tool_name == "mcp_filesystem_write_file",
+            lambda call: call.tool_name == "mcp_filesystem_edit_file",
         ])
         self.approval_summary_enabled = approval_summary_enabled
         self.memory_root = memory_root or _MEMORY_DIR

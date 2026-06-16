@@ -123,7 +123,7 @@ def register_mcp_tools(
         pool: MCP 连接池
         registry: HelloAgents ToolRegistry
         tool_filter: 如果传入，自动将所有注册的 MCP 工具名加入白名单
-        tool_gate: 本期不使用（MCP 工具只读），预留接口
+        tool_gate: 每工具 Gate 覆盖，未传时默认 ALLOW（读写工具由上层 runner 决定）
         allow: 按 MCP tool name 筛选，None = 全部注册
 
     Returns:
