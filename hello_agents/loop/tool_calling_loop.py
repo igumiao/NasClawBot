@@ -823,11 +823,7 @@ class ToolCallingLoop:
             {
                 "content": response.content or "",
                 "tool_calls": len(response.tool_calls or []),
-                "usage": {
-                    "prompt_tokens": usage.get("prompt_tokens", 0),
-                    "completion_tokens": usage.get("completion_tokens", 0),
-                    "total_tokens": usage.get("total_tokens", 0),
-                },
+                "usage": dict(usage),
             },
             step=step,
         )
