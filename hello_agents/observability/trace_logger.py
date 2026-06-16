@@ -117,7 +117,19 @@ class TraceLogger:
         
         # 增量写入 HTML 事件片段
         self._write_html_event(event_obj)
-    
+        # 增量更新 live stats 面板
+        self._write_live_stats()
+
+    def _write_live_stats(self):
+        """增量写入 live stats 面板（每次事件后用 script 更新页面顶部面板）"""
+        stats = self._compute_stats()
+        stats_html = self._build_stats_html(stats)
+        # json.dumps 安全处理所有转义（换行、引号、反斜杠等）
+        js_str = json.dumps(stats_html)
+        script = f'\n<script>var p=document.getElementById("live-stats-panel");if(p){{p.innerHTML={js_str};}}</script>\n'
+        self.html_file.write(script)
+        self.html_file.flush()
+
     def _sanitize_event(self, event: Dict) -> Dict:
         """脱敏敏感信息
 
@@ -192,6 +204,10 @@ class TraceLogger:
         stats = {
             "total_steps": 0,
             "total_tokens": 0,
+            "total_prompt_tokens": 0,
+            "total_completion_tokens": 0,
+            "total_cache_hit_tokens": 0,
+            "total_cache_miss_tokens": 0,
             "total_cost": 0.0,
             "tool_calls": {},  # {tool_name: count}
             "errors": [],
@@ -217,6 +233,10 @@ class TraceLogger:
             if event["event"] == "model_output":
                 usage = event.get("payload", {}).get("usage", {})
                 stats["total_tokens"] += usage.get("total_tokens", 0)
+                stats["total_prompt_tokens"] += usage.get("prompt_tokens", 0)
+                stats["total_completion_tokens"] += usage.get("completion_tokens", 0)
+                stats["total_cache_hit_tokens"] += usage.get("prompt_cache_hit_tokens", 0)
+                stats["total_cache_miss_tokens"] += usage.get("prompt_cache_miss_tokens", 0)
                 stats["total_cost"] += usage.get("cost", 0.0)
                 stats["model_calls"] += 1
 
@@ -399,6 +419,8 @@ class TraceLogger:
         <p>生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} | 实时更新中 — 刷新页面查看最新事件</p>
     </div>
 
+    <div id="live-stats-panel"></div>
+
     <div class="events-container">
         <h2>📋 事件列表</h2>
 """
@@ -446,14 +468,12 @@ class TraceLogger:
         self.html_file.write(event_html)
         self.html_file.flush()
 
-    def _write_html_footer(self, stats: Dict[str, Any]):
-        """写入 HTML 尾部（统计面板 + 脚本）"""
-        # 构建工具调用统计表格
+    def _build_stats_html(self, stats: Dict[str, Any]) -> str:
+        """构建统计面板 HTML（供 footer 和 live stats 共用）"""
         tool_stats_rows = ""
         for tool_name, count in sorted(stats["tool_calls"].items(), key=lambda x: x[1], reverse=True):
             tool_stats_rows += f"<tr><td>{tool_name}</td><td>{count}</td></tr>\n"
 
-        # 构建错误列表
         error_list_html = ""
         if stats["errors"]:
             error_items = ""
@@ -469,42 +489,66 @@ class TraceLogger:
         </ul>
 """
 
+        cache_html = ""
+        cache_total = stats["total_cache_hit_tokens"] + stats["total_cache_miss_tokens"]
+        if cache_total > 0:
+            hit_rate = stats["total_cache_hit_tokens"] / cache_total * 100
+            cache_html = f"""
+            <div class="stat-item">
+                <span class="stat-label">缓存命中率</span>
+                <span class="stat-value">{hit_rate:.1f}%</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Prompt Tokens</span>
+                <span class="stat-value">{stats["total_prompt_tokens"]:,}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Completion Tokens</span>
+                <span class="stat-value">{stats["total_completion_tokens"]:,}</span>
+            </div>"""
+
+        return f"""
+        <div class="stats-panel">
+            <h2>📊 会话统计</h2>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-label">总步骤数</span>
+                    <span class="stat-value">{stats["total_steps"]}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">总 Token</span>
+                    <span class="stat-value">{stats["total_tokens"]:,}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">总成本</span>
+                    <span class="stat-value">${stats["total_cost"]:.4f}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">会话时长</span>
+                    <span class="stat-value">{stats["duration_seconds"]:.1f}s</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">模型调用次数</span>
+                    <span class="stat-value">{stats["model_calls"]}</span>
+                </div>
+                {cache_html}
+            </div>
+
+            <h3>🔧 工具调用统计</h3>
+            <table class="tool-stats">
+                <tr><th>工具名称</th><th>调用次数</th></tr>
+                {tool_stats_rows if tool_stats_rows else '<tr><td colspan="2">无工具调用</td></tr>'}
+            </table>
+
+            {error_list_html}
+        </div>"""
+
+    def _write_html_footer(self, stats: Dict[str, Any]):
+        """写入 HTML 尾部（统计面板 + 关闭标签）"""
         footer = f"""
     </div>
 
-    <div class="stats-panel">
-        <h2>📊 会话统计</h2>
-        <div class="stats-grid">
-            <div class="stat-item">
-                <span class="stat-label">总步骤数</span>
-                <span class="stat-value">{stats["total_steps"]}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">总 Token</span>
-                <span class="stat-value">{stats["total_tokens"]:,}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">总成本</span>
-                <span class="stat-value">${stats["total_cost"]:.4f}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">会话时长</span>
-                <span class="stat-value">{stats["duration_seconds"]:.1f}s</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">模型调用次数</span>
-                <span class="stat-value">{stats["model_calls"]}</span>
-            </div>
-        </div>
-
-        <h3>🔧 工具调用统计</h3>
-        <table class="tool-stats">
-            <tr><th>工具名称</th><th>调用次数</th></tr>
-            {tool_stats_rows if tool_stats_rows else '<tr><td colspan="2">无工具调用</td></tr>'}
-        </table>
-
-        {error_list_html}
-    </div>
+{self._build_stats_html(stats)}
 
 </body>
 </html>
