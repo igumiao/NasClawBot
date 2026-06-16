@@ -48,6 +48,9 @@ skills-lock.json
 # Probe outputs
 probes/mteam/output_*
 
+# MCP filesystem test workspace
+test-media/
+
 # Unrelated files
 report
 

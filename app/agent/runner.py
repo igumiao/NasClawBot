@@ -69,6 +69,7 @@ from app.agent.runtime_state import (
     update_runtime_state_after_turn,
 )
 from app.config import get_settings
+from app.mcp_pool import get_mcp_pool
 from app.domain.authorization import (
     DownloadAuthorizationPolicy,
     approval_authorization_info,
@@ -106,6 +107,7 @@ from hello_agents.core.config import Config
 from hello_agents.core.llm import HelloAgentsLLM
 from hello_agents.core.message import Message
 from hello_agents.tools import Filter, Gate, ToolRegistry
+from hello_agents.tools.mcp.bridge import register_mcp_tools
 from hello_agents.tools.response import ToolResponse
 
 
@@ -372,6 +374,11 @@ class NasClawAgentRunner:
         registry.register_tool(TMDBDetailsTool(tmdb_adapter))
         registry.register_tool(TMDBDiscoverTool(tmdb_adapter))
         registry.register_tool(TMDBTrendingTool(tmdb_adapter))
+        # ── MCP tools ──────────────────────────────────────────
+        mcp_pool = get_mcp_pool()
+        if mcp_pool is not None:
+            register_mcp_tools(mcp_pool, registry, tool_filter=self.tool_filter)
+        # ── Agent config ───────────────────────────────────────
         config_values = {
             "trace_enabled": False,  # runner manages trace per conversation session
             "session_enabled": False,
