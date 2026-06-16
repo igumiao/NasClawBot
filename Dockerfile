@@ -10,9 +10,12 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
-# Install system deps
+# Install system deps (Node.js required for MCP filesystem server via npx)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python source and install (pyproject.toml packages.find covers app*;
