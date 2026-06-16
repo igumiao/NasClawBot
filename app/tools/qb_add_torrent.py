@@ -38,16 +38,9 @@ class QBAddTorrentTool(Tool):
                 required=True,
             ),
             ToolParameter(
-                name="qb_category",
-                type="string",
-                description="qBittorrent 分类名称。从预设中选择最适合的分类；无法确定时用 其他",
-                required=False,
-                enum=["电影", "电视剧", "综艺", "动漫", "纪录片", "其他"],
-            ),
-            ToolParameter(
                 name="save_path",
                 type="string",
-                description="自定义保存路径（可选）。不传则自动使用 默认路径/分类名 作为保存路径",
+                description="自定义保存路径（可选）。不传则自动使用默认路径",
                 required=False,
             ),
         ]
@@ -91,11 +84,7 @@ class QBAddTorrentTool(Tool):
         }
         save_path = str(parameters.get("save_path", "")).strip()
         if not save_path and self._default_save_path:
-            qb_category = str(parameters.get("qb_category", "")).strip()
-            if qb_category:
-                save_path = f"{self._default_save_path.rstrip('/')}/{qb_category}"
-            else:
-                save_path = self._default_save_path
+            save_path = self._default_save_path
         if save_path:
             add_kwargs["save_path"] = save_path
 
