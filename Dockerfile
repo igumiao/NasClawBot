@@ -33,5 +33,5 @@ COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 # Data directories for persistent volumes
 RUN mkdir -p /app/memory/agent-sessions
 
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 18000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "18000"]

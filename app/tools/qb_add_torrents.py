@@ -134,8 +134,8 @@ class QBAddTorrentsTool(Tool):
             )
         return ToolResponse.error(
             code="BATCH_FAILED",
-            message=f"Batch download failed: 0/{len(items)} items submitted.",
-            context={"items": results},
+            message=f"批量下载全部失败: 0/{len(items)} items submitted. 请检查 qBittorrent 连接状态和各 item 的错误信息。",
+            data=data,
         )
 
 
