@@ -256,6 +256,7 @@ class NasClawAgentRunner:
             "tmdb_details",
             "tmdb_discover",
             "tmdb_trending",
+            "skill_load",
         ])
         self.tool_gate = tool_gate or Gate(confirm=[
             lambda call: call.tool_name == "qb_add_torrent",
@@ -379,7 +380,7 @@ class NasClawAgentRunner:
         config_values = {
             "trace_enabled": False,  # runner manages trace per conversation session
             "session_enabled": False,
-            "skills_enabled": False,
+            "skills_enabled": True,
             "subagent_enabled": False,
             "todowrite_enabled": False,
             "devlog_enabled": False,
@@ -391,7 +392,7 @@ class NasClawAgentRunner:
             "min_retain_rounds": 4,
         }
         config_values.update(self.agent_config_overrides)
-        return ToolCallingAgent(
+        agent = ToolCallingAgent(
             name="nasclawbot-agent",
             llm=llm,
             tool_registry=registry,
@@ -401,6 +402,18 @@ class NasClawAgentRunner:
             tool_filter=self.tool_filter,
             tool_gate=self.tool_gate,
         )
+        # ── 注入可用技能列表到 system prompt（L1 元数据） ──
+        if agent.skill_loader is not None:
+            descriptions = agent.skill_loader.get_descriptions()
+            if descriptions.strip():
+                skill_block = (
+                    "\n\n## 可用技能 (Skills)\n\n"
+                    "你可以使用 `skill_load` 工具加载任意技能的完整指导文档。"
+                    "在执行特定领域的任务前，建议先加载对应的技能获取规范。\n\n"
+                    f"{descriptions}"
+                )
+                agent.system_prompt = (agent.system_prompt or "") + skill_block
+        return agent
 
     @_serialize_session
     def approve(
