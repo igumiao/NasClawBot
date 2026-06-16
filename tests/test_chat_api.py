@@ -38,6 +38,7 @@ class FakeSettings:
     app_timezone = "Asia/Shanghai"
     tmdb_api_key = ""
     tavily_api_key = ""
+    download_default_save_path = "/tmp/test-downloads"
 
 
 class FakeMTeamAdapter:

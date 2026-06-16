@@ -79,7 +79,6 @@ from app.domain.authorization import (
 )
 from app.domain.models import ResourceCandidate
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
-from app.services.download_defaults_store import DownloadDefaultsStore
 from app.services.markdown_memory_store import MarkdownMemoryStore
 from app.tools import (
     CurrentTimeTool,
@@ -355,9 +354,7 @@ class NasClawAgentRunner:
         registry.register_tool(MTeamSearchTool(mteam_adapter))
         registry.register_tool(MemberProfileTool(mteam_adapter))
 
-        defaults_store = DownloadDefaultsStore(Path(__file__).resolve().parents[2] / "memory" / "settings")
-        download_defaults = defaults_store.load()
-        default_save_path = download_defaults.default_save_path
+        default_save_path = settings.download_default_save_path
 
         registry.register_tool(QBAddTorrentTool(mteam_adapter, qb_adapter, default_save_path=default_save_path))
         registry.register_tool(QBAddTorrentsTool(mteam_adapter, qb_adapter, default_save_path=default_save_path))
@@ -684,9 +681,7 @@ class NasClawAgentRunner:
         settings = get_settings()
         qb_adapter = self._get_qb_adapter()
 
-        defaults_store = DownloadDefaultsStore(Path(__file__).resolve().parents[2] / "memory" / "settings")
-        download_defaults = defaults_store.load()
-        default_save_path = download_defaults.default_save_path
+        default_save_path = settings.download_default_save_path
 
         tool_name = approval.tool_name
         if tool_name == "qb_add_torrent":

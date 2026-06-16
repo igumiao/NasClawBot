@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { healthApi } from "../../api/healthApi";
 import { settingsApi } from "../../api/settingsApi";
-import type { DownloadAuthorizationPolicy, DownloadDefaults, HealthServicesResponse, ServiceHealth, ServiceHealthStatus } from "../../types/api";
+import type { DownloadAuthorizationPolicy, HealthServicesResponse, ServiceHealth, ServiceHealthStatus } from "../../types/api";
 
 type SettingsPanelProps = {
   id: string;
@@ -69,7 +69,6 @@ export function SettingsPanel({
   const [error, setError] = useState<string | null>(null);
   const [policy, setPolicy] = useState<DownloadAuthorizationPolicy>(DEFAULT_POLICY);
   const [savePathText, setSavePathText] = useState("");
-  const [defaultSavePath, setDefaultSavePath] = useState("/vol1/1000/NasClawBot下载区域");
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
 
@@ -116,21 +115,6 @@ export function SettingsPanel({
     return () => controller.abort();
   }, [loadPolicy]);
 
-  const loadDefaults = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const defaults = await settingsApi.getDownloadDefaults(signal);
-      setDefaultSavePath(defaults.default_save_path);
-    } catch {
-      // keep the hardcoded fallback
-    }
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadDefaults(controller.signal);
-    return () => controller.abort();
-  }, [loadDefaults]);
-
   function toggleCategory(category: string) {
     setPolicy((current) => ({
       ...current,
@@ -151,13 +135,10 @@ export function SettingsPanel({
         .filter(Boolean),
       paused_required: true
     };
-    const nextDefaults: DownloadDefaults = { default_save_path: defaultSavePath.trim() || "/vol1/1000/NasClawBot下载区域" };
     try {
       const saved = await settingsApi.updateDownloadAuthorization(next);
       setPolicy(saved);
       setSavePathText(saved.save_path_prefixes.join("\n"));
-      const savedDefaults = await settingsApi.updateDownloadDefaults(nextDefaults);
-      setDefaultSavePath(savedDefaults.default_save_path);
       setSettingsStatus("已保存下载设置。");
     } catch (err) {
       setSettingsStatus(err instanceof Error ? err.message : "设置保存失败");
@@ -201,19 +182,6 @@ export function SettingsPanel({
           <div className="settings-card-label">Session</div>
           <div className="settings-card-value">{sessionId}</div>
           <p className="settings-card-copy">当前前端会话标识，用于串联聊天和下载动作。</p>
-        </section>
-
-        <section className="settings-card" aria-label="下载默认值">
-          <div className="settings-card-label">下载默认路径</div>
-          <label className="settings-field">
-            <span>默认保存路径（添加 torrent 时未指定路径则使用此值）</span>
-            <input
-              type="text"
-              value={defaultSavePath}
-              onChange={(event) => setDefaultSavePath(event.target.value)}
-              placeholder="/vol1/1000/NasClawBot下载区域"
-            />
-          </label>
         </section>
 
         <section className="settings-card settings-policy-card" aria-label="下载授权">
