@@ -106,7 +106,11 @@ class QBAddTorrentTool(Tool):
                 data={"receipt": receipt},
             )
 
+        error_code = add_result.get("error_code", "UNKNOWN")
+        error_message = add_result.get("error_message", str(add_result))
+        retryable = add_result.get("retryable", False)
+        retry_hint = " (可重试)" if retryable else ""
         return ToolResponse.error(
-            code="SUBMIT_FAILED",
-            message=f"qBittorrent add failed for id={torrent_id}.",
+            code=error_code,
+            message=f"[{error_code}] {error_message}{retry_hint} (torrent_id={torrent_id})",
         )

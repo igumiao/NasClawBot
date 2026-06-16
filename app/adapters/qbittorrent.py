@@ -10,7 +10,10 @@ few higher-value task management operations for future agent features:
 - and basic task control operations.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+
 import logging
 import re
 from typing import Any
@@ -21,6 +24,129 @@ except ModuleNotFoundError:  # pragma: no cover - exercised via dependency insta
     qbittorrentapi = None
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# 错误分类 — 把 qbittorrent-api 的异常体系翻译为 Agent 可理解的错误码
+# ---------------------------------------------------------------------------
+
+
+def _classify_qb_error(exc: Exception) -> dict[str, Any]:
+    """将 qB API 异常分类为结构化错误字典，Agent 可据此决定重试/放弃/请求用户介入。
+
+    返回字段:
+        error_code:   机器可读错误码 (NETWORK_ERROR / AUTH_ERROR / TIMEOUT / …)
+        error_message: 中文可读描述
+        retryable:     是否可重试
+    """
+    exc_name = type(exc).__name__
+
+    # 连接层错误 — 可重试
+    if exc_name in ("APIConnectionError",):
+        return {
+            "error_code": "NETWORK_ERROR",
+            "error_message": f"无法连接 qBittorrent，请检查 qB 是否运行及网络连通性 ({exc})",
+            "retryable": True,
+        }
+
+    # 认证错误 — 不可重试，需用户修改配置
+    if exc_name in ("Forbidden403Error", "Unauthorized401Error"):
+        return {
+            "error_code": "AUTH_ERROR",
+            "error_message": f"qBittorrent 认证失败，请检查用户名密码配置 ({exc})",
+            "retryable": False,
+        }
+
+    # 404 — 目标不存在
+    if exc_name in ("NotFound404Error",):
+        return {
+            "error_code": "NOT_FOUND",
+            "error_message": f"目标不存在（种子 hash 无效或已被删除）({exc})",
+            "retryable": False,
+        }
+
+    # 409 — 冲突（通常为种子已存在）
+    if exc_name in ("Conflict409Error",):
+        return {
+            "error_code": "CONFLICT",
+            "error_message": f"种子已存在于 qBittorrent 中 ({exc})",
+            "retryable": False,
+        }
+
+    # 400 — 请求参数错误
+    if exc_name in ("InvalidRequest400Error", "MissingRequiredParameters400Error"):
+        return {
+            "error_code": "INVALID_REQUEST",
+            "error_message": f"请求参数无效: {exc}",
+            "retryable": False,
+        }
+
+    # 415 — 不支持的媒体类型
+    if exc_name in ("UnsupportedMediaType415Error",):
+        return {
+            "error_code": "INVALID_REQUEST",
+            "error_message": f"qBittorrent 不支持该请求类型 ({exc})",
+            "retryable": False,
+        }
+
+    # 5xx — qB 内部错误，可重试
+    if exc_name in ("InternalServerError500Error",):
+        return {
+            "error_code": "QB_INTERNAL_ERROR",
+            "error_message": f"qBittorrent 内部错误，可稍后重试 ({exc})",
+            "retryable": True,
+        }
+
+    # 文件错误
+    if exc_name in ("FileError", "TorrentFileError", "TorrentFileNotFoundError", "TorrentFilePermissionError"):
+        return {
+            "error_code": "FILE_ERROR",
+            "error_message": f"文件操作失败: {exc}",
+            "retryable": False,
+        }
+
+    # HTTP 基类 — 按状态码范围兜底
+    if exc_name in ("HTTP400Error", "HTTP4XXError"):
+        return {
+            "error_code": "CLIENT_ERROR",
+            "error_message": f"qBittorrent 请求错误 (4xx): {exc}",
+            "retryable": False,
+        }
+    if exc_name in ("HTTP500Error", "HTTP5XXError"):
+        return {
+            "error_code": "QB_INTERNAL_ERROR",
+            "error_message": f"qBittorrent 服务器错误 (5xx)，可稍后重试 ({exc})",
+            "retryable": True,
+        }
+
+    # 超时
+    if exc_name in ("TimeoutError",) or "timeout" in exc_name.lower():
+        return {
+            "error_code": "TIMEOUT",
+            "error_message": f"qBittorrent 请求超时 ({exc})",
+            "retryable": True,
+        }
+
+    # 通用 HTTP 错误
+    if exc_name in ("HTTPError", "APIError"):
+        return {
+            "error_code": "HTTP_ERROR",
+            "error_message": f"qBittorrent API 错误: {exc}",
+            "retryable": False,
+        }
+
+    # 未知异常
+    return {
+        "error_code": "UNKNOWN_ERROR",
+        "error_message": f"qBittorrent 未知错误: {exc}",
+        "retryable": False,
+    }
+
+
+def _build_error_result(exc: Exception, operation: str) -> dict[str, Any]:
+    """将异常 + 操作名包装为统一错误返回字典。"""
+    error = _classify_qb_error(exc)
+    logger.warning("qB %s failed code=%s retryable=%s exc=%s", operation, error["error_code"], error["retryable"], exc)
+    return {"ok": False, "status": "error", **error}
 
 
 def _read_value(payload: Any, key: str, default: Any = None) -> Any:
@@ -150,7 +276,11 @@ class QBittorrentAdapter:
         client = self.login()
         if client is None:
             return {}
-        categories = _read_value(_read_value(client, "torrent_categories"), "categories", {})
+        try:
+            categories = _read_value(_read_value(client, "torrent_categories"), "categories", {})
+        except Exception as exc:
+            logger.warning("qB list_categories failed: %s", exc)
+            return {}
         logger.info(
             "qB categories listed count=%s",
             len(categories) if isinstance(categories, dict) else 0,
@@ -169,7 +299,8 @@ class QBittorrentAdapter:
         """Submit tokenized URL to qB and return structured result."""
         client = self.login()
         if client is None:
-            return {"ok": False, "status": "not_configured", "qb_hash": None}
+            return {"ok": False, "status": "not_configured", "error_code": "NOT_CONFIGURED",
+                    "error_message": "qBittorrent 未配置，无法添加下载任务", "retryable": False}
         payload = self.build_add_payload(
             url=url,
             category=category,
@@ -185,7 +316,10 @@ class QBittorrentAdapter:
             len(payload.get("tags", [])),
             len(payload.get("rename", "")),
         )
-        raw_response = client.torrents_add(**payload)
+        try:
+            raw_response = client.torrents_add(**payload)
+        except Exception as exc:
+            return _build_error_result(exc, "add_torrent")
         body = str(raw_response).strip().lower()
         ok = body in {"ok.", "ok", "true"}
         submitted_status = "submitted_paused" if paused else "submitted"
@@ -204,12 +338,13 @@ class QBittorrentAdapter:
 
     def _serialize_torrent_row(self, torrent: Any) -> dict[str, Any]:
         tags_value = str(_read_value(torrent, "tags", "") or "")
+        state = str(_read_value(torrent, "state", "") or "")
         return {
             "hash": str(_read_value(torrent, "hash", "") or ""),
             "name": str(_read_value(torrent, "name", "") or ""),
             "category": str(_read_value(torrent, "category", "") or ""),
             "tags": [tag.strip() for tag in tags_value.split(",") if tag.strip()],
-            "state": str(_read_value(torrent, "state", "") or ""),
+            "state": state,
             "progress": float(_read_value(torrent, "progress", 0.0) or 0.0),
             "download_speed": int(_read_value(torrent, "dlspeed", 0) or 0),
             "upload_speed": int(_read_value(torrent, "upspeed", 0) or 0),
@@ -217,6 +352,39 @@ class QBittorrentAdapter:
             "save_path": str(_read_value(torrent, "save_path", "") or ""),
             "size": int(_read_value(torrent, "size", 0) or 0),
             "total_size": int(_read_value(torrent, "total_size", 0) or 0),
+        }
+
+    def _fetch_tracker_diagnostics(self, torrent_hash: str) -> dict[str, Any]:
+        """Fetch tracker-level error info for a single torrent.
+
+        Returns a dict with:
+            has_error: whether this torrent has reported tracker errors
+            error_summary: a one-line aggregate of all tracker error messages
+            trackers: list of {url, status, msg} for trackers with non-empty messages
+        """
+        client = self.login()
+        if client is None:
+            return {"has_error": False, "error_summary": "", "trackers": []}
+        try:
+            raw = client.torrents_trackers(torrent_hash=torrent_hash)
+        except Exception as exc:
+            logger.warning("qB tracker fetch failed hash=%s: %s", torrent_hash, exc)
+            return {"has_error": False, "error_summary": "", "trackers": []}
+
+        errors: list[dict[str, Any]] = []
+        for t in (raw or []):
+            msg = str(_read_value(t, "msg", "") or "").strip()
+            if msg:
+                errors.append({
+                    "url": str(_read_value(t, "url", "") or ""),
+                    "status": int(_read_value(t, "status", 0) or 0),
+                    "msg": msg,
+                })
+        summary = "; ".join(e["msg"] for e in errors) if errors else ""
+        return {
+            "has_error": bool(errors),
+            "error_summary": summary,
+            "trackers": errors,
         }
 
     def list_torrents(
@@ -248,7 +416,11 @@ class QBittorrentAdapter:
         if reverse is not None:
             kwargs["reverse"] = reverse
 
-        rows = client.torrents_info(**kwargs)
+        try:
+            rows = client.torrents_info(**kwargs)
+        except Exception as exc:
+            logger.warning("qB list_torrents failed: %s", exc)
+            return []
         serialized = [self._serialize_torrent_row(row) for row in rows]
         logger.info(
             "qB torrents listed result_count=%s category=%s tag=%s status_filter=%s",
@@ -269,12 +441,20 @@ class QBittorrentAdapter:
         if client is None:
             return None
 
-        rows = client.torrents_info(torrent_hashes=clean_hash)
+        try:
+            rows = client.torrents_info(torrent_hashes=clean_hash)
+        except Exception as exc:
+            logger.warning("qB get_torrent failed hash=%s: %s", clean_hash, exc)
+            return None
         if not rows:
             logger.info("qB torrent detail not found qb_hash=%s", clean_hash)
             return None
         result = self._serialize_torrent_row(rows[0])
-        properties = client.torrents_properties(torrent_hash=clean_hash)
+        try:
+            properties = client.torrents_properties(torrent_hash=clean_hash)
+        except Exception as exc:
+            logger.warning("qB torrent properties failed hash=%s: %s", clean_hash, exc)
+            properties = {}
         result.update(
             {
                 "comment": str(_read_value(properties, "comment", "") or ""),
@@ -283,7 +463,11 @@ class QBittorrentAdapter:
                 "creation_date": int(_read_value(properties, "creation_date", 0) or 0),
             }
         )
-        logger.info("qB torrent detail fetched qb_hash=%s state=%s", clean_hash, result.get("state"))
+        # Fetch tracker errors for diagnostic visibility
+        diagnostics = self._fetch_tracker_diagnostics(clean_hash)
+        result.update(diagnostics)
+        logger.info("qB torrent detail fetched qb_hash=%s state=%s has_error=%s",
+                     clean_hash, result.get("state"), diagnostics.get("has_error"))
         return result
 
     def control_torrent(
@@ -311,7 +495,8 @@ class QBittorrentAdapter:
 
         client = self.login()
         if client is None:
-            return {"ok": False, "status": "not_configured", "qb_hash": clean_hash}
+            return {"ok": False, "status": "not_configured", "error_code": "NOT_CONFIGURED",
+                    "error_message": "qBittorrent 未配置", "retryable": False, "qb_hash": clean_hash}
 
         logger.info(
             "qB torrent action started qb_hash=%s action=%s delete_files=%s",
@@ -319,19 +504,22 @@ class QBittorrentAdapter:
             normalized_action,
             delete_files,
         )
-        if normalized_action == "pause":
-            client.torrents_pause(torrent_hashes=clean_hash)
-        elif normalized_action == "resume":
-            client.torrents_resume(torrent_hashes=clean_hash)
-        elif normalized_action == "recheck":
-            client.torrents_recheck(torrent_hashes=clean_hash)
-        elif normalized_action == "reannounce":
-            client.torrents_reannounce(torrent_hashes=clean_hash)
-        else:
-            client.torrents_delete(
-                torrent_hashes=clean_hash,
-                delete_files=delete_files,
-            )
+        try:
+            if normalized_action == "pause":
+                client.torrents_pause(torrent_hashes=clean_hash)
+            elif normalized_action == "resume":
+                client.torrents_resume(torrent_hashes=clean_hash)
+            elif normalized_action == "recheck":
+                client.torrents_recheck(torrent_hashes=clean_hash)
+            elif normalized_action == "reannounce":
+                client.torrents_reannounce(torrent_hashes=clean_hash)
+            else:
+                client.torrents_delete(
+                    torrent_hashes=clean_hash,
+                    delete_files=delete_files,
+                )
+        except Exception as exc:
+            return _build_error_result(exc, f"control_torrent/{normalized_action}")
         logger.info("qB torrent action finished qb_hash=%s action=%s", clean_hash, normalized_action)
         return {"ok": True, "status": normalized_action, "qb_hash": clean_hash}
 
@@ -343,12 +531,17 @@ class QBittorrentAdapter:
         """Set global transfer speed limits in bytes/s. None means no change."""
         client = self.login()
         if client is None:
-            return {"ok": False, "status": "not_configured", "upload_limit": upload_limit, "download_limit": download_limit}
+            return {"ok": False, "status": "not_configured", "error_code": "NOT_CONFIGURED",
+                    "error_message": "qBittorrent 未配置", "retryable": False,
+                    "upload_limit": upload_limit, "download_limit": download_limit}
 
-        if upload_limit is not None:
-            client.transfer.upload_limit = upload_limit
-        if download_limit is not None:
-            client.transfer.download_limit = download_limit
+        try:
+            if upload_limit is not None:
+                client.transfer.upload_limit = upload_limit
+            if download_limit is not None:
+                client.transfer.download_limit = download_limit
+        except Exception as exc:
+            return _build_error_result(exc, "set_global_speed")
 
         logger.info(
             "qB global speed limits set upload_limit=%s download_limit=%s",
@@ -373,15 +566,21 @@ class QBittorrentAdapter:
             return {
                 "ok": False,
                 "status": "not_configured",
+                "error_code": "NOT_CONFIGURED",
+                "error_message": "qBittorrent 未配置",
+                "retryable": False,
                 "torrent_hash": clean_hash,
                 "upload_limit": upload_limit,
                 "download_limit": download_limit,
             }
 
-        if upload_limit is not None:
-            client.torrents_set_upload_limit(torrent_hashes=clean_hash, limit=upload_limit)
-        if download_limit is not None:
-            client.torrents_set_download_limit(torrent_hashes=clean_hash, limit=download_limit)
+        try:
+            if upload_limit is not None:
+                client.torrents_set_upload_limit(torrent_hashes=clean_hash, limit=upload_limit)
+            if download_limit is not None:
+                client.torrents_set_download_limit(torrent_hashes=clean_hash, limit=download_limit)
+        except Exception as exc:
+            return _build_error_result(exc, "set_torrent_speed")
 
         logger.info(
             "qB torrent speed limits set hash=%s upload_limit=%s download_limit=%s",

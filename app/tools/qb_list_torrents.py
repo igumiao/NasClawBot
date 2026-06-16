@@ -89,7 +89,27 @@ class QBListTorrentsTool(Tool):
                 data={"torrents": [], "count": 0},
             )
 
+        # 统计各状态数量，特别标注错误状态
+        from collections import Counter
+        state_counts = Counter(str(t.get("state", "unknown")).lower() for t in torrents)
+        state_parts = [f"{state}={count}" for state, count in state_counts.items()]
+        summary = f"共 {len(torrents)} 个种子任务 ({', '.join(state_parts)})"
+
+        error_count = state_counts.get("error", 0)
+        if error_count:
+            error_names = [
+                t.get("name", t.get("hash", "?"))
+                for t in torrents
+                if str(t.get("state", "")).lower() == "error"
+            ]
+            summary += (
+                f"\n⚠️ {error_count} 个种子处于错误状态。"
+                f" 可使用 qb_get_torrent 查询具体错误原因。"
+                f"\n错误种子: {', '.join(error_names[:10])}"
+                + (" ..." if len(error_names) > 10 else "")
+            )
+
         return ToolResponse.success(
-            text=f"共 {len(torrents)} 个种子任务。",
+            text=summary,
             data={"torrents": torrents, "count": len(torrents)},
         )

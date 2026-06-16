@@ -45,7 +45,20 @@ class QBGetTorrentTool(Tool):
                 message=f"未找到种子: {torrent_hash}",
             )
 
+        name = torrent.get("name", torrent_hash)
+        state = torrent.get("state", "")
+        summary = f"种子详情: {name} (状态: {state})"
+
+        # 附加错误诊断信息
+        error_summary = torrent.get("error_summary", "")
+        if error_summary:
+            summary += f"\n⚠️ 错误信息: {error_summary}"
+        trackers = torrent.get("trackers", [])
+        if trackers:
+            tracker_lines = "\n".join(f"  - [{t.get('status')}] {t.get('msg')}" for t in trackers)
+            summary += f"\nTracker 错误详情:\n{tracker_lines}"
+
         return ToolResponse.success(
-            text=f"种子详情: {torrent.get('name', torrent_hash)}",
+            text=summary,
             data={"torrent": torrent},
         )

@@ -251,6 +251,10 @@ def test_qb_get_torrent_returns_combined_info_and_properties(monkeypatch: pytest
                 creation_date=1710000000,
             )
 
+        def torrents_trackers(self, **kwargs):
+            _ = kwargs
+            return []
+
     monkeypatch.setattr(qb_module, "qbittorrentapi", SimpleNamespace(Client=FakeClient), raising=False)
 
     row = adapter.get_torrent("abc123")
@@ -272,7 +276,10 @@ def test_qb_get_torrent_returns_combined_info_and_properties(monkeypatch: pytest
         "total_uploaded": 999,
         "share_ratio": 0.5,
         "creation_date": 1710000000,
-    }, "get_torrent should merge info and properties into one row"
+        "has_error": False,
+        "error_summary": "",
+        "trackers": [],
+    }, "get_torrent should merge info, properties, and tracker diagnostics into one row"
 
 
 def test_qb_get_torrent_returns_none_when_missing(monkeypatch: pytest.MonkeyPatch):

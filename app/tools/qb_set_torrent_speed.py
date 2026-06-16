@@ -82,7 +82,11 @@ class QBSetTorrentSpeedTool(Tool):
                 data={"result": result},
             )
 
+        error_code = result.get("error_code", "UNKNOWN")
+        error_message = result.get("error_message", str(result))
+        retryable = result.get("retryable", False)
+        retry_hint = " (可重试)" if retryable else ""
         return ToolResponse.error(
-            code="EXECUTION_FAILED",
-            message=f"设置失败: {result.get('status', 'unknown')}",
+            code=error_code,
+            message=f"[{error_code}] {error_message}{retry_hint} (hash={torrent_hash})",
         )
