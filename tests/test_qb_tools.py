@@ -286,12 +286,11 @@ def test_qb_set_torrent_speed_empty_hash():
 
 
 def test_qb_add_torrent_category_optional_with_presets():
-    """qb_category should be optional with preset enum values."""
+    """qb_category has been removed — downloads go directly to inbox without categorization."""
     tool = QBAddTorrentTool(MagicMock(), MagicMock())
     params = {p.name: p for p in tool.get_parameters()}
 
-    assert params["qb_category"].required is False
-    assert params["qb_category"].enum == ["电影", "电视剧", "综艺", "动漫", "纪录片", "其他"]
+    assert "qb_category" not in params, "qb_category should no longer be exposed to the LLM"
 
 
 def test_qb_add_torrent_has_save_path_param():

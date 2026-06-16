@@ -42,7 +42,7 @@ class QBAddTorrentsTool(Tool):
                 type="array",
                 description=(
                     "要添加的 torrent 列表。每项是对象："
-                    '{"torrent_id":"M-Team torrent ID","qb_category":"电影|电视剧|综艺|动漫|纪录片|其他","save_path":"可选保存路径"}'
+                    '{"torrent_id":"M-Team torrent ID","save_path":"可选保存路径"}'
                 ),
                 required=True,
             ),
