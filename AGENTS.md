@@ -129,7 +129,7 @@ Key design points:
 
 ### Docker Deployment
 
-`Dockerfile` installs Node.js (for `npx`/MCP) alongside Python dependencies. `docker-compose.yml` uses host networking and volume mapping for NAS media paths. See `.env` for configuration.
+`Dockerfile` installs Node.js (for `npx`/MCP) alongside Python dependencies. Container listens on fixed 8000; `docker-compose.yml` maps `${APP_PORT:-8000}:8000` for host port selection. Volume mapping for NAS media paths. See `.env` for configuration.
 
 ## Dev Commands
 

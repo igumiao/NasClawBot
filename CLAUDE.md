@@ -235,7 +235,7 @@ Generic MCP (Model Context Protocol) client bridge — JSON-RPC 2.0 over STDIO t
 
 ### Docker Deployment
 
-`Dockerfile` installs Node.js (for `npx`/MCP) alongside Python dependencies. `docker-compose.yml` uses host networking and volume mapping for NAS media paths. See `.env` for configuration.
+`Dockerfile` installs Node.js (for `npx`/MCP) alongside Python dependencies. Container listens on fixed port 8000; `docker-compose.yml` maps `${APP_PORT:-8000}:8000` so users can choose the host port. Volume mapping for NAS media paths. See `.env` for configuration.
 
 ### Current Agent Loop
 
