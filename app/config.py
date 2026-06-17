@@ -77,7 +77,7 @@ class Settings(BaseModel):
     tavily_api_key: str = Field(default_factory=lambda: _get_env("TAVILY_API_KEY"))
     database_path: str = Field(default_factory=lambda: _get_env("DATABASE_PATH", "nas_media_agent.db"))
     download_default_save_path: str = Field(
-        default_factory=lambda: _get_env("DOWNLOAD_DEFAULT_SAVE_PATH", "/vol1/1000/影视/未整理"),
+        default_factory=lambda: _get_env("DOWNLOAD_DEFAULT_SAVE_PATH", ""),
     )
 
 
