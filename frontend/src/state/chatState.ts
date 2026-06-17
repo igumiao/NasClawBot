@@ -4,6 +4,7 @@ import type {
   AgentSessionMessage,
   AgentToolCall,
   ChatResponse,
+  ContextUsage,
   PendingApproval,
   ResourceCandidate
 } from "../types/api";
@@ -27,6 +28,7 @@ export type ChatState = {
   isSubmitting: boolean;
   isRestoring: boolean;
   lastError: string | null;
+  contextUsage: ContextUsage | null;
 };
 
 export type ChatAction =
@@ -48,6 +50,7 @@ export function createSessionId(): string {
 export function chatInitialState(sessionId = createSessionId()): ChatState {
   return {
     sessionId,
+    contextUsage: null,
     messages: [],
     pendingApproval: null,
     isSubmitting: false,
@@ -308,7 +311,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         messages: appendChatResponse(state.messages, action.response),
         pendingApproval: action.response.pending_approvals[0] ?? null,
         isSubmitting: false,
-        lastError: action.response.error
+        lastError: action.response.error,
+        contextUsage: action.response.context_usage ?? state.contextUsage,
       };
     case "approval_started":
       return { ...state, isSubmitting: true, lastError: null };
@@ -335,7 +339,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         messages,
         pendingApproval: pendingApprovals[0] ?? null,
         isSubmitting: false,
-        lastError: action.response.error
+        lastError: action.response.error,
+        contextUsage: action.response.context_usage ?? state.contextUsage,
       };
     }
     case "approval_expired": {
@@ -365,7 +370,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         messages: restoreMessages(action.response),
         pendingApproval: pendingApprovalFromSession(action.response),
         isRestoring: false,
-        lastError: null
+        lastError: null,
+        contextUsage: (action.response.metadata?.context_usage as ContextUsage) ?? null,
       };
     case "session_restore_finished":
       return { ...state, isRestoring: false };

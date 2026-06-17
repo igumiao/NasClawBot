@@ -63,6 +63,15 @@ export type PendingApproval = {
   risk: ApprovalRisk;
 };
 
+export type ContextUsage = {
+  context_window: number;
+  prompt_tokens: number;
+  cache_hit_tokens: number;
+  cache_miss_tokens: number;
+  usage_pct?: number;
+  cache_hit_rate?: number | null;
+};
+
 export type ChatResponse = {
   session_id: string;
   status: string;
@@ -71,6 +80,7 @@ export type ChatResponse = {
   tool_calls: AgentToolCall[];
   pending_approvals: PendingApproval[];
   error: string | null;
+  context_usage: ContextUsage | null;
 };
 
 export type AgentApprovalResponse = {
@@ -81,6 +91,7 @@ export type AgentApprovalResponse = {
   receipt: Record<string, unknown> | null;
   pending_approvals?: PendingApproval[];
   error: string | null;
+  context_usage?: ContextUsage | null;
 };
 
 export type AgentSessionMessage = {

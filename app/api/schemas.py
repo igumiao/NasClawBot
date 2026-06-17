@@ -2,10 +2,34 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.domain.authorization import DownloadAuthorizationPolicy
 from app.domain.models import ResourceCandidate
+
+
+class ContextUsage(BaseModel):
+    """Last model request prompt-context utilization snapshot."""
+
+    context_window: int = 64000
+    prompt_tokens: int = 0
+    cache_hit_tokens: int = 0
+    cache_miss_tokens: int = 0
+
+    @computed_field
+    @property
+    def usage_pct(self) -> float:
+        if self.context_window <= 0:
+            return 0.0
+        return round(self.prompt_tokens / self.context_window * 100, 1)
+
+    @computed_field
+    @property
+    def cache_hit_rate(self) -> float | None:
+        total = self.cache_hit_tokens + self.cache_miss_tokens
+        if total <= 0:
+            return None
+        return round(self.cache_hit_tokens / total * 100, 1)
 
 
 class ChatRequest(BaseModel):
@@ -25,6 +49,7 @@ class ChatResponse(BaseModel):
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     pending_approvals: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
+    context_usage: ContextUsage | None = None
 
 
 class AgentSessionSummary(BaseModel):
@@ -77,6 +102,7 @@ class AgentApprovalResponse(BaseModel):
     receipt: dict[str, Any] | None = None
     pending_approvals: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
+    context_usage: ContextUsage | None = None
 
 
 class AgentApprovalDecisionRequest(BaseModel):

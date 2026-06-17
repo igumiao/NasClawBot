@@ -841,10 +841,20 @@ class ToolCallingLoop:
         return response.content or "审批结果已记录。"
 
     def _log_model_output(self, step: int, response: Any) -> None:
+        usage = response.usage or {}
+
+        # 记录上次模型请求的输入上下文用量，供前端指示器使用。
+        if usage.get("prompt_tokens"):
+            self.agent._last_context_usage = {
+                "context_window": self.agent.config.context_window,
+                "prompt_tokens": usage["prompt_tokens"],
+                "cache_hit_tokens": usage.get("prompt_cache_hit_tokens", 0),
+                "cache_miss_tokens": usage.get("prompt_cache_miss_tokens", 0),
+            }
+
         if not self.agent.trace_logger:
             return
 
-        usage = response.usage or {}
         self.agent.trace_logger.log_event(
             "model_output",
             {
