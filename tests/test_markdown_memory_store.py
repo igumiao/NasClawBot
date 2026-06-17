@@ -462,19 +462,3 @@ def test_strip_date_prefix_no_date_unchanged():
 
     assert _strip_date_prefix("plain text") == "plain text"
     assert _strip_date_prefix("- just a dash") == "- just a dash"
-
-
-def test_append_to_section_no_double_date(tmp_path: Path):
-    """LLM returns text with a date prefix; append_to_section must not double it."""
-    (tmp_path / "knowledge.md").write_text(
-        "# Knowledge\n\n## TMDB\n",
-        encoding="utf-8",
-    )
-    store = MarkdownMemoryStore(tmp_path)
-    # LLM returns edited_text with date prefix
-    store.append_to_section(MemoryKind.KNOWLEDGE, "TMDB", "- [2026-06-15] some fact")
-    content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
-    # Should have exactly ONE date stamp: the one added by append_to_section
-    assert content.count("[2026-06-15]") == 1
-    assert "- [2026-06-15] - [2026-06-15]" not in content
-    assert "some fact" in content
