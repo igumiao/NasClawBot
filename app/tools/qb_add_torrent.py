@@ -1,7 +1,9 @@
-"""QBAddTorrentTool — M-Team detail → genDlToken → qB add (paused)."""
+"""QBAddTorrentTool — M-Team detail → genDlToken → qB add (paused) → community subtitles."""
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any
 
 from hello_agents.tools.base import Tool, ToolParameter
@@ -10,6 +12,8 @@ from hello_agents.tools.response import ToolResponse
 from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
 from app.services.receipt_service import build_receipt
+
+logger = logging.getLogger(__name__)
 
 
 class QBAddTorrentTool(Tool):
@@ -94,6 +98,15 @@ class QBAddTorrentTool(Tool):
             title = str(detail.get("title") or torrent_id)
             qb_hash = add_result.get("qb_hash")
             status = str(add_result.get("status", "submitted_paused"))
+
+            # Auto-download community subtitles when available.
+            subtitle_count = 0
+            if detail.get("hasChineseSubtitle"):
+                subtitle_count = self._download_subtitles(
+                    torrent_id=torrent_id,
+                    save_path=save_path,
+                )
+
             receipt = build_receipt(
                 resource_title=title,
                 external_id=torrent_id,
@@ -114,3 +127,51 @@ class QBAddTorrentTool(Tool):
             code=error_code,
             message=f"[{error_code}] {error_message}{retry_hint} (torrent_id={torrent_id})",
         )
+
+    def _download_subtitles(
+        self, *, torrent_id: str, save_path: str | None,
+    ) -> int:
+        """Download community subtitles for a torrent to save_path.
+
+        Non-blocking: failures are logged but never raised.
+        Returns the number of successfully downloaded subtitle files.
+        """
+        subs = self._mteam.list_subtitles(torrent_id)
+        if not subs:
+            return 0
+
+        target_dir = save_path or ""
+        if target_dir:
+            try:
+                os.makedirs(target_dir, exist_ok=True)
+            except OSError:
+                logger.exception(
+                    "Cannot create subtitle target dir torrent_id=%s path=%s",
+                    torrent_id, target_dir,
+                )
+                return 0
+
+        downloaded = 0
+        for sub in subs:
+            sub_id = str(sub.get("id", "")).strip()
+            filename = str(sub.get("filename") or f"subtitle_{sub_id}.srt").strip()
+            if not sub_id:
+                continue
+            content = self._mteam.download_subtitle_bytes(sub_id)
+            if content is None:
+                continue
+            out_path = os.path.join(target_dir, filename) if target_dir else filename
+            try:
+                with open(out_path, "wb") as fh:
+                    fh.write(content)
+                downloaded += 1
+                logger.info(
+                    "Subtitle saved torrent_id=%s subtitle_id=%s path=%s size=%s",
+                    torrent_id, sub_id, out_path, len(content),
+                )
+            except OSError:
+                logger.exception(
+                    "Failed to write subtitle torrent_id=%s subtitle_id=%s path=%s",
+                    torrent_id, sub_id, out_path,
+                )
+        return downloaded

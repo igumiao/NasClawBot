@@ -145,6 +145,7 @@ class MTeamSearchTool(Tool):
             labels_new: list[str] = [
                 str(tag).strip() for tag in raw.get("labelsNew", [])
             ] if isinstance(raw, dict) and isinstance(raw.get("labelsNew"), list) else []
+            has_chinese_subtitle = bool(row.get("has_chinese_subtitle"))
             candidates.append(
                 ResourceCandidate(
                     id=str(row.get("id")),
@@ -165,6 +166,7 @@ class MTeamSearchTool(Tool):
                         name=name,
                         small_description=small_description or "",
                         labels_new=labels_new,
+                        has_chinese_subtitle=has_chinese_subtitle,
                     ),
                 )
             )
@@ -227,11 +229,13 @@ class MTeamSearchTool(Tool):
     @classmethod
     def _detect_subtitle_flags(
         cls, *, name: str, small_description: str, labels_new: list[str],
+        has_chinese_subtitle: bool = False,
     ) -> list[str]:
         """Detect subtitle flags from M-Team metadata.
 
-        Priority: labelsNew (official uploader tags) → keyword match on
-        name + smallDescr (fallback for older torrents without labelsNew).
+        Priority: labelsNew (uploader tags) → hasChineseSubtitle
+        (community-submitted subtitle auto-detection) → keyword match on
+        name + smallDescr (fallback for older torrents).
         Returns an ordered deduplicated list of flags (中字 / 中英 / 特效).
         """
         seen: set[str] = set()
@@ -242,7 +246,15 @@ class MTeamSearchTool(Tool):
             flags.append("中字")
             seen.add("中字")
 
-        # Tier 2: keyword matching on name + smallDescr as fallback.
+        # Tier 2: hasChineseSubtitle — system auto-tag from community
+        # uploaded subtitles (字幕区用户上传中文字幕后系统自动标识).
+        # Uses a distinct "社区字幕" flag so the frontend can style it
+        # differently from the uploader-tagged "中字" label.
+        if has_chinese_subtitle:
+            flags.append("社区字幕")
+            seen.add("社区字幕")
+
+        # Tier 3: keyword matching on name + smallDescr as fallback.
         source_text = f"{name}  {small_description}"
         if source_text.strip():
             for flag_name, pattern in _SUBTITLE_PATTERNS:

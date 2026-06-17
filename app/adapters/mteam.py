@@ -227,6 +227,7 @@ class MTeamAdapter:
                     "title": name or small_description or f"M-Team {torrent_id}",
                     "name": name or small_description or f"M-Team {torrent_id}",
                     "small_description": small_description or None,
+                    "has_chinese_subtitle": bool(item.get("hasChineseSubtitle")),
                     "seeders": seeders,
                     "leechers": leechers,
                     "discount": discount,
@@ -405,6 +406,55 @@ class MTeamAdapter:
         except Exception:
             logger.exception("M-Team health check failed: unexpected error")
             return "error"
+
+    # ── Subtitle API ──────────────────────────────────────────────────
+
+    def subtitle_list_endpoint(self) -> str:
+        return f"{self._normalized_base_url()}/api/subtitle/list"
+
+    def list_subtitles(self, torrent_id: str) -> list[dict[str, Any]]:
+        """List community-uploaded subtitle entries for a torrent.
+
+        Returns a list of subtitle dicts with keys: id, filename, ext,
+        size, lang, torrent, createdDate.
+        """
+        if not self._is_configured():
+            logger.warning("Subtitle list skipped: adapter not configured torrent_id=%s", torrent_id)
+            return []
+        logger.info("Subtitle list started torrent_id=%s", torrent_id)
+        payload = {"id": torrent_id.strip()}
+        raw = self._post(self.subtitle_list_endpoint(), data_payload=payload)
+        data = self._response_data_or_none(raw)
+        if isinstance(data, list):
+            logger.info("Subtitle list finished torrent_id=%s count=%s", torrent_id, len(data))
+            return data
+        logger.info("Subtitle list finished torrent_id=%s empty", torrent_id)
+        return []
+
+    def download_subtitle_bytes(self, subtitle_id: str) -> bytes | None:
+        """Download a subtitle file by its ID. Returns raw bytes or None."""
+        if not self._is_configured():
+            return None
+        url = f"{self._normalized_base_url()}/api/subtitle/dl?id={subtitle_id.strip()}"
+        try:
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                response = client.get(url, headers=self.build_headers())
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "").lower()
+                if "application/octet-stream" in content_type:
+                    logger.info(
+                        "Subtitle downloaded subtitle_id=%s size=%s",
+                        subtitle_id, len(response.content),
+                    )
+                    return response.content
+                logger.warning(
+                    "Subtitle download unexpected content-type subtitle_id=%s ct=%s",
+                    subtitle_id, content_type,
+                )
+                return None
+        except httpx.HTTPError:
+            logger.exception("Subtitle download failed subtitle_id=%s", subtitle_id)
+            return None
 
     @staticmethod
     def _format_size(size_value: Any) -> str:
