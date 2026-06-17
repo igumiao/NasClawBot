@@ -22,6 +22,18 @@ const MOCK_POLICY_RESPONSE = {
   paused_required: true
 };
 
+const MOCK_TMDB_NETWORK_RESPONSE = {
+  enabled: false,
+  proxy_url: ""
+};
+
+const MOCK_TMDB_HEALTH_RESPONSE = {
+  service: "tmdb",
+  status: "ok",
+  latency_ms: 45.2,
+  message: "TMDB API 响应正常"
+};
+
 function mockSettingsFetch() {
   return vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const url = String(input);
@@ -31,8 +43,21 @@ function mockSettingsFetch() {
         headers: { "Content-Type": "application/json" },
       }));
     }
+    if (url === "/health/services/tmdb") {
+      return Promise.resolve(new Response(JSON.stringify(MOCK_TMDB_HEALTH_RESPONSE), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    }
     if (url === "/settings/download-authorization") {
       const body = init?.method === "PUT" ? init.body : JSON.stringify(MOCK_POLICY_RESPONSE);
+      return Promise.resolve(new Response(String(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    }
+    if (url === "/settings/tmdb-network") {
+      const body = init?.method === "PUT" ? init.body : JSON.stringify(MOCK_TMDB_NETWORK_RESPONSE);
       return Promise.resolve(new Response(String(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -101,10 +126,10 @@ describe("SettingsPanel", () => {
     expect(refreshBtn).toBeInTheDocument();
 
     // Initial fetch happened on mount
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
 
     await userEvent.click(refreshBtn);
-    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
   });
 
   it("shows error banner on fetch failure", async () => {
@@ -120,6 +145,53 @@ describe("SettingsPanel", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Network error");
+  });
+
+  it("saves TMDB network proxy settings", async () => {
+    const fetchSpy = mockSettingsFetch();
+
+    render(
+      <SettingsPanel
+        id="workspace-panel-settings"
+        labelledBy="workspace-tab-settings"
+        sessionId="session-4"
+      />,
+    );
+
+    await userEvent.click(await screen.findByLabelText("为 TMDB 请求启用代理"));
+    await userEvent.type(screen.getByLabelText("代理地址"), "http://127.0.0.1:7890");
+    await userEvent.click(screen.getByRole("button", { name: "保存 TMDB 网络设置" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("TMDB API 响应正常");
+    const putCall = fetchSpy.mock.calls.find(([url, init]) => String(url) === "/settings/tmdb-network" && init?.method === "PUT");
+    expect(putCall).toBeTruthy();
+    expect(JSON.parse(String(putCall?.[1]?.body))).toMatchObject({
+      enabled: true,
+      proxy_url: "http://127.0.0.1:7890"
+    });
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url) === "/health/services")).toHaveLength(1);
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url) === "/health/services/tmdb")).toHaveLength(1);
+    expect(screen.getByText("正常 · 45.2 ms")).toBeInTheDocument();
+  });
+
+  it("tests only TMDB from the TMDB network card", async () => {
+    const fetchSpy = mockSettingsFetch();
+
+    render(
+      <SettingsPanel
+        id="workspace-panel-settings"
+        labelledBy="workspace-tab-settings"
+        sessionId="session-5"
+      />,
+    );
+
+    expect(await screen.findByText("未测试")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "测试 TMDB 连接" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("TMDB API 响应正常");
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url) === "/health/services")).toHaveLength(1);
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url) === "/health/services/tmdb")).toHaveLength(1);
+    expect(screen.getByText("正常 · 45.2 ms")).toBeInTheDocument();
   });
 
 });

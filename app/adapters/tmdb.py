@@ -36,6 +36,7 @@ class TMDBAdapter:
     api_key: str
     base_url: str = "https://api.themoviedb.org"
     timeout_seconds: float = 10.0
+    proxy_url: str | None = None
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -85,7 +86,7 @@ class TMDBAdapter:
         logger.debug("TMDB GET %s params=%s", url, params)
 
         try:
-            with httpx.Client(timeout=effective_timeout) as client:
+            with httpx.Client(**self._client_kwargs(effective_timeout)) as client:
                 response = client.get(url, params=params)
                 response.raise_for_status()
                 data: dict[str, Any] = response.json()
@@ -207,7 +208,7 @@ class TMDBAdapter:
         logger.info("TMDB health check started")
 
         try:
-            with httpx.Client(timeout=self.timeout_seconds) as client:
+            with httpx.Client(**self._client_kwargs(self.timeout_seconds)) as client:
                 response = client.get(url, params=params)
                 response.raise_for_status()
             return "ok"
@@ -223,3 +224,11 @@ class TMDBAdapter:
         except Exception:
             logger.exception("TMDB health check failed: unexpected error")
             return "error"
+
+    def _client_kwargs(self, timeout: float) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {"timeout": timeout}
+        proxy_url = (self.proxy_url or "").strip()
+        if proxy_url:
+            kwargs["proxy"] = proxy_url
+            kwargs["trust_env"] = False
+        return kwargs

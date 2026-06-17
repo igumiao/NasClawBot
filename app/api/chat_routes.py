@@ -28,10 +28,12 @@ from app.api.schemas import (
     HealthServicesResponse,
     ServiceHealth,
     SessionUpdateRequest,
+    TMDBNetworkSettingsResponse,
 )
 from app.config import get_settings
 from app.domain.authorization import DownloadAuthorizationPolicy
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
+from app.services.tmdb_network_store import TMDBNetworkSettingsStore
 from app.tools import QBAddTorrentTool
 from hello_agents.checkpoints import JSONConversationCheckpointStore
 
@@ -69,7 +71,11 @@ def _build_qb_adapter() -> QBittorrentAdapter:
 
 def _build_tmdb_adapter() -> TMDBAdapter:
     settings = get_settings()
-    return TMDBAdapter(api_key=settings.tmdb_api_key)
+    tmdb_network = _tmdb_network_store().load()
+    return TMDBAdapter(
+        api_key=settings.tmdb_api_key,
+        proxy_url=tmdb_network.active_proxy_url,
+    )
 
 
 def _build_tavily_adapter() -> TavilyAdapter:
@@ -85,6 +91,10 @@ def _download_authorization_store() -> DownloadAuthorizationPolicyStore:
     return DownloadAuthorizationPolicyStore(_SETTINGS_DIR)
 
 
+def _tmdb_network_store() -> TMDBNetworkSettingsStore:
+    return TMDBNetworkSettingsStore(_SETTINGS_DIR)
+
+
 def build_router() -> APIRouter:
     selected_index = _select_frontend_index()
     router = APIRouter()
@@ -95,6 +105,30 @@ def build_router() -> APIRouter:
         """Basic liveness probe used by local checks/tests."""
         return {"status": "ok"}
 
+    _LABELS: dict[str, str] = {
+        "tmdb": "TMDB",
+        "tavily": "Tavily",
+        "mteam": "M-Team",
+        "qbittorrent": "qBittorrent",
+    }
+    _MESSAGES: dict[str, str] = {
+        "ok": "{} API 响应正常",
+        "unavailable": "{} 无法连接",
+        "unconfigured": "{} 未配置",
+        "error": "{} 返回错误",
+    }
+
+    def _check_service(svc: str, adapter: object) -> ServiceHealth:
+        t0 = time.perf_counter()
+        st = getattr(adapter, "health")()
+        elapsed = (time.perf_counter() - t0) * 1000.0
+        return ServiceHealth(
+            service=svc,
+            status=st,
+            latency_ms=round(elapsed, 1),
+            message=_MESSAGES.get(st, st).format(_LABELS.get(svc, svc)),
+        )
+
     @router.get("/health/services", response_model=HealthServicesResponse)
     def health_services() -> HealthServicesResponse:
         """Check reachability of all configured external service dependencies.
@@ -104,30 +138,11 @@ def build_router() -> APIRouter:
         otherwise.  Unconfigured services are reported but do not degrade
         the overall status.
         """
-        _LABELS: dict[str, str] = {
-            "tmdb": "TMDB",
-            "tavily": "Tavily",
-            "mteam": "M-Team",
-            "qbittorrent": "qBittorrent",
-        }
-        _MESSAGES: dict[str, str] = {
-            "ok": "{} API 响应正常",
-            "unavailable": "{} 无法连接",
-            "unconfigured": "{} 未配置",
-            "error": "{} 返回错误",
-        }
-
-        def _check(svc: str, adapter: object) -> tuple[str, str, float]:
-            t0 = time.perf_counter()
-            st = getattr(adapter, "health")()
-            elapsed = (time.perf_counter() - t0) * 1000.0
-            return (svc, st, round(elapsed, 1))
-
         results = [
-            _check("tmdb", _build_tmdb_adapter()),
-            _check("tavily", _build_tavily_adapter()),
-            _check("mteam", _build_mteam_adapter()),
-            _check("qbittorrent", _build_qb_adapter()),
+            _check_service("tmdb", _build_tmdb_adapter()),
+            _check_service("tavily", _build_tavily_adapter()),
+            _check_service("mteam", _build_mteam_adapter()),
+            _check_service("qbittorrent", _build_qb_adapter()),
         ]
 
         def _is_healthy(s: str) -> bool:
@@ -135,22 +150,20 @@ def build_router() -> APIRouter:
 
         overall = (
             "ok"
-            if all(_is_healthy(st) for (_, st, _) in results)
+            if all(_is_healthy(result.status) for result in results)
             else "degraded"
         )
 
         return HealthServicesResponse(
             status=overall,
-            services=[
-                ServiceHealth(
-                    service=svc,
-                    status=st,
-                    latency_ms=el,
-                    message=_MESSAGES.get(st, st).format(_LABELS.get(svc, svc)),
-                )
-                for (svc, st, el) in results
-            ],
+            services=results,
         )
+
+    @router.get("/health/services/tmdb", response_model=ServiceHealth)
+    def health_tmdb_service() -> ServiceHealth:
+        """Check only TMDB reachability and credentials."""
+
+        return _check_service("tmdb", _build_tmdb_adapter())
 
     @router.get("/settings/download-authorization", response_model=DownloadAuthorizationPolicyResponse)
     def get_download_authorization_policy() -> DownloadAuthorizationPolicyResponse:
@@ -167,6 +180,22 @@ def build_router() -> APIRouter:
 
         policy = _download_authorization_store().save(body)
         return DownloadAuthorizationPolicyResponse.model_validate(policy.model_dump())
+
+    @router.get("/settings/tmdb-network", response_model=TMDBNetworkSettingsResponse)
+    def get_tmdb_network_settings() -> TMDBNetworkSettingsResponse:
+        """Return TMDB-specific network override settings."""
+
+        settings = _tmdb_network_store().load()
+        return TMDBNetworkSettingsResponse.model_validate(settings.model_dump())
+
+    @router.put("/settings/tmdb-network", response_model=TMDBNetworkSettingsResponse)
+    def update_tmdb_network_settings(
+        body: TMDBNetworkSettingsResponse,
+    ) -> TMDBNetworkSettingsResponse:
+        """Persist TMDB-specific network override settings."""
+
+        settings = _tmdb_network_store().save(body)
+        return TMDBNetworkSettingsResponse.model_validate(settings.model_dump())
 
     @router.post("/chat/agent", response_model=ChatResponse)
     def chat_agent(request: ChatRequest) -> ChatResponse:

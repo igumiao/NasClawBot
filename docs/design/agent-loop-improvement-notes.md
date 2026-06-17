@@ -265,6 +265,13 @@ and `paused_required=true`. Approving an eligible `qb_add_torrent` or
 ASK_USER tools are not eligible for this grant and continue to require explicit
 approval.
 
+TMDB network overrides are also Settings-backed but service-scoped. The UI writes
+`memory/settings/tmdb-network.json` through `GET/PUT /settings/tmdb-network`.
+When enabled, TMDB adapter calls pass the configured HTTP/HTTPS proxy directly to
+HTTPX with `trust_env=false`; when disabled, TMDB keeps HTTPX's normal process
+environment proxy behavior. The override intentionally does not affect qB,
+M-Team, Tavily, LLM, MCP, or local NAS requests.
+
 `NasClawAgentRunner.run/approve/deny` are serialized by session inside the
 current server process. This closes the local race where two concurrent
 approval decisions could both observe `pending` and execute the same download.

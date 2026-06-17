@@ -49,6 +49,16 @@ class TestTMDBAdapterInit:
         adapter = _adapter(base_url="https://custom.tmdb.org")
         assert adapter.base_url == "https://custom.tmdb.org"
 
+    def test_proxy_url_disables_environment_proxy_settings(self):
+        patcher, _mock_cli = _mock_httpx({"page": 1, "results": []})
+        with patcher as client_cls:
+            _adapter(proxy_url="http://127.0.0.1:7890").search_multi("Dune")
+
+        client_cls.assert_called_once()
+        _, kwargs = client_cls.call_args
+        assert kwargs["proxy"] == "http://127.0.0.1:7890"
+        assert kwargs["trust_env"] is False
+
 
 # ---------------------------------------------------------------------------
 # TestTMDBAdapterSearchMulti

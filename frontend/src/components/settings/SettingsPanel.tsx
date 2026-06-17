@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { healthApi } from "../../api/healthApi";
 import { settingsApi } from "../../api/settingsApi";
-import type { DownloadAuthorizationPolicy, HealthServicesResponse, ServiceHealth, ServiceHealthStatus } from "../../types/api";
+import type {
+  DownloadAuthorizationPolicy,
+  HealthServicesResponse,
+  ServiceHealth,
+  ServiceHealthStatus,
+  TMDBNetworkSettings
+} from "../../types/api";
 
 type SettingsPanelProps = {
   id: string;
   labelledBy: string;
   sessionId?: string;
 };
+
+type TMDBNetworkTestStatus = "untested" | "ok" | "error";
 
 const STATUS_COLORS: Record<ServiceHealthStatus, string> = {
   ok: "var(--green, #16a34a)",
@@ -32,6 +40,17 @@ const DEFAULT_POLICY: DownloadAuthorizationPolicy = {
   max_items_per_batch: 10,
   max_total_items_per_session: 20,
   paused_required: true
+};
+
+const DEFAULT_TMDB_NETWORK: TMDBNetworkSettings = {
+  enabled: false,
+  proxy_url: ""
+};
+
+const TMDB_NETWORK_STATUS_LABELS: Record<TMDBNetworkTestStatus, string> = {
+  untested: "未测试",
+  ok: "正常",
+  error: "异常"
 };
 
 function ServiceCard({ service }: { service: ServiceHealth }) {
@@ -71,6 +90,12 @@ export function SettingsPanel({
   const [savePathText, setSavePathText] = useState("");
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
+  const [tmdbNetwork, setTMDBNetwork] = useState<TMDBNetworkSettings>(DEFAULT_TMDB_NETWORK);
+  const [tmdbProxyText, setTMDBProxyText] = useState("");
+  const [tmdbNetworkLoading, setTMDBNetworkLoading] = useState(false);
+  const [tmdbNetworkStatus, setTMDBNetworkStatus] = useState<string | null>(null);
+  const [tmdbNetworkTestStatus, setTMDBNetworkTestStatus] = useState<TMDBNetworkTestStatus>("untested");
+  const [tmdbNetworkLatencyMs, setTMDBNetworkLatencyMs] = useState<number | null>(null);
 
   const loadServices = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -115,6 +140,27 @@ export function SettingsPanel({
     return () => controller.abort();
   }, [loadPolicy]);
 
+  const loadTMDBNetwork = useCallback(async (signal?: AbortSignal) => {
+    setTMDBNetworkLoading(true);
+    setTMDBNetworkStatus(null);
+    try {
+      const response = await settingsApi.getTMDBNetwork(signal);
+      setTMDBNetwork(response);
+      setTMDBProxyText(response.proxy_url);
+    } catch (err) {
+      if (signal?.aborted) return;
+      setTMDBNetworkStatus(err instanceof Error ? err.message : "TMDB 网络设置读取失败");
+    } finally {
+      setTMDBNetworkLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadTMDBNetwork(controller.signal);
+    return () => controller.abort();
+  }, [loadTMDBNetwork]);
+
   function toggleCategory(category: string) {
     setPolicy((current) => ({
       ...current,
@@ -144,6 +190,47 @@ export function SettingsPanel({
       setSettingsStatus(err instanceof Error ? err.message : "设置保存失败");
     } finally {
       setSettingsLoading(false);
+    }
+  }
+
+  async function saveTMDBNetwork() {
+    setTMDBNetworkLoading(true);
+    setTMDBNetworkStatus(null);
+    const next: TMDBNetworkSettings = {
+      enabled: tmdbNetwork.enabled,
+      proxy_url: tmdbProxyText.trim()
+    };
+    try {
+      const saved = await settingsApi.updateTMDBNetwork(next);
+      setTMDBNetwork(saved);
+      setTMDBProxyText(saved.proxy_url);
+      setTMDBNetworkStatus("已保存 TMDB 网络设置。");
+      await testTMDBConnection();
+    } catch (err) {
+      setTMDBNetworkStatus(err instanceof Error ? err.message : "TMDB 网络设置保存失败");
+    } finally {
+      setTMDBNetworkLoading(false);
+    }
+  }
+
+  async function testTMDBConnection() {
+    setTMDBNetworkLoading(true);
+    setTMDBNetworkStatus(null);
+    try {
+      const result = await healthApi.getTMDBHealth();
+      setServices((current) => {
+        const next = current.filter((service) => service.service !== "tmdb");
+        return [result, ...next];
+      });
+      setTMDBNetworkTestStatus(result.status === "ok" ? "ok" : "error");
+      setTMDBNetworkLatencyMs(result.latency_ms);
+      setTMDBNetworkStatus(result.message);
+    } catch (err) {
+      setTMDBNetworkTestStatus("error");
+      setTMDBNetworkLatencyMs(null);
+      setTMDBNetworkStatus(err instanceof Error ? err.message : "TMDB 连接测试失败");
+    } finally {
+      setTMDBNetworkLoading(false);
     }
   }
 
@@ -182,6 +269,54 @@ export function SettingsPanel({
           <div className="settings-card-label">Session</div>
           <div className="settings-card-value">{sessionId}</div>
           <p className="settings-card-copy">当前前端会话标识，用于串联聊天和下载动作。</p>
+        </section>
+
+        <section className="settings-card settings-policy-card tmdb-network-card" aria-label="TMDB 网络">
+          <div className="settings-card-heading">
+            <div className="settings-card-label">TMDB 网络</div>
+            <span className={`tmdb-network-status ${tmdbNetworkTestStatus}`}>
+              {TMDB_NETWORK_STATUS_LABELS[tmdbNetworkTestStatus]}
+              {tmdbNetworkLatencyMs != null ? ` · ${tmdbNetworkLatencyMs} ms` : ""}
+            </span>
+          </div>
+          <label className="settings-toggle-row">
+            <input
+              type="checkbox"
+              checked={tmdbNetwork.enabled}
+              onChange={(event) => setTMDBNetwork((current) => ({ ...current, enabled: event.target.checked }))}
+            />
+            <span>为 TMDB 请求启用代理</span>
+          </label>
+
+          <label className="settings-field">
+            <span>代理地址</span>
+            <input
+              type="url"
+              value={tmdbProxyText}
+              onChange={(event) => setTMDBProxyText(event.target.value)}
+              placeholder="http://127.0.0.1:7890"
+            />
+          </label>
+
+          <div className="settings-actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => void saveTMDBNetwork()}
+              disabled={tmdbNetworkLoading}
+            >
+              {tmdbNetworkLoading ? "保存中..." : "保存 TMDB 网络设置"}
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void testTMDBConnection()}
+              disabled={tmdbNetworkLoading}
+            >
+              {tmdbNetworkLoading ? "检查中..." : "测试 TMDB 连接"}
+            </button>
+          </div>
+          {tmdbNetworkStatus && <p className="settings-card-copy" role="status">{tmdbNetworkStatus}</p>}
         </section>
 
         <section className="settings-card settings-policy-card" aria-label="下载授权">
