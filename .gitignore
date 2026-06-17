@@ -25,6 +25,7 @@ tool-output/
 # Environment and editor files
 .env
 .env.*
+!.env.example
 .vscode/
 .idea/
 
