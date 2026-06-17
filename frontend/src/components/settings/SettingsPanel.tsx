@@ -3,7 +3,6 @@ import { healthApi } from "../../api/healthApi";
 import { settingsApi } from "../../api/settingsApi";
 import type {
   DownloadAuthorizationPolicy,
-  HealthServicesResponse,
   ServiceHealth,
   ServiceHealthStatus,
   TMDBNetworkSettings
@@ -15,21 +14,32 @@ type SettingsPanelProps = {
   sessionId?: string;
 };
 
-type TMDBNetworkTestStatus = "untested" | "ok" | "error";
-
-const STATUS_COLORS: Record<ServiceHealthStatus, string> = {
+const STATUS_COLORS: Record<ServiceHealthStatus | "untested" | "loading", string> = {
   ok: "var(--green, #16a34a)",
   unavailable: "var(--red, #dc2626)",
-  error: "var(--yellow, #ca8a04)",
+  error: "var(--red, #dc2626)",
   unconfigured: "var(--muted, #9ca3af)",
+  untested: "var(--muted, #9ca3af)",
+  loading: "var(--muted, #9ca3af)",
 };
 
-const STATUS_LABELS: Record<ServiceHealthStatus, string> = {
+const STATUS_LABELS: Record<ServiceHealthStatus | "untested" | "loading", string> = {
   ok: "正常",
   unavailable: "无法连接",
-  error: "错误",
+  error: "异常",
   unconfigured: "未配置",
+  untested: "未测试",
+  loading: "检查中…",
 };
+
+const SERVICE_NAMES: Record<string, string> = {
+  tmdb: "TMDB",
+  tavily: "Tavily",
+  mteam: "M-Team",
+  qbittorrent: "qBittorrent",
+};
+
+const ALL_SERVICES = ["tmdb", "tavily", "mteam", "qbittorrent"];
 
 const CATEGORY_OPTIONS = ["电影", "电视剧", "综艺", "动漫", "纪录片"];
 
@@ -47,31 +57,56 @@ const DEFAULT_TMDB_NETWORK: TMDBNetworkSettings = {
   proxy_url: ""
 };
 
-const TMDB_NETWORK_STATUS_LABELS: Record<TMDBNetworkTestStatus, string> = {
-  untested: "未测试",
-  ok: "正常",
-  error: "异常"
+type CardState = {
+  status: ServiceHealthStatus | "untested" | "loading";
+  latency_ms: number | null;
+  message: string;
 };
 
-function ServiceCard({ service }: { service: ServiceHealth }) {
+function ServiceCard({
+  service,
+  state,
+  onClick,
+}: {
+  service: string;
+  state: CardState;
+  onClick: () => void;
+}) {
+  const isLoading = state.status === "loading";
+
   return (
-    <section className="settings-card" aria-label={service.service}>
-      <div className="settings-card-label">{service.service}</div>
+    <section
+      className={`settings-card health-card${isLoading ? " health-card-loading" : ""}`}
+      aria-label={SERVICE_NAMES[service] || service}
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+    >
+      <div className="settings-card-label">{SERVICE_NAMES[service] || service}</div>
       <div className="settings-card-value" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span
-          className="health-dot"
-          style={{ backgroundColor: STATUS_COLORS[service.status] }}
+          className={`health-dot${isLoading ? " health-dot-pulse" : ""}`}
+          style={{ backgroundColor: STATUS_COLORS[state.status] }}
           aria-hidden="true"
         />
-        <span>{STATUS_LABELS[service.status]}</span>
+        <span>{STATUS_LABELS[state.status]}</span>
       </div>
-      {service.status !== "unconfigured" && (
+      {state.status !== "untested" && state.status !== "loading" && state.latency_ms != null && (
         <p className="settings-card-copy">
-          {service.latency_ms} ms — {service.message}
+          {state.latency_ms} ms — {state.message}
         </p>
       )}
-      {service.status === "unconfigured" && (
-        <p className="settings-card-copy">{service.message}</p>
+      {state.status === "untested" && (
+        <p className="settings-card-copy">点击检查</p>
+      )}
+      {state.status === "loading" && (
+        <p className="settings-card-copy">正在连接…</p>
       )}
     </section>
   );
@@ -82,10 +117,13 @@ export function SettingsPanel({
   labelledBy,
   sessionId = "local-session"
 }: SettingsPanelProps) {
-  const [services, setServices] = useState<ServiceHealth[]>([]);
-  const [overallStatus, setOverallStatus] = useState<string>("checking");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [cards, setCards] = useState<Record<string, CardState>>(() => {
+    const initial: Record<string, CardState> = {};
+    for (const svc of ALL_SERVICES) {
+      initial[svc] = { status: "untested", latency_ms: null, message: "点击检查" };
+    }
+    return initial;
+  });
   const [policy, setPolicy] = useState<DownloadAuthorizationPolicy>(DEFAULT_POLICY);
   const [savePathText, setSavePathText] = useState("");
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -94,30 +132,29 @@ export function SettingsPanel({
   const [tmdbProxyText, setTMDBProxyText] = useState("");
   const [tmdbNetworkLoading, setTMDBNetworkLoading] = useState(false);
   const [tmdbNetworkStatus, setTMDBNetworkStatus] = useState<string | null>(null);
-  const [tmdbNetworkTestStatus, setTMDBNetworkTestStatus] = useState<TMDBNetworkTestStatus>("untested");
-  const [tmdbNetworkLatencyMs, setTMDBNetworkLatencyMs] = useState<number | null>(null);
 
-  const loadServices = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    setError(null);
+  const checkService = useCallback(async (service: string) => {
+    setCards((prev) => ({
+      ...prev,
+      [service]: { status: "loading", latency_ms: null, message: "正在连接…" },
+    }));
     try {
-      const response: HealthServicesResponse = await healthApi.getServicesHealth(signal);
-      setServices(response.services);
-      setOverallStatus(response.status);
-    } catch (err) {
-      if (signal?.aborted) return;
-      setError(err instanceof Error ? err.message : "健康检查请求失败");
-      setOverallStatus("error");
-    } finally {
-      setLoading(false);
+      const result: ServiceHealth = await healthApi.getServiceHealth(service);
+      setCards((prev) => ({
+        ...prev,
+        [service]: {
+          status: result.status,
+          latency_ms: result.latency_ms,
+          message: result.message,
+        },
+      }));
+    } catch {
+      setCards((prev) => ({
+        ...prev,
+        [service]: { status: "error", latency_ms: null, message: "请求失败" },
+      }));
     }
   }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadServices(controller.signal);
-    return () => controller.abort();
-  }, [loadServices]);
 
   const loadPolicy = useCallback(async (signal?: AbortSignal) => {
     setSettingsLoading(true);
@@ -205,30 +242,8 @@ export function SettingsPanel({
       setTMDBNetwork(saved);
       setTMDBProxyText(saved.proxy_url);
       setTMDBNetworkStatus("已保存 TMDB 网络设置。");
-      await testTMDBConnection();
     } catch (err) {
       setTMDBNetworkStatus(err instanceof Error ? err.message : "TMDB 网络设置保存失败");
-    } finally {
-      setTMDBNetworkLoading(false);
-    }
-  }
-
-  async function testTMDBConnection() {
-    setTMDBNetworkLoading(true);
-    setTMDBNetworkStatus(null);
-    try {
-      const result = await healthApi.getTMDBHealth();
-      setServices((current) => {
-        const next = current.filter((service) => service.service !== "tmdb");
-        return [result, ...next];
-      });
-      setTMDBNetworkTestStatus(result.status === "ok" ? "ok" : "error");
-      setTMDBNetworkLatencyMs(result.latency_ms);
-      setTMDBNetworkStatus(result.message);
-    } catch (err) {
-      setTMDBNetworkTestStatus("error");
-      setTMDBNetworkLatencyMs(null);
-      setTMDBNetworkStatus(err instanceof Error ? err.message : "TMDB 连接测试失败");
     } finally {
       setTMDBNetworkLoading(false);
     }
@@ -240,28 +255,22 @@ export function SettingsPanel({
         <header className="health-header">
           <div>
             <h1>服务健康检查</h1>
-            <p>手动检查各外部服务的连通性和凭据状态。</p>
+            <p>点击卡片检查各外部服务的连通性和凭据状态。</p>
           </div>
-          <button
-            className="health-refresh-btn"
-            type="button"
-            onClick={() => loadServices()}
-            disabled={loading}
-            aria-label="刷新健康检查"
-          >
-            {loading ? "检查中…" : "刷新检查"}
-          </button>
         </header>
 
-        {error && (
-          <div className="health-error-banner" role="alert">
-            {error}
-          </div>
-        )}
-
         <div className="settings-grid health-services-grid">
-          {services.map((svc) => (
-            <ServiceCard key={svc.service} service={svc} />
+          {ALL_SERVICES.map((svc) => (
+            <ServiceCard
+              key={svc}
+              service={svc}
+              state={cards[svc]}
+              onClick={() => {
+                if (cards[svc].status !== "loading") {
+                  void checkService(svc);
+                }
+              }}
+            />
           ))}
         </div>
 
@@ -272,13 +281,7 @@ export function SettingsPanel({
         </section>
 
         <section className="settings-card settings-policy-card tmdb-network-card" aria-label="TMDB 网络">
-          <div className="settings-card-heading">
-            <div className="settings-card-label">TMDB 网络</div>
-            <span className={`tmdb-network-status ${tmdbNetworkTestStatus}`}>
-              {TMDB_NETWORK_STATUS_LABELS[tmdbNetworkTestStatus]}
-              {tmdbNetworkLatencyMs != null ? ` · ${tmdbNetworkLatencyMs} ms` : ""}
-            </span>
-          </div>
+          <div className="settings-card-label">TMDB 网络</div>
           <label className="settings-toggle-row">
             <input
               type="checkbox"
@@ -306,14 +309,6 @@ export function SettingsPanel({
               disabled={tmdbNetworkLoading}
             >
               {tmdbNetworkLoading ? "保存中..." : "保存 TMDB 网络设置"}
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => void testTMDBConnection()}
-              disabled={tmdbNetworkLoading}
-            >
-              {tmdbNetworkLoading ? "检查中..." : "测试 TMDB 连接"}
             </button>
           </div>
           {tmdbNetworkStatus && <p className="settings-card-copy" role="status">{tmdbNetworkStatus}</p>}

@@ -1200,6 +1200,8 @@ textarea {
 .settings-panel {
   padding: 36px 24px;
   background: var(--surface-subtle);
+  height: 100%;
+  overflow-y: auto;
 }
 
 .downloads-surface {
@@ -1296,39 +1298,6 @@ textarea {
   gap: 6px;
 }
 
-.settings-card-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.tmdb-network-status {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.tmdb-network-status.untested {
-  background: color-mix(in srgb, var(--muted) 12%, transparent);
-  color: var(--muted);
-}
-
-.tmdb-network-status.ok {
-  background: color-mix(in srgb, var(--green, #16a34a) 14%, transparent);
-  color: var(--green, #16a34a);
-}
-
-.tmdb-network-status.error {
-  background: color-mix(in srgb, var(--red, #dc2626) 14%, transparent);
-  color: var(--red, #dc2626);
-}
-
 .settings-field input,
 .settings-field textarea {
   width: 100%;
@@ -1411,6 +1380,36 @@ textarea {
   height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+.health-dot-pulse {
+  animation: health-dot-pulse 900ms ease-in-out infinite;
+}
+
+@keyframes health-dot-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.85; }
+}
+
+.health-card {
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 140ms, box-shadow 140ms;
+}
+
+.health-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 8px 20px rgba(38, 32, 24, 0.08);
+}
+
+.health-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.health-card-loading {
+  opacity: 0.7;
+  pointer-events: none;
 }
 
 .health-services-grid {

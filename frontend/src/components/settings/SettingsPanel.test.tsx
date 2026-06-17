@@ -1,16 +1,20 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "./SettingsPanel";
 
-const MOCK_SERVICES_RESPONSE = {
+const MOCK_TMDB_HEALTH = {
+  service: "tmdb",
   status: "ok",
-  services: [
-    { service: "tmdb", status: "ok", latency_ms: 123.4, message: "TMDB API 响应正常" },
-    { service: "tavily", status: "unconfigured", latency_ms: 0.0, message: "Tavily 未配置" },
-    { service: "mteam", status: "unavailable", latency_ms: 5001.2, message: "M-Team 无法连接" },
-    { service: "qbittorrent", status: "error", latency_ms: 89.1, message: "qBittorrent 返回错误" },
-  ],
+  latency_ms: 123.4,
+  message: "TMDB API 响应正常",
+};
+
+const MOCK_TAVILY_HEALTH = {
+  service: "tavily",
+  status: "unconfigured",
+  latency_ms: 0.0,
+  message: "Tavily 未配置",
 };
 
 const MOCK_POLICY_RESPONSE = {
@@ -27,24 +31,17 @@ const MOCK_TMDB_NETWORK_RESPONSE = {
   proxy_url: ""
 };
 
-const MOCK_TMDB_HEALTH_RESPONSE = {
-  service: "tmdb",
-  status: "ok",
-  latency_ms: 45.2,
-  message: "TMDB API 响应正常"
-};
-
 function mockSettingsFetch() {
   return vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const url = String(input);
-    if (url === "/health/services") {
-      return Promise.resolve(new Response(JSON.stringify(MOCK_SERVICES_RESPONSE), {
+    if (url === "/health/services/tmdb") {
+      return Promise.resolve(new Response(JSON.stringify(MOCK_TMDB_HEALTH), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }));
     }
-    if (url === "/health/services/tmdb") {
-      return Promise.resolve(new Response(JSON.stringify(MOCK_TMDB_HEALTH_RESPONSE), {
+    if (url === "/health/services/tavily") {
+      return Promise.resolve(new Response(JSON.stringify(MOCK_TAVILY_HEALTH), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }));
@@ -75,7 +72,7 @@ afterEach(() => {
 });
 
 describe("SettingsPanel", () => {
-  it("renders the session id and service health cards", async () => {
+  it("renders session id and health cards in untested state", async () => {
     mockSettingsFetch();
 
     render(
@@ -93,25 +90,18 @@ describe("SettingsPanel", () => {
     // Session card
     expect(screen.getByText("session-1")).toBeInTheDocument();
 
-    // All four service cards render (by aria-label)
-    for (const svc of ["tmdb", "tavily", "mteam", "qbittorrent"]) {
-      expect(await screen.findByLabelText(svc)).toBeInTheDocument();
+    // All four service cards render in untested state (by aria-label)
+    for (const svc of ["TMDB", "Tavily", "M-Team", "qBittorrent"]) {
+      expect(screen.getByLabelText(svc)).toBeInTheDocument();
     }
 
-    // Status labels in Chinese
-    expect(await screen.findByText("正常")).toBeInTheDocument();
-    expect(screen.getByText("未配置")).toBeInTheDocument();
-    expect(screen.getByText("无法连接")).toBeInTheDocument();
-    expect(screen.getByText("错误")).toBeInTheDocument();
-
-    // Latency shown for configured services
-    expect(screen.getByText(/123\.4 ms/)).toBeInTheDocument();
-    // Unconfigured service hides latency
-    const tavilyCard = screen.getByLabelText("tavily");
-    expect(tavilyCard.textContent).not.toMatch(/0\.0 ms/);
+    // All cards show "未测试" initially
+    expect(screen.getAllByText("未测试")).toHaveLength(4);
+    // Each card shows "点击检查" hint
+    expect(screen.getAllByText("点击检查")).toHaveLength(4);
   });
 
-  it("shows refresh button and triggers re-fetch", async () => {
+  it("clicks a health card to check that service", async () => {
     const fetchSpy = mockSettingsFetch();
 
     render(
@@ -122,19 +112,41 @@ describe("SettingsPanel", () => {
       />,
     );
 
-    const refreshBtn = await screen.findByRole("button", { name: "刷新健康检查" });
-    expect(refreshBtn).toBeInTheDocument();
+    // Click the TMDB card
+    const tmdbCard = screen.getByLabelText("TMDB");
+    await userEvent.click(tmdbCard);
 
-    // Initial fetch happened on mount
-    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    // Should show loading then result
+    await waitFor(() => {
+      expect(screen.getByText("正常")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/123\.4 ms/)).toBeInTheDocument();
 
-    await userEvent.click(refreshBtn);
-    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    // Only TMDB endpoint was called (plus settings endpoints)
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url) === "/health/services/tmdb")).toHaveLength(1);
   });
 
-  it("shows error banner on fetch failure", async () => {
+  it("shows error state when health check fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Network error"));
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.startsWith("/health/services/")) {
+        return Promise.reject(new Error("Network error"));
+      }
+      if (url === "/settings/download-authorization") {
+        return Promise.resolve(new Response(JSON.stringify(MOCK_POLICY_RESPONSE), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+      if (url === "/settings/tmdb-network") {
+        return Promise.resolve(new Response(JSON.stringify(MOCK_TMDB_NETWORK_RESPONSE), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+      return Promise.resolve(new Response("{}", { status: 404 }));
+    });
 
     render(
       <SettingsPanel
@@ -144,10 +156,15 @@ describe("SettingsPanel", () => {
       />,
     );
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Network error");
+    // Click TMDB card — should end up in error state
+    await userEvent.click(screen.getByLabelText("TMDB"));
+
+    await waitFor(() => {
+      expect(screen.getByText("异常")).toBeInTheDocument();
+    });
   });
 
-  it("saves TMDB network proxy settings", async () => {
+  it("saves TMDB network proxy settings without auto-test", async () => {
     const fetchSpy = mockSettingsFetch();
 
     render(
@@ -158,23 +175,24 @@ describe("SettingsPanel", () => {
       />,
     );
 
-    await userEvent.click(await screen.findByLabelText("为 TMDB 请求启用代理"));
+    await userEvent.click(screen.getByLabelText("为 TMDB 请求启用代理"));
     await userEvent.type(screen.getByLabelText("代理地址"), "http://127.0.0.1:7890");
     await userEvent.click(screen.getByRole("button", { name: "保存 TMDB 网络设置" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("TMDB API 响应正常");
+    // Should show save confirmation (no auto-test, so no TMDB API response text)
+    expect(await screen.findByRole("status")).toHaveTextContent("已保存 TMDB 网络设置。");
+
     const putCall = fetchSpy.mock.calls.find(([url, init]) => String(url) === "/settings/tmdb-network" && init?.method === "PUT");
     expect(putCall).toBeTruthy();
     expect(JSON.parse(String(putCall?.[1]?.body))).toMatchObject({
       enabled: true,
       proxy_url: "http://127.0.0.1:7890"
     });
-    expect(fetchSpy.mock.calls.filter(([url]) => String(url) === "/health/services")).toHaveLength(1);
-    expect(fetchSpy.mock.calls.filter(([url]) => String(url) === "/health/services/tmdb")).toHaveLength(1);
-    expect(screen.getByText("正常 · 45.2 ms")).toBeInTheDocument();
+    // No health endpoint should be called during save
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url).startsWith("/health/services/"))).toHaveLength(0);
   });
 
-  it("tests only TMDB from the TMDB network card", async () => {
+  it("clicking TMDB health card checks only TMDB", async () => {
     const fetchSpy = mockSettingsFetch();
 
     render(
@@ -185,13 +203,21 @@ describe("SettingsPanel", () => {
       />,
     );
 
-    expect(await screen.findByText("未测试")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "测试 TMDB 连接" }));
+    // All cards start untested
+    expect(screen.getAllByText("未测试")).toHaveLength(4);
 
-    expect(await screen.findByRole("status")).toHaveTextContent("TMDB API 响应正常");
-    expect(fetchSpy.mock.calls.filter(([url]) => String(url) === "/health/services")).toHaveLength(1);
+    // Click the TMDB card (not a separate test button)
+    await userEvent.click(screen.getByLabelText("TMDB"));
+
+    await waitFor(() => {
+      expect(screen.getByText("正常")).toBeInTheDocument();
+    });
+
+    // Only TMDB was called, not the bulk endpoint
     expect(fetchSpy.mock.calls.filter(([url]) => String(url) === "/health/services/tmdb")).toHaveLength(1);
-    expect(screen.getByText("正常 · 45.2 ms")).toBeInTheDocument();
-  });
+    // The other 3 cards are still untested
+    expect(screen.getAllByText("未测试")).toHaveLength(3);
 
+    expect(screen.getByText(/123\.4 ms/)).toBeInTheDocument();
+  });
 });

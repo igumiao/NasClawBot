@@ -165,6 +165,24 @@ def build_router() -> APIRouter:
 
         return _check_service("tmdb", _build_tmdb_adapter())
 
+    @router.get("/health/services/tavily", response_model=ServiceHealth)
+    def health_tavily_service() -> ServiceHealth:
+        """Check only Tavily reachability and credentials."""
+
+        return _check_service("tavily", _build_tavily_adapter())
+
+    @router.get("/health/services/mteam", response_model=ServiceHealth)
+    def health_mteam_service() -> ServiceHealth:
+        """Check only M-Team reachability and credentials."""
+
+        return _check_service("mteam", _build_mteam_adapter())
+
+    @router.get("/health/services/qbittorrent", response_model=ServiceHealth)
+    def health_qbittorrent_service() -> ServiceHealth:
+        """Check only qBittorrent reachability and credentials."""
+
+        return _check_service("qbittorrent", _build_qb_adapter())
+
     @router.get("/settings/download-authorization", response_model=DownloadAuthorizationPolicyResponse)
     def get_download_authorization_policy() -> DownloadAuthorizationPolicyResponse:
         """Return the user-configured download authorization policy."""

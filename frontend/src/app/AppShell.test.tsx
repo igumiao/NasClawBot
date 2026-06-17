@@ -371,8 +371,8 @@ describe("AppShell", () => {
 
     await user.click(screen.getByRole("tab", { name: "状态" }));
     expect(screen.getByText("服务健康检查")).toBeInTheDocument();
-    expect(screen.getByText("手动检查各外部服务的连通性和凭据状态。")).toBeInTheDocument();
-    expect(await screen.findAllByText("正常")).toHaveLength(3);
+    expect(screen.getByText("点击卡片检查各外部服务的连通性和凭据状态。")).toBeInTheDocument();
+    expect(screen.getAllByText("未测试")).toHaveLength(4);
   });
 
   it("prevents default composer submission for empty chat input", () => {

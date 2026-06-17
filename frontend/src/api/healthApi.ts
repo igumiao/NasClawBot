@@ -12,8 +12,8 @@ export const healthApi = {
     return readJson<HealthServicesResponse>(response);
   },
 
-  async getTMDBHealth(signal?: AbortSignal): Promise<ServiceHealth> {
-    const response = await fetch("/health/services/tmdb", { signal });
+  async getServiceHealth(service: string, signal?: AbortSignal): Promise<ServiceHealth> {
+    const response = await fetch(`/health/services/${service}`, { signal });
     return readJson<ServiceHealth>(response);
   }
 };
