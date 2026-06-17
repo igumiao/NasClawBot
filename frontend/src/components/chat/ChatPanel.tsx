@@ -205,7 +205,7 @@ function ContextBar({ usage }: { usage: ContextUsage }) {
   ].filter(Boolean).join(" · ");
 
   return (
-    <div className="context-bar" title={hoverTitle}>
+    <div className="context-bar" tabIndex={0} aria-label={hoverTitle}>
       <div className="context-bar-track">
         <div
           className="context-bar-fill"
@@ -213,6 +213,7 @@ function ContextBar({ usage }: { usage: ContextUsage }) {
         />
       </div>
       <span className="context-bar-label" style={{ color }}>{pct}%</span>
+      <span className="context-bar-tooltip" role="tooltip">{hoverTitle}</span>
     </div>
   );
 }
