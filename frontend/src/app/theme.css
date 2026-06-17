@@ -722,6 +722,12 @@ textarea {
   color: #2d8ad2;
 }
 
+.subtitle-flag--社区字幕 {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  color: #10b981;
+}
+
 .subtitle-flag--中英 {
   background: rgba(138, 79, 210, 0.1);
   border: 1px solid rgba(138, 79, 210, 0.28);

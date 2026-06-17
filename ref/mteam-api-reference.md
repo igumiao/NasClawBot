@@ -44,6 +44,7 @@
 | `processings` | int64[] | 否 | 处理方式 ID 数组（如 Remux, Encode）。 |
 | `labels` | int32 | 否 | 标签 ID（旧版）。 |
 | `labelsNew` | string[] | 否 | 新版标签字符串数组。 |
+| `hasChineseSubtitle` | boolean | — | **自动中字检测**。当字幕区有用户上传中文字幕并被系统自动标识时为 `true`。与 `labelsNew` 中的 `"中字"` 上传者标签独立——前者是社区贡献字幕的自动判定，后者是上传者手动标记。 |
 | `uploadDateStart` | datetime | 否 | 上传时间范围起始。 |
 | `uploadDateEnd` | datetime | 否 | 上传时间范围结束。 |
 | `hot` | boolean | 否 | 仅热门种子。 |
@@ -151,6 +152,7 @@
         "numfiles": "348",
         "labels": "0",
         "labelsNew": [],
+        "hasChineseSubtitle": false,
         "msUp": "0",
         "anonymous": true,
         "infoHash": null,
@@ -614,3 +616,66 @@ search(JSON) → 选中 id → detail(form-data) → genDlToken(form-data) → q
 - 不要下载 `.torrent` 文件落盘；genDlToken 返回的 URL 直接喂给 qB。
 - 提交 qB 时默认 `paused=true`。
 - qB add 成功依据响应文本 `Ok.` / `ok` / `true`，不是 HTTP 200。
+
+---
+
+## 13. `/api/subtitle/list` — 种子字幕列表
+
+**Content-Type**: `application/x-www-form-urlencoded`（form-data）
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `id` | string/int | 是 | 种子 ID。 |
+
+**响应**：
+```json
+{
+  "code": "0",
+  "data": [{
+    "id": "61105",
+    "torrent": "1192113",
+    "name": "The Super Mario Galaxy Movie",
+    "filename": "The Super Mario Galaxy Movie.srt",
+    "savePath": "subtitle/2026/0609/...",
+    "size": "54129",
+    "lang": "25",
+    "ext": "srt",
+    "hits": "215",
+    "createdDate": "2026-06-09 10:34:26",
+    "anonymous": true
+  }]
+}
+```
+
+---
+
+## 14. `/api/subtitle/dl` — 下载字幕文件
+
+**Method**: `GET`（不是 POST）
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `id` | string/int | 是 | **字幕 ID**（来自 list 返回的 `id`，不是种子 ID）。 |
+
+直接返回 `application/octet-stream` 二进制（SRT/ASS），带 `Content-Disposition` 文件名。需 `x-api-key` header。
+
+---
+
+## 15. `/api/subtitle/genlink` + `/api/subtitle/dlV2` — 分享用字幕下载
+
+`genlink` (POST, form-data, `id=<字幕ID>`) 生成 base64 credential。`dlV2` (GET, `?credential=<token>`) 用 credential 下载，无需 API Key。内部调用直接用 `/api/subtitle/dl` + API Key 即可。
+
+---
+
+## 社区字幕自动下载
+
+下载链路中新增字幕自动下载（`QBAddTorrentTool`）：
+
+```
+search → 选中 id → detail(含 hasChineseSubtitle) → genDlToken → qB add
+                                                              ↓
+                                         if hasChineseSubtitle:
+                                           list_subtitles → dl → save to save_path
+```
+
+字幕下载失败不影响种子添加（log warning 继续）。
