@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, computed_field
 
 from app.domain.authorization import DownloadAuthorizationPolicy
 from app.domain.models import ResourceCandidate
+from app.domain.tmdb_network import TMDBNetworkSettings
 
 
 class ContextUsage(BaseModel):
@@ -109,6 +110,10 @@ class AgentApprovalDecisionRequest(BaseModel):
     """Optional payload for approving a pending Agent approval."""
 
     decision: Literal["approve_once", "approve_and_grant_session"] = "approve_once"
+
+
+class TMDBNetworkSettingsResponse(TMDBNetworkSettings):
+    """Current TMDB-only network override settings."""
 
 
 class SessionUpdateRequest(BaseModel):

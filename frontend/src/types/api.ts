@@ -202,6 +202,11 @@ export type DownloadAuthorizationPolicy = {
   paused_required: boolean;
 };
 
+export type TMDBNetworkSettings = {
+  enabled: boolean;
+  proxy_url: string;
+};
+
 export type FreeToppedTorrent = {
   id: string;
   name: string;

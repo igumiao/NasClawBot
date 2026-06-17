@@ -1,4 +1,4 @@
-import type { HealthResponse, HealthServicesResponse } from "../types/api";
+import type { HealthResponse, HealthServicesResponse, ServiceHealth } from "../types/api";
 import { readJson } from "./http";
 
 export const healthApi = {
@@ -10,5 +10,10 @@ export const healthApi = {
   async getServicesHealth(signal?: AbortSignal): Promise<HealthServicesResponse> {
     const response = await fetch("/health/services", { signal });
     return readJson<HealthServicesResponse>(response);
+  },
+
+  async getTMDBHealth(signal?: AbortSignal): Promise<ServiceHealth> {
+    const response = await fetch("/health/services/tmdb", { signal });
+    return readJson<ServiceHealth>(response);
   }
 };

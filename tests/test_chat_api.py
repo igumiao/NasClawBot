@@ -9,6 +9,7 @@ from app.agent.runner import _reset_module_qb_adapter
 from app.api import chat_routes, qb_routes
 from app.api.schemas import AgentApprovalDecisionRequest, ChatRequest, DownloadRequest, QBTorrentActionRequest
 from app.domain.authorization import DownloadAuthorizationPolicy, create_session_grant
+from app.domain.tmdb_network import TMDBNetworkSettings
 from app.main import create_app
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
 from hello_agents.checkpoints import ConversationCheckpoint, JSONConversationCheckpointStore
@@ -122,6 +123,24 @@ def test_health_endpoint_returns_ok():
     assert response["status"] == "ok"
 
 
+def test_tmdb_health_endpoint_checks_only_tmdb(monkeypatch: pytest.MonkeyPatch):
+    app = create_app()
+    endpoint = _route_for(app, "/health/services/tmdb", "GET").endpoint
+    calls: list[str] = []
+
+    class FakeTMDB:
+        def health(self) -> str:
+            calls.append("tmdb")
+            return "ok"
+
+    monkeypatch.setattr(chat_routes, "_build_tmdb_adapter", lambda: FakeTMDB())
+    response = endpoint()
+
+    assert response.service == "tmdb"
+    assert response.status == "ok"
+    assert calls == ["tmdb"]
+
+
 def test_index_page_is_served():
     response = _route_for(create_app(), "/", "GET").endpoint()
     assert "<html" in response.lower() or "<!doctype html" in response.lower()
@@ -150,6 +169,33 @@ def test_download_authorization_settings_roundtrip(tmp_path, monkeypatch: pytest
     assert saved.enabled is True
     assert saved.categories == ["电视剧"]
     assert get_endpoint().save_path_prefixes == ["/downloads/tv"]
+
+
+def test_tmdb_network_settings_roundtrip(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(chat_routes, "_SETTINGS_DIR", tmp_path)
+    app = create_app()
+    get_endpoint = _route_for(app, "/settings/tmdb-network", "GET").endpoint
+    put_endpoint = _route_for(app, "/settings/tmdb-network", "PUT").endpoint
+
+    initial = get_endpoint()
+    assert initial.enabled is False
+    assert initial.proxy_url == ""
+
+    saved = put_endpoint(
+        TMDBNetworkSettings(
+            enabled=True,
+            proxy_url=" http://127.0.0.1:7890 ",
+        )
+    )
+
+    assert saved.enabled is True
+    assert saved.proxy_url == "http://127.0.0.1:7890"
+    assert get_endpoint().proxy_url == "http://127.0.0.1:7890"
+
+
+def test_tmdb_network_settings_requires_proxy_url_when_enabled():
+    with pytest.raises(ValidationError):
+        TMDBNetworkSettings(enabled=True, proxy_url="")
 
 
 def test_chat_agent_endpoint_uses_readonly_agent_and_persists_session(tmp_path, monkeypatch: pytest.MonkeyPatch):

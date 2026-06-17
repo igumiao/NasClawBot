@@ -1296,6 +1296,39 @@ textarea {
   gap: 6px;
 }
 
+.settings-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tmdb-network-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.tmdb-network-status.untested {
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  color: var(--muted);
+}
+
+.tmdb-network-status.ok {
+  background: color-mix(in srgb, var(--green, #16a34a) 14%, transparent);
+  color: var(--green, #16a34a);
+}
+
+.tmdb-network-status.error {
+  background: color-mix(in srgb, var(--red, #dc2626) 14%, transparent);
+  color: var(--red, #dc2626);
+}
+
 .settings-field input,
 .settings-field textarea {
   width: 100%;

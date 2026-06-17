@@ -80,6 +80,7 @@ from app.domain.authorization import (
 from app.domain.models import ResourceCandidate
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
 from app.services.markdown_memory_store import MarkdownMemoryStore
+from app.services.tmdb_network_store import TMDBNetworkSettingsStore
 from app.tools import (
     CurrentTimeTool,
     MemberProfileTool,
@@ -373,7 +374,11 @@ class NasClawAgentRunner:
         registry.register_tool(QBSetTorrentSpeedTool(qb_adapter))
         tavily_adapter = TavilyAdapter(api_key=settings.tavily_api_key)
         registry.register_tool(TavilySearchTool(tavily_adapter))
-        tmdb_adapter = TMDBAdapter(api_key=settings.tmdb_api_key)
+        tmdb_network = TMDBNetworkSettingsStore(_SETTINGS_DIR).load()
+        tmdb_adapter = TMDBAdapter(
+            api_key=settings.tmdb_api_key,
+            proxy_url=tmdb_network.active_proxy_url,
+        )
         registry.register_tool(TMDBSearchTool(tmdb_adapter))
         registry.register_tool(TMDBDetailsTool(tmdb_adapter))
         registry.register_tool(TMDBDiscoverTool(tmdb_adapter))

@@ -26,6 +26,8 @@ There is no active workflow runtime, no `/confirm` route, and no legacy `/chat` 
 - `PATCH /chat/agent/sessions/{session_id}`: updates a session checkpoint. Currently supports `title` in `metadata.title` for session renaming.
 - `DELETE /chat/agent/sessions/{session_id}`: deletes a persisted session checkpoint (HTTP 204 on success).
 - `GET /settings/download-authorization` and `PUT /settings/download-authorization`: read and write the Settings-backed download authorization policy used by the "本会话内允许" approval action.
+- `GET /settings/tmdb-network` and `PUT /settings/tmdb-network`: read and write the Settings-backed TMDB-only proxy override. When enabled, TMDB requests use the configured HTTP/HTTPS proxy and ignore process proxy env vars for those requests; when disabled, HTTPX keeps its normal environment proxy behavior.
+- `GET /health/services/tmdb`: checks only TMDB reachability and credentials, used by the Settings TMDB network card so testing the proxy does not probe Tavily, M-Team, or qB.
 - `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused. Supports optional `save_path`. All Agent downloads go to an inbox directory (`/未整理`) by default, configured via `DOWNLOAD_DEFAULT_SAVE_PATH` env var.
 - `app/agent/runner.py`: application-level Agent runner that loads/saves conversation checkpoints, builds the current `ToolCallingAgent`, restores history, registers MCP tools and skill tools, and extracts route-facing search results/tool calls.
 - The Agent system prompt is intentionally compact. Tool-specific usage lives in tool descriptions; the runner appends a dynamic current-date/timezone line from `APP_TIMEZONE` and L1 skill metadata.
@@ -36,6 +38,7 @@ There is no active workflow runtime, no `/confirm` route, and no legacy `/chat` 
 - `hello_agents/checkpoints/`: framework-level `ConversationCheckpointStore` protocol plus the current JSON implementation.
 - `app/domain/authorization.py`: Settings-backed download authorization policy and session-grant helpers. The policy is limited to `qb_add_torrent` and `qb_add_torrents`, requires paused qB adds, and constrains allowed categories, save path prefixes, per-batch count, and per-session total count.
 - `app/services/download_authorization_store.py`: JSON persistence for the download authorization policy under `memory/settings/download-authorization.json`. Session grants live in conversation checkpoint metadata and disappear with the session.
+- `app/domain/tmdb_network.py` and `app/services/tmdb_network_store.py`: Settings-backed TMDB network override stored under `memory/settings/tmdb-network.json`. This is scoped to TMDB so qB, M-Team, LLM, Tavily, and local services are not accidentally routed through a user proxy.
 - `app/tools/`: per-tool modules (`current_time.py`, `memory_search.py`, `remember_this.py`, `mteam_search.py`, `tavily_search.py`, `member_profile.py`, `qb_add_torrent.py`, `qb_add_torrents.py`, `qb_list_torrents.py`, `qb_get_torrent.py`, `qb_list_categories.py`, `qb_control_torrent.py`, `qb_set_global_speed.py`, `qb_set_torrent_speed.py`, and TMDB tools), re-exported via `__init__.py`.
 - `app/adapters/mteam.py`: M-Team API boundary for search, detail, download token generation, and member profile. `build_search_payload` supports optional `discount` and `hot` parameters; `search_raw()` returns unnormalized items for services that need raw `status` fields.
 - `app/services/mteam_free_service.py`: two-pass service for finding ratio-boosting torrents. Pass 1 fetches `discount=FREE`; Pass 2 scans without discount filter to catch `mallSingleFree` (community-funded free). Filters by minimum size and groups results by topping level 1/2.
@@ -80,7 +83,7 @@ Memory is stored under `memory/agent-memory/`. `MEMORY.md` is the index loaded i
 - `AppShell` owns `activeAgentSessionId`, drives session switching, refreshes the session list, and routes rename/delete/new-session actions. Polls `GET /health` every 30s for backend status.
 - `ConversationSidebar` is a collapsible multi-session sidebar (64px icon-only, localStorage-persisted), live session list sorted by recent activity, inline rename via `PATCH`, delete with confirm dialog via `DELETE`, "+ 新对话" button.
 - `ChatPanel` receives `activeSessionId` and delegates session lifecycle to `useAgentChatSession`. Assistant messages render as Markdown (`react-markdown` + `remark-gfm`). `ApprovalCard` renders batch torrent items and exposes "本会话内允许" only when policy-eligible.
-- `SettingsPanel` includes the download authorization policy editor.
+- `SettingsPanel` includes the TMDB network proxy editor and download authorization policy editor.
 - `MemoryPanel` renders the memory curation review UI.
 - Layout locked to `100vh` with CSS Grid, sidebar transition animation (240ms), acrylic composer backdrop.
 - Session id stored in `sessionStorage` via `agentSessionStorage.ts` for tab-scoped persistence.

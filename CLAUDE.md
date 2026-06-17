@@ -32,6 +32,8 @@ NasClawBot is a single-user NAS/PT media assistant and Agent engineering playgro
 - `PATCH /chat/agent/sessions/{session_id}`: updates a session checkpoint. Currently supports `title` in `metadata.title` for session renaming.
 - `DELETE /chat/agent/sessions/{session_id}`: deletes a persisted session checkpoint (HTTP 204 on success).
 - `GET /settings/download-authorization` and `PUT /settings/download-authorization` read and write the Settings-backed download authorization policy used by the "本会话内允许" approval action.
+- `GET /settings/tmdb-network` and `PUT /settings/tmdb-network` read and write the Settings-backed TMDB-only proxy override. When enabled, TMDB requests use the configured HTTP/HTTPS proxy and ignore process proxy env vars for those requests; when disabled, HTTPX keeps its normal environment proxy behavior.
+- `GET /health/services/tmdb` checks only TMDB reachability and credentials, used by the Settings TMDB network card so testing the proxy does not probe Tavily, M-Team, or qB.
 - The Chat tab uses `/chat/agent` as its active experience path. It renders Agent tool-call summaries, search candidates, and gated download approval cards.
 
 - `hello_agents/checkpoints/` defines the thin `ConversationCheckpointStore` boundary and the current JSON implementation.
@@ -41,6 +43,7 @@ NasClawBot is a single-user NAS/PT media assistant and Agent engineering playgro
 - `hello_agents/tools/` provides `Filter` (pre-LLM tool selection) and `Gate` (pre-execution deny/confirm).
 - `app/domain/authorization.py` defines the download authorization policy and session grant helpers. The policy applies only to `qb_add_torrent` and `qb_add_torrents`, requires paused qB adds, and constrains allowed categories, save path prefixes, per-batch count, and per-session total count.
 - `app/services/download_authorization_store.py` persists that policy under `memory/settings/download-authorization.json`. Session grants live in checkpoint `metadata["authorization_grants"]` and disappear when the session checkpoint is deleted.
+- `app/domain/tmdb_network.py` and `app/services/tmdb_network_store.py` persist a TMDB-only proxy override under `memory/settings/tmdb-network.json`. This stays service-scoped so qB, M-Team, LLM, Tavily, and local services do not inherit the TMDB proxy.
 
 ### MCP Filesystem Integration
 
@@ -134,6 +137,8 @@ There is no formal Python formatter configured yet. A `Makefile` and `package.js
 - `DELETE /chat/agent/sessions/{session_id}`: deletes a persisted checkpoint, returns 204 on success.
 - `POST /download`: accepts a torrent id, calls `QBAddTorrentTool`, submits to qB paused, and returns a receipt. Supports optional `save_path`.
 - `GET /settings/download-authorization` / `PUT /settings/download-authorization`: load and persist the session authorization policy for download-add tools.
+- `GET /settings/tmdb-network` / `PUT /settings/tmdb-network`: load and persist the TMDB-only HTTP/HTTPS proxy override.
+- `GET /health/services/tmdb`: run a TMDB-only health check for the Settings proxy test button.
 - qB management routes are included from `app/api/qb_routes.py`.
 - Memory routes are included from `app/api/memory_routes.py`.
 
@@ -175,7 +180,7 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 
 `frontend/src/components/chat/ChatPanel.tsx` accepts `activeSessionId` from AppShell and delegates session behavior to `useAgentChatSession`. Assistant messages render as Markdown through `MarkdownContent` (react-markdown + remark-gfm). `ApprovalCard` renders batch torrent items and exposes "本会话内允许" only when the backend marks the approval as policy-eligible.
 
-`frontend/src/components/settings/SettingsPanel.tsx` includes the download authorization policy editor for categories, save path prefixes, per-batch limit, and per-session limit.
+`frontend/src/components/settings/SettingsPanel.tsx` includes the TMDB network proxy editor plus the download authorization policy editor for categories, save path prefixes, per-batch limit, and per-session limit.
 
 `frontend/src/components/memory/MemoryPanel.tsx` renders the memory curation review UI with approve/reject per-card actions and visibility toggling.
 
