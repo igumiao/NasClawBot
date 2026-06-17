@@ -31,5 +31,5 @@ resources/
 .idea/
 
 # Misc
-*.md
+/*.md
 skills-lock.json

@@ -8,6 +8,8 @@ services:
     volumes:
       # Persist agent conversation checkpoints
       - ./memory:/app/memory
+      # Skills — 宿主机直接添加/修改，无需重建镜像
+      - ./skills:/app/skills
       # Persist SQLite database (if used)
       - ./nas_media_agent.db:/app/nas_media_agent.db
       # NAS 影视目录 → 容器内统一路径 (filesystem MCP 操作目标)
