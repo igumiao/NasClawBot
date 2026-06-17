@@ -66,9 +66,22 @@ export type PendingApproval = {
 export type ContextUsage = {
   context_window: number;
   prompt_tokens: number;
+  completion_tokens?: number;
+  total_tokens?: number;
   cache_hit_tokens: number;
   cache_miss_tokens: number;
   usage_pct?: number;
+  cache_hit_rate?: number | null;
+};
+
+export type SessionUsage = {
+  context_window: number;
+  model_calls: number;
+  total_tokens: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_cache_hit_tokens: number;
+  total_cache_miss_tokens: number;
   cache_hit_rate?: number | null;
 };
 
@@ -81,6 +94,7 @@ export type ChatResponse = {
   pending_approvals: PendingApproval[];
   error: string | null;
   context_usage: ContextUsage | null;
+  session_usage: SessionUsage | null;
 };
 
 export type AgentApprovalResponse = {
@@ -92,6 +106,7 @@ export type AgentApprovalResponse = {
   pending_approvals?: PendingApproval[];
   error: string | null;
   context_usage?: ContextUsage | null;
+  session_usage?: SessionUsage | null;
 };
 
 export type AgentSessionMessage = {

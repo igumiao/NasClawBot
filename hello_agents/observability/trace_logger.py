@@ -208,6 +208,11 @@ class TraceLogger:
             "total_completion_tokens": 0,
             "total_cache_hit_tokens": 0,
             "total_cache_miss_tokens": 0,
+            "last_prompt_tokens": 0,
+            "last_completion_tokens": 0,
+            "last_total_tokens": 0,
+            "last_cache_hit_tokens": 0,
+            "last_cache_miss_tokens": 0,
             "total_cost": 0.0,
             "tool_calls": {},  # {tool_name: count}
             "errors": [],
@@ -237,6 +242,11 @@ class TraceLogger:
                 stats["total_completion_tokens"] += usage.get("completion_tokens", 0)
                 stats["total_cache_hit_tokens"] += usage.get("prompt_cache_hit_tokens", 0)
                 stats["total_cache_miss_tokens"] += usage.get("prompt_cache_miss_tokens", 0)
+                stats["last_prompt_tokens"] = usage.get("prompt_tokens", 0)
+                stats["last_completion_tokens"] = usage.get("completion_tokens", 0)
+                stats["last_total_tokens"] = usage.get("total_tokens", 0)
+                stats["last_cache_hit_tokens"] = usage.get("prompt_cache_hit_tokens", 0)
+                stats["last_cache_miss_tokens"] = usage.get("prompt_cache_miss_tokens", 0)
                 stats["total_cost"] += usage.get("cost", 0.0)
                 stats["model_calls"] += 1
 
@@ -491,19 +501,33 @@ class TraceLogger:
 
         cache_html = ""
         cache_total = stats["total_cache_hit_tokens"] + stats["total_cache_miss_tokens"]
+        last_cache_total = stats["last_cache_hit_tokens"] + stats["last_cache_miss_tokens"]
         if cache_total > 0:
             hit_rate = stats["total_cache_hit_tokens"] / cache_total * 100
-            cache_html = f"""
+            last_hit_rate_html = ""
+            if last_cache_total > 0:
+                last_hit_rate = stats["last_cache_hit_tokens"] / last_cache_total * 100
+                last_hit_rate_html = f"""
             <div class="stat-item">
-                <span class="stat-label">缓存命中率</span>
+                <span class="stat-label">上次请求缓存</span>
+                <span class="stat-value">{last_hit_rate:.1f}%</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">上次 Prompt Tokens</span>
+                <span class="stat-value">{stats["last_prompt_tokens"]:,}</span>
+            </div>"""
+            cache_html = f"""
+            {last_hit_rate_html}
+            <div class="stat-item">
+                <span class="stat-label">累计缓存命中率</span>
                 <span class="stat-value">{hit_rate:.1f}%</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Prompt Tokens</span>
+                <span class="stat-label">累计 Prompt Tokens</span>
                 <span class="stat-value">{stats["total_prompt_tokens"]:,}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Completion Tokens</span>
+                <span class="stat-label">累计 Completion Tokens</span>
                 <span class="stat-value">{stats["total_completion_tokens"]:,}</span>
             </div>"""
 

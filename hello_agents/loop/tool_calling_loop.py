@@ -848,8 +848,33 @@ class ToolCallingLoop:
             self.agent._last_context_usage = {
                 "context_window": self.agent.config.context_window,
                 "prompt_tokens": usage["prompt_tokens"],
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
                 "cache_hit_tokens": usage.get("prompt_cache_hit_tokens", 0),
                 "cache_miss_tokens": usage.get("prompt_cache_miss_tokens", 0),
+            }
+            metadata = getattr(self.agent, "_session_metadata", None)
+            if not isinstance(metadata, dict):
+                metadata = {}
+                setattr(self.agent, "_session_metadata", metadata)
+            previous = metadata.get("session_usage")
+            if not isinstance(previous, dict):
+                previous = {}
+            total_tokens = usage.get("total_tokens", 0)
+            if not total_tokens:
+                total_tokens = usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0)
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            cache_hit_tokens = usage.get("prompt_cache_hit_tokens", 0)
+            cache_miss_tokens = usage.get("prompt_cache_miss_tokens", 0)
+            metadata["session_usage"] = {
+                "context_window": self.agent.config.context_window,
+                "model_calls": int(previous.get("model_calls") or 0) + 1,
+                "total_tokens": int(previous.get("total_tokens") or 0) + total_tokens,
+                "total_prompt_tokens": int(previous.get("total_prompt_tokens") or 0) + prompt_tokens,
+                "total_completion_tokens": int(previous.get("total_completion_tokens") or 0) + completion_tokens,
+                "total_cache_hit_tokens": int(previous.get("total_cache_hit_tokens") or 0) + cache_hit_tokens,
+                "total_cache_miss_tokens": int(previous.get("total_cache_miss_tokens") or 0) + cache_miss_tokens,
             }
 
         if not self.agent.trace_logger:

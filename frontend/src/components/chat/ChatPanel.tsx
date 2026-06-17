@@ -2,7 +2,7 @@ import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, use
 import { useAgentChatSession } from "../../hooks/useAgentChatSession";
 import { ApprovalCard } from "./ApprovalCard";
 import { ErrorCard } from "./ErrorCard";
-import type { ContextUsage } from "../../types/api";
+import type { ContextUsage, SessionUsage } from "../../types/api";
 import { MarkdownContent } from "./MarkdownContent";
 import { ReceiptCard } from "./ReceiptCard";
 import { SearchResultCard } from "./SearchResultCard";
@@ -172,7 +172,7 @@ export function ChatPanel({
         )}
       </div>
       {state.contextUsage && (
-        <ContextBar usage={state.contextUsage} />
+        <ContextBar usage={state.contextUsage} sessionUsage={state.sessionUsage} />
       )}
       <form className="composer-shell" onSubmit={handleSubmit}>
         <textarea
@@ -192,16 +192,19 @@ export function ChatPanel({
   );
 }
 
-function ContextBar({ usage }: { usage: ContextUsage }) {
+function ContextBar({ usage, sessionUsage }: { usage: ContextUsage; sessionUsage: SessionUsage | null }) {
   const pct = calculateContextPct(usage);
   const cacheHitRate = calculateCacheHitRate(usage);
+  const sessionCacheHitRate = sessionUsage ? calculateSessionCacheHitRate(sessionUsage) : null;
   const color = pct > 70 ? "var(--color-danger, #ef4444)"
     : pct > 50 ? "var(--color-warning, #f59e0b)"
     : "var(--color-success, #22c55e)";
 
   const hoverTitle = [
     `${usage.prompt_tokens.toLocaleString()} / ${usage.context_window.toLocaleString()} tokens`,
-    cacheHitRate != null ? `缓存命中率 ${cacheHitRate}%` : null,
+    cacheHitRate != null ? `上次请求缓存 ${cacheHitRate}%` : null,
+    sessionCacheHitRate != null ? `本会话累计缓存 ${sessionCacheHitRate}%` : null,
+    sessionUsage ? `模型调用 ${sessionUsage.model_calls.toLocaleString()} 次` : null,
   ].filter(Boolean).join(" · ");
 
   return (
@@ -213,6 +216,12 @@ function ContextBar({ usage }: { usage: ContextUsage }) {
         />
       </div>
       <span className="context-bar-label" style={{ color }}>{pct}%</span>
+      <span className="context-bar-metric">
+        上次 {cacheHitRate != null ? `${cacheHitRate}%` : "--"}
+      </span>
+      <span className="context-bar-metric">
+        累计 {sessionCacheHitRate != null ? `${sessionCacheHitRate}%` : "--"}
+      </span>
       <span className="context-bar-tooltip" role="tooltip">{hoverTitle}</span>
     </div>
   );
@@ -227,4 +236,10 @@ function calculateCacheHitRate(usage: ContextUsage) {
   const total = usage.cache_hit_tokens + usage.cache_miss_tokens;
   if (total <= 0) return null;
   return Math.round((usage.cache_hit_tokens / total) * 1000) / 10;
+}
+
+function calculateSessionCacheHitRate(usage: SessionUsage) {
+  const total = usage.total_cache_hit_tokens + usage.total_cache_miss_tokens;
+  if (total <= 0) return null;
+  return Math.round((usage.total_cache_hit_tokens / total) * 1000) / 10;
 }

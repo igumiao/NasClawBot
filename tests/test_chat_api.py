@@ -216,16 +216,37 @@ def test_chat_agent_endpoint_uses_readonly_agent_and_persists_session(tmp_path, 
                     )
                 ],
                 model="fake-model",
+                usage={
+                    "prompt_tokens": 100,
+                    "completion_tokens": 10,
+                    "total_tokens": 110,
+                    "prompt_cache_hit_tokens": 80,
+                    "prompt_cache_miss_tokens": 20,
+                },
             ),
             LLMToolResponse(
                 content="找到 Dune 2160p 和 Dune 1080p。",
                 tool_calls=[],
                 model="fake-model",
+                usage={
+                    "prompt_tokens": 140,
+                    "completion_tokens": 20,
+                    "total_tokens": 160,
+                    "prompt_cache_hit_tokens": 70,
+                    "prompt_cache_miss_tokens": 70,
+                },
             ),
             LLMToolResponse(
                 content="上一轮结果包括 Dune 2160p 和 Dune 1080p。",
                 tool_calls=[],
                 model="fake-model",
+                usage={
+                    "prompt_tokens": 200,
+                    "completion_tokens": 30,
+                    "total_tokens": 230,
+                    "prompt_cache_hit_tokens": 150,
+                    "prompt_cache_miss_tokens": 50,
+                },
             ),
         ]
 
@@ -249,6 +270,12 @@ def test_chat_agent_endpoint_uses_readonly_agent_and_persists_session(tmp_path, 
     assert first.tool_calls[0]["status"] == "success"
     assert first.tool_calls[0]["truncated"] is False
     assert first.pending_approvals == []
+    assert first.context_usage is not None
+    assert first.context_usage.cache_hit_rate == 50.0
+    assert first.session_usage is not None
+    assert first.session_usage.model_calls == 2
+    assert first.session_usage.total_prompt_tokens == 240
+    assert first.session_usage.cache_hit_rate == 62.5
     assert (tmp_path / "agent-session-1.json").exists()
 
     second = endpoint(ChatRequest(session_id="agent-session-1", message="上一轮有哪些结果？"))
@@ -257,6 +284,12 @@ def test_chat_agent_endpoint_uses_readonly_agent_and_persists_session(tmp_path, 
     assert second.message == "上一轮结果包括 Dune 2160p 和 Dune 1080p。"
     assert len(FakeLLM.calls) == 3
     assert any(message["role"] == "tool" for message in FakeLLM.calls[-1])
+    assert second.context_usage is not None
+    assert second.context_usage.cache_hit_rate == 75.0
+    assert second.session_usage is not None
+    assert second.session_usage.model_calls == 3
+    assert second.session_usage.total_prompt_tokens == 440
+    assert second.session_usage.cache_hit_rate == 68.2
 
 
 def test_chat_agent_endpoint_returns_download_pending_approval(tmp_path, monkeypatch: pytest.MonkeyPatch):

@@ -6,7 +6,8 @@ import type {
   ChatResponse,
   ContextUsage,
   PendingApproval,
-  ResourceCandidate
+  ResourceCandidate,
+  SessionUsage
 } from "../types/api";
 
 export type ApprovalCardStatus = "pending" | "approved" | "denied" | "failed" | "expired";
@@ -29,6 +30,7 @@ export type ChatState = {
   isRestoring: boolean;
   lastError: string | null;
   contextUsage: ContextUsage | null;
+  sessionUsage: SessionUsage | null;
 };
 
 export type ChatAction =
@@ -51,6 +53,7 @@ export function chatInitialState(sessionId = createSessionId()): ChatState {
   return {
     sessionId,
     contextUsage: null,
+    sessionUsage: null,
     messages: [],
     pendingApproval: null,
     isSubmitting: false,
@@ -313,6 +316,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         isSubmitting: false,
         lastError: action.response.error,
         contextUsage: action.response.context_usage ?? state.contextUsage,
+        sessionUsage: action.response.session_usage ?? state.sessionUsage,
       };
     case "approval_started":
       return { ...state, isSubmitting: true, lastError: null };
@@ -341,6 +345,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         isSubmitting: false,
         lastError: action.response.error,
         contextUsage: action.response.context_usage ?? state.contextUsage,
+        sessionUsage: action.response.session_usage ?? state.sessionUsage,
       };
     }
     case "approval_expired": {
@@ -372,6 +377,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         isRestoring: false,
         lastError: null,
         contextUsage: (action.response.metadata?.context_usage as ContextUsage) ?? null,
+        sessionUsage: (action.response.metadata?.session_usage as SessionUsage) ?? null,
       };
     case "session_restore_finished":
       return { ...state, isRestoring: false };

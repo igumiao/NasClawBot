@@ -196,6 +196,7 @@ class AgentRunResult:
     pending_approvals: list[dict[str, Any]]
     checkpoint: ConversationCheckpoint
     context_usage: dict[str, Any] | None = None
+    session_usage: dict[str, Any] | None = None
 
 
 @dataclass
@@ -211,6 +212,7 @@ class AgentApprovalResult:
     pending_approvals: list[dict[str, Any]] = field(default_factory=list)
     checkpoint: ConversationCheckpoint | None = None
     context_usage: dict[str, Any] | None = None
+    session_usage: dict[str, Any] | None = None
 
 
 class NasClawAgentRunner:
@@ -288,6 +290,8 @@ class NasClawAgentRunner:
                 tool_calls=[],
                 pending_approvals=self._pending_approval_dicts(checkpoint),
                 checkpoint=checkpoint,
+                context_usage=checkpoint.metadata.get("context_usage"),
+                session_usage=checkpoint.metadata.get("session_usage"),
             )
 
         agent = self._build_agent()
@@ -316,6 +320,7 @@ class NasClawAgentRunner:
             pending_approvals=pending_approvals,
             checkpoint=saved_checkpoint,
             context_usage=getattr(agent, "_last_context_usage", None),
+            session_usage=getattr(agent, "_session_metadata", {}).get("session_usage"),
         )
 
     def _get_qb_adapter(self) -> QBittorrentAdapter:
@@ -509,6 +514,7 @@ class NasClawAgentRunner:
             pending_approvals=self._pending_approval_dicts(saved_checkpoint),
             checkpoint=saved_checkpoint,
             context_usage=saved_checkpoint.metadata.get("context_usage"),
+            session_usage=saved_checkpoint.metadata.get("session_usage"),
         )
 
     @_serialize_session
@@ -560,6 +566,7 @@ class NasClawAgentRunner:
             pending_approvals=self._pending_approval_dicts(saved_checkpoint),
             checkpoint=saved_checkpoint,
             context_usage=saved_checkpoint.metadata.get("context_usage"),
+            session_usage=saved_checkpoint.metadata.get("session_usage"),
         )
 
     def _approve_deterministically(
@@ -607,6 +614,7 @@ class NasClawAgentRunner:
             error=error,
             checkpoint=saved_checkpoint,
             context_usage=saved_checkpoint.metadata.get("context_usage"),
+            session_usage=saved_checkpoint.metadata.get("session_usage"),
         )
 
     def _deny_deterministically(
@@ -631,6 +639,7 @@ class NasClawAgentRunner:
             message=message,
             checkpoint=saved_checkpoint,
             context_usage=saved_checkpoint.metadata.get("context_usage"),
+            session_usage=saved_checkpoint.metadata.get("session_usage"),
         )
 
     @staticmethod
@@ -950,6 +959,9 @@ class NasClawAgentRunner:
         context_usage = getattr(agent, "_last_context_usage", None)
         if context_usage:
             checkpoint.metadata["context_usage"] = context_usage
+        session_usage = getattr(agent, "_session_metadata", {}).get("session_usage")
+        if session_usage:
+            checkpoint.metadata["session_usage"] = session_usage
         return checkpoint
 
     @staticmethod
@@ -1099,6 +1111,9 @@ class NasClawAgentRunner:
         context_usage = getattr(agent, "_last_context_usage", None)
         if context_usage:
             metadata["context_usage"] = context_usage
+        session_usage = getattr(agent, "_session_metadata", {}).get("session_usage")
+        if session_usage:
+            metadata["session_usage"] = session_usage
         return ConversationCheckpoint(
             session_id=session_id,
             created_at=prior_checkpoint.created_at if prior_checkpoint else now,

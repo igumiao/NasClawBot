@@ -29,6 +29,7 @@ NasClawBot is a single-user NAS/PT media assistant and Agent engineering playgro
 - `GET /chat/agent/sessions/{session_id}` returns one persisted Agent checkpoint with renderable message history, also without calling an LLM or tools.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` approves a pending Agent tool call. Optional body `{"decision":"approve_once"}` or `{"decision":"approve_and_grant_session"}` controls whether an eligible download-add approval also creates a session grant. For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, and resumes the normal tool loop with `tool_choice="auto"`. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/deny` denies a pending Agent tool call without executing the tool. For checkpoints with `paused_loop`, the runner resumes the provider tool-call protocol with a `USER_DENIED` tool error and continues the normal tool loop.
+- Model-output token/cache usage is persisted in checkpoint metadata, not read back from trace for UI state: `context_usage` is the last model request snapshot, while `session_usage` is the current Agent session cumulative summary.
 - `PATCH /chat/agent/sessions/{session_id}`: updates a session checkpoint. Currently supports `title` in `metadata.title` for session renaming.
 - `DELETE /chat/agent/sessions/{session_id}`: deletes a persisted session checkpoint (HTTP 204 on success).
 - `GET /settings/download-authorization` and `PUT /settings/download-authorization` read and write the Settings-backed download authorization policy used by the "本会话内允许" approval action.
@@ -178,7 +179,7 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 - "+ 新对话" button switches to a blank new-conversation state.
 - Hover reveals `⋯` menu button per session row: 重命名 (inline PATCH) + 删除 (confirm dialog, DELETE).
 
-`frontend/src/components/chat/ChatPanel.tsx` accepts `activeSessionId` from AppShell and delegates session behavior to `useAgentChatSession`. Assistant messages render as Markdown through `MarkdownContent` (react-markdown + remark-gfm). `ApprovalCard` renders batch torrent items and exposes "本会话内允许" only when the backend marks the approval as policy-eligible.
+`frontend/src/components/chat/ChatPanel.tsx` accepts `activeSessionId` from AppShell and delegates session behavior to `useAgentChatSession`. Assistant messages render as Markdown through `MarkdownContent` (react-markdown + remark-gfm). `ApprovalCard` renders batch torrent items and exposes "本会话内允许" only when the backend marks the approval as policy-eligible. The composer context bar shows last-request context pressure plus both last-request and cumulative session cache hit rates.
 
 `frontend/src/components/settings/SettingsPanel.tsx` includes the TMDB network proxy editor plus the download authorization policy editor for categories, save path prefixes, per-batch limit, and per-session limit.
 

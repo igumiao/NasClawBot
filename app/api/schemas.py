@@ -14,6 +14,8 @@ class ContextUsage(BaseModel):
 
     context_window: int = 64000
     prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
     cache_hit_tokens: int = 0
     cache_miss_tokens: int = 0
 
@@ -31,6 +33,26 @@ class ContextUsage(BaseModel):
         if total <= 0:
             return None
         return round(self.cache_hit_tokens / total * 100, 1)
+
+
+class SessionUsage(BaseModel):
+    """Cumulative token and cache usage for the current Agent session."""
+
+    context_window: int = 64000
+    model_calls: int = 0
+    total_tokens: int = 0
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    total_cache_hit_tokens: int = 0
+    total_cache_miss_tokens: int = 0
+
+    @computed_field
+    @property
+    def cache_hit_rate(self) -> float | None:
+        total = self.total_cache_hit_tokens + self.total_cache_miss_tokens
+        if total <= 0:
+            return None
+        return round(self.total_cache_hit_tokens / total * 100, 1)
 
 
 class ChatRequest(BaseModel):
@@ -51,6 +73,7 @@ class ChatResponse(BaseModel):
     pending_approvals: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
     context_usage: ContextUsage | None = None
+    session_usage: SessionUsage | None = None
 
 
 class AgentSessionSummary(BaseModel):
@@ -104,6 +127,7 @@ class AgentApprovalResponse(BaseModel):
     pending_approvals: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
     context_usage: ContextUsage | None = None
+    session_usage: SessionUsage | None = None
 
 
 class AgentApprovalDecisionRequest(BaseModel):

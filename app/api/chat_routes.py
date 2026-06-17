@@ -27,6 +27,7 @@ from app.api.schemas import (
     DownloadResponse,
     HealthServicesResponse,
     ServiceHealth,
+    SessionUsage,
     SessionUpdateRequest,
     TMDBNetworkSettingsResponse,
 )
@@ -245,6 +246,9 @@ def build_router() -> APIRouter:
         context_usage = None
         if result.context_usage:
             context_usage = ContextUsage(**result.context_usage)
+        session_usage = None
+        if result.session_usage:
+            session_usage = SessionUsage(**result.session_usage)
 
         return ChatResponse(
             session_id=request.session_id,
@@ -254,6 +258,7 @@ def build_router() -> APIRouter:
             tool_calls=result.tool_calls,
             pending_approvals=result.pending_approvals,
             context_usage=context_usage,
+            session_usage=session_usage,
         )
 
     @router.get("/chat/agent/sessions", response_model=AgentSessionListResponse)
@@ -367,6 +372,7 @@ def build_router() -> APIRouter:
             pending_approvals=result.pending_approvals,
             error=result.error,
             context_usage=ContextUsage(**result.context_usage) if result.context_usage else None,
+            session_usage=SessionUsage(**result.session_usage) if result.session_usage else None,
         )
 
     @router.post("/chat/agent/sessions/{session_id}/approvals/{approval_id}/deny", response_model=AgentApprovalResponse)
@@ -390,6 +396,7 @@ def build_router() -> APIRouter:
             pending_approvals=result.pending_approvals,
             error=result.error,
             context_usage=ContextUsage(**result.context_usage) if result.context_usage else None,
+            session_usage=SessionUsage(**result.session_usage) if result.session_usage else None,
         )
 
     @router.post("/download", response_model=DownloadResponse)

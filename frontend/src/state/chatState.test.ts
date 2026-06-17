@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ChatResponse, ContextUsage, PendingApproval } from "../types/api";
+import type { ChatResponse, ContextUsage, PendingApproval, SessionUsage } from "../types/api";
 import { chatInitialState, chatReducer, createSessionId } from "./chatState";
 
 const searchResult = {
@@ -45,8 +45,20 @@ const pendingApproval: PendingApproval = {
 const contextUsage: ContextUsage = {
   context_window: 64000,
   prompt_tokens: 20800,
+  completion_tokens: 900,
+  total_tokens: 21700,
   cache_hit_tokens: 16000,
   cache_miss_tokens: 4800,
+};
+
+const sessionUsage: SessionUsage = {
+  context_window: 64000,
+  model_calls: 3,
+  total_tokens: 62000,
+  total_prompt_tokens: 59200,
+  total_completion_tokens: 2800,
+  total_cache_hit_tokens: 40000,
+  total_cache_miss_tokens: 19200,
 };
 
 function agentResponse(overrides: Partial<ChatResponse> = {}): ChatResponse {
@@ -71,6 +83,7 @@ function agentResponse(overrides: Partial<ChatResponse> = {}): ChatResponse {
     pending_approvals: [],
     error: null,
     context_usage: null,
+    session_usage: null,
     ...overrides
   };
 }
@@ -119,10 +132,11 @@ describe("chatState", () => {
   it("stores context usage from chat responses", () => {
     const state = chatReducer(chatInitialState("session-1"), {
       type: "chat_response_received",
-      response: agentResponse({ context_usage: contextUsage })
+      response: agentResponse({ context_usage: contextUsage, session_usage: sessionUsage })
     });
 
     expect(state.contextUsage).toEqual(contextUsage);
+    expect(state.sessionUsage).toEqual(sessionUsage);
   });
 
   it("reuses assistant and receipt messages for approval results", () => {
@@ -145,7 +159,8 @@ describe("chatState", () => {
         message: "已提交到 qBittorrent，任务保持暂停。",
         receipt: { external_id: "r1" },
         error: null,
-        context_usage: contextUsage
+        context_usage: contextUsage,
+        session_usage: sessionUsage
       }
     });
 
@@ -158,6 +173,7 @@ describe("chatState", () => {
     expect(approved.messages[1]).toMatchObject({ kind: "approval", status: "approved" });
     expect(approved.pendingApproval).toBeNull();
     expect(approved.contextUsage).toEqual(contextUsage);
+    expect(approved.sessionUsage).toEqual(sessionUsage);
   });
 
   it("appends the next pending approval from an approval response", () => {
@@ -260,7 +276,7 @@ describe("chatState", () => {
           { role: "assistant", content: "找到了 Dune。", timestamp: "2026-06-05T10:00:30", metadata: {} }
         ],
         archives: [],
-        metadata: { pending_approvals: [pendingApproval], context_usage: contextUsage }
+        metadata: { pending_approvals: [pendingApproval], context_usage: contextUsage, session_usage: sessionUsage }
       }
     });
 
@@ -283,5 +299,6 @@ describe("chatState", () => {
       state.messages.find((message) => message.kind === "search_results" && message.results.length === 5)
     ).toBeDefined();
     expect(state.contextUsage).toEqual(contextUsage);
+    expect(state.sessionUsage).toEqual(sessionUsage);
   });
 });
