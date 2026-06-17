@@ -20,7 +20,9 @@ _MEMORY_DIR = Path(__file__).resolve().parents[2] / "memory" / "agent-memory"
 
 
 def _build_store() -> MarkdownMemoryStore:
-    return MarkdownMemoryStore(_MEMORY_DIR)
+    store = MarkdownMemoryStore(_MEMORY_DIR)
+    store.ensure_template_files()
+    return store
 
 
 def build_memory_router() -> APIRouter:
