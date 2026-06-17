@@ -253,10 +253,15 @@ def build_router() -> APIRouter:
         Forces preflight compression regardless of the current token count so you can
         inspect the LLM-generated summary and archived messages.
         """
+        import traceback as _tb
         try:
-            return _agent_runner().compact_session(session_id)
+            runner = NasClawAgentRunner(checkpoint_store=_agent_checkpoint_store())
+            return runner.compact_session(session_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            _tb.print_exc()
+            raise HTTPException(status_code=500, detail=_tb.format_exc()) from exc
 
     @router.patch("/chat/agent/sessions/{session_id}", response_model=AgentSessionDetailResponse)
     def update_agent_session(session_id: str, body: SessionUpdateRequest) -> AgentSessionDetailResponse:
