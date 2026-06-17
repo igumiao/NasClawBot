@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from app.agent import NasClawAgentRunner
 from app.adapters.mteam import MTeamAdapter
@@ -337,6 +337,14 @@ def build_router() -> APIRouter:
             status="completed",
             receipt=response.data.get("receipt"),
         )
+
+    @router.get("/favicon.png", response_class=FileResponse)
+    def favicon() -> FileResponse:
+        """Serve the favicon from the frontend dist directory."""
+        favicon_path = _FRONTEND_DIST_INDEX.parent / "favicon.png"
+        if favicon_path.exists():
+            return FileResponse(favicon_path, media_type="image/png")
+        raise HTTPException(status_code=404, detail="Favicon not found")
 
     @router.get("/", response_class=HTMLResponse)
     def index() -> str:
