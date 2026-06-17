@@ -372,6 +372,14 @@ def build_router() -> APIRouter:
             return FileResponse(favicon_path, media_type="image/png")
         raise HTTPException(status_code=404, detail="Favicon not found")
 
+    @router.get("/brand-logo.png", response_class=FileResponse)
+    def brand_logo() -> FileResponse:
+        """Serve the brand logo from the frontend dist directory."""
+        logo_path = _FRONTEND_DIST_INDEX.parent / "brand-logo.png"
+        if logo_path.exists():
+            return FileResponse(logo_path, media_type="image/png")
+        raise HTTPException(status_code=404, detail="Brand logo not found")
+
     @router.get("/", response_class=HTMLResponse)
     def index() -> str:
         """Serve the chat page when present, fallback to a tiny placeholder."""

@@ -66,17 +66,21 @@ textarea {
 }
 
 .brand-mark {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  border-radius: 7px;
-  background: var(--primary);
-  color: #fff;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 10px;
   border: 0;
   display: grid;
   place-items: center;
-  font-size: 12px;
-  font-weight: 700;
+  overflow: hidden;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .brand-mark-button {
@@ -87,6 +91,13 @@ textarea {
 .brand-mark-hover-icon {
   position: absolute;
   opacity: 0;
+}
+
+.brand-mark-label {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .brand-mark-button:hover .brand-mark-label,
@@ -1079,6 +1090,8 @@ textarea {
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;
+  outline: none;
 }
 
 .context-bar-track {
@@ -1102,6 +1115,43 @@ textarea {
   min-width: 42px;
   text-align: right;
   user-select: none;
+}
+
+.context-bar-tooltip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: rgba(18, 24, 38, 0.94);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.18);
+  opacity: 0;
+  transform: translateY(2px);
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s ease;
+}
+
+.context-bar-tooltip::after {
+  content: "";
+  position: absolute;
+  right: 16px;
+  top: 100%;
+  border: 5px solid transparent;
+  border-top-color: rgba(18, 24, 38, 0.94);
+}
+
+.context-bar:hover .context-bar-tooltip,
+.context-bar:focus-visible .context-bar-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
 }
 
 .composer-shell {
