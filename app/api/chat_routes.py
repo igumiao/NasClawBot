@@ -21,6 +21,7 @@ from app.api.schemas import (
     ChatRequest,
     ChatResponse,
     CompactResponse,
+    ContextUsage,
     DownloadAuthorizationPolicyResponse,
     DownloadRequest,
     DownloadResponse,
@@ -194,6 +195,10 @@ def build_router() -> APIRouter:
                 error=str(exc),
             )
 
+        context_usage = None
+        if result.context_usage:
+            context_usage = ContextUsage(**result.context_usage)
+
         return ChatResponse(
             session_id=request.session_id,
             status="completed" if result.status == "success" else result.status,
@@ -201,6 +206,7 @@ def build_router() -> APIRouter:
             results=result.results,
             tool_calls=result.tool_calls,
             pending_approvals=result.pending_approvals,
+            context_usage=context_usage,
         )
 
     @router.get("/chat/agent/sessions", response_model=AgentSessionListResponse)
@@ -313,6 +319,7 @@ def build_router() -> APIRouter:
             receipt=result.receipt,
             pending_approvals=result.pending_approvals,
             error=result.error,
+            context_usage=ContextUsage(**result.context_usage) if result.context_usage else None,
         )
 
     @router.post("/chat/agent/sessions/{session_id}/approvals/{approval_id}/deny", response_model=AgentApprovalResponse)
@@ -335,6 +342,7 @@ def build_router() -> APIRouter:
             receipt=result.receipt,
             pending_approvals=result.pending_approvals,
             error=result.error,
+            context_usage=ContextUsage(**result.context_usage) if result.context_usage else None,
         )
 
     @router.post("/download", response_model=DownloadResponse)

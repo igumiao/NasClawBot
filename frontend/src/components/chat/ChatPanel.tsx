@@ -2,6 +2,7 @@ import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, use
 import { useAgentChatSession } from "../../hooks/useAgentChatSession";
 import { ApprovalCard } from "./ApprovalCard";
 import { ErrorCard } from "./ErrorCard";
+import type { ContextUsage } from "../../types/api";
 import { MarkdownContent } from "./MarkdownContent";
 import { ReceiptCard } from "./ReceiptCard";
 import { SearchResultCard } from "./SearchResultCard";
@@ -170,6 +171,9 @@ export function ChatPanel({
           </div>
         )}
       </div>
+      {state.contextUsage && (
+        <ContextBar usage={state.contextUsage} />
+      )}
       <form className="composer-shell" onSubmit={handleSubmit}>
         <textarea
           ref={textareaRef}
@@ -186,4 +190,40 @@ export function ChatPanel({
       </form>
     </section>
   );
+}
+
+function ContextBar({ usage }: { usage: ContextUsage }) {
+  const pct = calculateContextPct(usage);
+  const cacheHitRate = calculateCacheHitRate(usage);
+  const color = pct > 70 ? "var(--color-danger, #ef4444)"
+    : pct > 50 ? "var(--color-warning, #f59e0b)"
+    : "var(--color-success, #22c55e)";
+
+  const hoverTitle = [
+    `${usage.prompt_tokens.toLocaleString()} / ${usage.context_window.toLocaleString()} tokens`,
+    cacheHitRate != null ? `缓存命中率 ${cacheHitRate}%` : null,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <div className="context-bar" title={hoverTitle}>
+      <div className="context-bar-track">
+        <div
+          className="context-bar-fill"
+          style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: color }}
+        />
+      </div>
+      <span className="context-bar-label" style={{ color }}>{pct}%</span>
+    </div>
+  );
+}
+
+function calculateContextPct(usage: ContextUsage) {
+  if (usage.context_window <= 0) return 0;
+  return Math.round((usage.prompt_tokens / usage.context_window) * 1000) / 10;
+}
+
+function calculateCacheHitRate(usage: ContextUsage) {
+  const total = usage.cache_hit_tokens + usage.cache_miss_tokens;
+  if (total <= 0) return null;
+  return Math.round((usage.cache_hit_tokens / total) * 1000) / 10;
 }

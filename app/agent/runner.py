@@ -194,6 +194,7 @@ class AgentRunResult:
     tool_calls: list[dict[str, Any]]
     pending_approvals: list[dict[str, Any]]
     checkpoint: ConversationCheckpoint
+    context_usage: dict[str, Any] | None = None
 
 
 @dataclass
@@ -208,6 +209,7 @@ class AgentApprovalResult:
     error: str | None = None
     pending_approvals: list[dict[str, Any]] = field(default_factory=list)
     checkpoint: ConversationCheckpoint | None = None
+    context_usage: dict[str, Any] | None = None
 
 
 class NasClawAgentRunner:
@@ -312,6 +314,7 @@ class NasClawAgentRunner:
             tool_calls=self._agent_tool_calls(agent),
             pending_approvals=pending_approvals,
             checkpoint=saved_checkpoint,
+            context_usage=getattr(agent, "_last_context_usage", None),
         )
 
     def _get_qb_adapter(self) -> QBittorrentAdapter:
@@ -500,6 +503,7 @@ class NasClawAgentRunner:
             error=error,
             pending_approvals=self._pending_approval_dicts(saved_checkpoint),
             checkpoint=saved_checkpoint,
+            context_usage=saved_checkpoint.metadata.get("context_usage"),
         )
 
     @_serialize_session
@@ -550,6 +554,7 @@ class NasClawAgentRunner:
             message=message,
             pending_approvals=self._pending_approval_dicts(saved_checkpoint),
             checkpoint=saved_checkpoint,
+            context_usage=saved_checkpoint.metadata.get("context_usage"),
         )
 
     def _approve_deterministically(
@@ -596,6 +601,7 @@ class NasClawAgentRunner:
             receipt=receipt,
             error=error,
             checkpoint=saved_checkpoint,
+            context_usage=saved_checkpoint.metadata.get("context_usage"),
         )
 
     def _deny_deterministically(
@@ -619,6 +625,7 @@ class NasClawAgentRunner:
             status="denied",
             message=message,
             checkpoint=saved_checkpoint,
+            context_usage=saved_checkpoint.metadata.get("context_usage"),
         )
 
     @staticmethod
@@ -935,6 +942,9 @@ class NasClawAgentRunner:
             pending_approvals=pending_approvals,
             turn_count=checkpoint.metadata["turn_count"],
         )
+        context_usage = getattr(agent, "_last_context_usage", None)
+        if context_usage:
+            checkpoint.metadata["context_usage"] = context_usage
         return checkpoint
 
     @staticmethod
@@ -1081,6 +1091,9 @@ class NasClawAgentRunner:
             pending_approvals=deepcopy(pending_approvals),
             turn_count=metadata["turn_count"],
         )
+        context_usage = getattr(agent, "_last_context_usage", None)
+        if context_usage:
+            metadata["context_usage"] = context_usage
         return ConversationCheckpoint(
             session_id=session_id,
             created_at=prior_checkpoint.created_at if prior_checkpoint else now,
