@@ -42,6 +42,14 @@ export function ChatPanel({
     setDraft("");
   }, [activeSessionId]);
 
+  // Auto-grow the textarea as content wraps, capped by CSS max-height
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [draft]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const message = draft.trim();

@@ -1025,12 +1025,13 @@ textarea {
 
 .composer-shell textarea {
   min-height: 34px;
-  max-height: 160px;
-  resize: vertical;
+  max-height: 120px;
+  resize: none;
   border: 0;
   outline: none;
   background: transparent;
   color: var(--text);
+  overflow-y: auto;
 }
 
 .composer-shell button {
