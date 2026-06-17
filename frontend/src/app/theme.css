@@ -533,6 +533,71 @@ textarea {
   background: var(--surface-subtle);
 }
 
+/* ---- Reasoning (collapsible intermediate agent thinking) ---- */
+
+.chat-reasoning {
+  margin: 4px 0;
+  border: 1px solid var(--border-subtle, #e0e0e0);
+  border-radius: 6px;
+  background: var(--surface-raised, #fafaf9);
+  overflow: hidden;
+}
+
+.chat-reasoning-summary {
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.chat-reasoning-summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-reasoning-summary::before {
+  content: "▸ ";
+  font-size: 0.75rem;
+  margin-right: 4px;
+}
+
+.chat-reasoning[open] > .chat-reasoning-summary::before {
+  content: "▾ ";
+}
+
+.chat-reasoning-body {
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--border-subtle, #e0e0e0);
+  font-size: 0.85rem;
+}
+
+.chat-reasoning-chain {
+  margin-top: 8px;
+  border: 1px dashed var(--border-subtle, #e0e0e0);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.chat-reasoning-chain > summary {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  color: var(--text-muted, #999);
+  cursor: pointer;
+  list-style: none;
+}
+
+.chat-reasoning-chain > pre {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface-subtle, #f5f5f4);
+  border-top: 1px dashed var(--border-subtle, #e0e0e0);
+}
+
 /* ---- Markdown ---- */
 
 .markdown-content p {

@@ -20,6 +20,7 @@ from app.api.schemas import (
     AgentSessionSummary,
     ChatRequest,
     ChatResponse,
+    CompactResponse,
     DownloadAuthorizationPolicyResponse,
     DownloadRequest,
     DownloadResponse,
@@ -244,6 +245,18 @@ def build_router() -> APIRouter:
         if not store.delete(session_id):
             raise HTTPException(status_code=404, detail="Agent session not found")
         NasClawAgentRunner.cleanup_session_trace(session_id)
+
+    @router.post("/chat/agent/sessions/{session_id}/compact", response_model=CompactResponse)
+    def compact_agent_session(session_id: str) -> CompactResponse:
+        """Manually compact (compress) context for a session.
+
+        Forces preflight compression regardless of the current token count so you can
+        inspect the LLM-generated summary and archived messages.
+        """
+        try:
+            return _agent_runner().compact_session(session_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.patch("/chat/agent/sessions/{session_id}", response_model=AgentSessionDetailResponse)
     def update_agent_session(session_id: str, body: SessionUpdateRequest) -> AgentSessionDetailResponse:

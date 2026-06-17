@@ -13,6 +13,7 @@ export type ApprovalCardStatus = "pending" | "approved" | "denied" | "failed" | 
 export type ChatMessage =
   | { id: string; kind: "user"; text: string }
   | { id: string; kind: "assistant"; text: string }
+  | { id: string; kind: "reasoning"; text: string; reasoningContent?: string | null }
   | { id: string; kind: "tool_activity"; toolCall: AgentToolCall }
   | { id: string; kind: "search_results"; results: ResourceCandidate[] }
   | { id: string; kind: "approval"; approval: PendingApproval; status: ApprovalCardStatus }
@@ -103,17 +104,31 @@ function updateApprovalMessage(
 }
 
 function appendChatResponse(messages: ChatMessage[], response: ChatResponse): ChatMessage[] {
-  const next: ChatMessage[] = [
-    ...messages,
-    { id: id("assistant"), kind: "assistant", text: chatAssistantText(response) }
-  ];
+  const next: ChatMessage[] = [...messages];
 
+  // Group consecutive tool calls by their assistant_text so each
+  // distinct reasoning block appears once before its tool group.
+  let lastText: string | null = null;
   for (const toolCall of response.tool_calls) {
+    const text = (toolCall.assistant_text || "").trim() || null;
+    if (text && text !== lastText) {
+      lastText = text;
+      next.push({
+        id: id("reasoning"),
+        kind: "reasoning",
+        text,
+        reasoningContent: toolCall.reasoning_content ?? null,
+      });
+    } else if (!text) {
+      lastText = null;
+    }
     next.push({ id: id("tool"), kind: "tool_activity", toolCall });
     if (Array.isArray(toolCall.results) && toolCall.results.length > 0) {
       next.push({ id: id("results"), kind: "search_results", results: toolCall.results.slice(0, 5) });
     }
   }
+
+  next.push({ id: id("assistant"), kind: "assistant", text: chatAssistantText(response) });
 
   for (const approval of response.pending_approvals) {
     next.push({ id: id("approval"), kind: "approval", approval, status: "pending" });
@@ -201,18 +216,36 @@ function restoredTurnMessages(turn: AgentSessionMessage[]): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
   for (const message of turn) {
-    if (message.role === "assistant" && message.content.trim()) {
+    // Tool outputs in chronological order
+    if (message.role === "tool") {
+      messages.push(...restoredToolOutput(message));
+      continue;
+    }
+
+    if (message.role !== "assistant") continue;
+
+    const meta = asRecord(message.metadata);
+    const hasToolCalls = Array.isArray(meta?.tool_calls) && meta.tool_calls.length > 0;
+
+    if (hasToolCalls && message.content.trim()) {
+      // Intermediate assistant text that was hidden during live chat →
+      // collapsible reasoning block in the restored view.
+      const reasoningContent = typeof meta?.reasoning_content === "string" ? meta.reasoning_content : null;
+      messages.push({
+        id: id("reasoning"),
+        kind: "reasoning",
+        text: message.content,
+        reasoningContent,
+      });
+    } else if (!hasToolCalls && message.content.trim()) {
+      // Final answer without tool calls
       messages.push({ id: id("assistant"), kind: "assistant", text: message.content });
     }
-  }
-  for (const message of turn) {
-    if (message.role !== "assistant") continue;
+
+    // Tool calls from metadata (restored in order, after reasoning / before tool outputs)
     for (const toolCall of restoredToolCalls(message)) {
       messages.push({ id: id("tool"), kind: "tool_activity", toolCall });
     }
-  }
-  for (const message of turn) {
-    messages.push(...restoredToolOutput(message));
   }
 
   return messages;

@@ -29,6 +29,8 @@ export type AgentToolCall = {
   gate_reason: string | null;
   approval_id: string | null;
   results?: ResourceCandidate[];
+  assistant_text?: string;
+  reasoning_content?: string | null;
 };
 
 export type ApprovalRisk = {
