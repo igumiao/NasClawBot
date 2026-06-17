@@ -23,15 +23,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+ENV PYTHONPATH=/app
+ENV PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/
+
 # Copy Python source and install (pyproject.toml packages.find covers app*;
 # hello_agents is kept importable via PYTHONPATH below)
 COPY pyproject.toml ./
 COPY app/ app/
 COPY hello_agents/ hello_agents/
 RUN pip install --no-cache-dir .
-
-ENV PYTHONPATH=/app
-ENV PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/
 
 # Copy built frontend (served by FastAPI at /, /assets, /static)
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
