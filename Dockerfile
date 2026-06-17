@@ -10,6 +10,11 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
+# Use Tsinghua mirror for faster downloads (国内构建加速)
+# 海外部署可删除这一段，直接用默认源
+RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.tuna.tsinghua.edu.cn/debian|g' /etc/apt/sources.list.d/debian.sources \
+    && sed -i 's|http://security.debian.org/debian-security|https://mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list.d/debian.sources
+
 # Install system deps (Node.js required for MCP filesystem server via npx)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -26,6 +31,7 @@ COPY hello_agents/ hello_agents/
 RUN pip install --no-cache-dir .
 
 ENV PYTHONPATH=/app
+ENV PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/
 
 # Copy built frontend (served by FastAPI at /, /assets, /static)
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
