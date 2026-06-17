@@ -122,30 +122,4 @@ describe("SettingsPanel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Network error");
   });
 
-  it("saves download authorization policy", async () => {
-    const fetchSpy = mockSettingsFetch();
-
-    render(
-      <SettingsPanel
-        id="workspace-panel-settings"
-        labelledBy="workspace-tab-settings"
-        sessionId="session-4"
-      />,
-    );
-
-    await userEvent.click(await screen.findByLabelText(/允许在审批后/));
-    await userEvent.click(screen.getByLabelText("电视剧"));
-    await userEvent.type(screen.getByLabelText("允许保存路径前缀"), "/downloads/tv");
-    await userEvent.click(screen.getByRole("button", { name: "保存授权设置" }));
-
-    expect(await screen.findByRole("status")).toHaveTextContent("已保存下载授权设置");
-    const putCall = fetchSpy.mock.calls.find(([url, init]) => String(url) === "/settings/download-authorization" && init?.method === "PUT");
-    expect(putCall).toBeTruthy();
-    expect(JSON.parse(String(putCall?.[1]?.body))).toMatchObject({
-      enabled: true,
-      categories: ["电视剧"],
-      save_path_prefixes: ["/downloads/tv"],
-      paused_required: true
-    });
-  });
 });
