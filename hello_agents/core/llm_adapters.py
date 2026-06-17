@@ -322,12 +322,17 @@ class OpenAIAdapter(BaseLLMAdapter):
                     "prompt_cache_miss_tokens": getattr(response.usage, "prompt_cache_miss_tokens", 0),
                 }
 
+            reasoning_content = None
+            if self._is_thinking_model(self.model):
+                reasoning_content = getattr(message, "reasoning_content", None)
+
             return LLMToolResponse(
                 content=message.content,
                 tool_calls=tool_calls,
                 model=response.model,
                 usage=usage,
-                latency_ms=latency_ms
+                latency_ms=latency_ms,
+                reasoning_content=reasoning_content,
             )
 
         except Exception as e:

@@ -638,6 +638,67 @@ class NasClawAgentRunner:
         )
         agent._session_metadata = dict(checkpoint.metadata)
 
+    def compact_session(self, session_id: str) -> "CompactResponse":
+        """Manually force context compression on a session checkpoint.
+
+        Loads the checkpoint, builds the agent with normal config, and forces
+        preflight compression regardless of the current token count.  Useful
+        for testing and for inspecting what the LLM summary looks like.
+        """
+        from app.api.schemas import CompactResponse
+        from hello_agents.context.window_manager import ContextWindowManager
+
+        checkpoint = self.checkpoint_store.load(session_id)
+        if checkpoint is None:
+            raise KeyError("Agent session not found")
+
+        message_count_before = len(checkpoint.history)
+
+        agent = self._build_agent()
+        self._restore_history(agent, checkpoint)
+
+        wm = ContextWindowManager(agent)
+        compressed = wm._compress_active_history(estimated_tokens=999_999)
+
+        if not compressed:
+            return CompactResponse(
+                session_id=session_id,
+                compressed=False,
+                summary=None,
+                archive=None,
+                message_count_before=message_count_before,
+                message_count_after=len(checkpoint.history),
+                estimated_tokens_before=agent._history_token_count,
+            )
+
+        # ── 提取压缩结果 ──
+        summary = None
+        for msg in agent.history_manager.get_history():
+            if msg.role == "summary":
+                summary = msg.content
+                break
+
+        archives = getattr(agent, "_conversation_archives", [])
+        latest_archive = archives[-1] if archives else None
+
+        # ── 持久化 ──
+        now = datetime.now(timezone.utc).isoformat()
+        checkpoint.history = [m.to_dict() for m in agent.history_manager.get_history()]
+        checkpoint.archives = [a for a in archives]
+        checkpoint.saved_at = now
+        checkpoint.metadata["archive_count"] = len(checkpoint.archives)
+        self.checkpoint_store.save(checkpoint)
+
+        return CompactResponse(
+            session_id=session_id,
+            compressed=True,
+            summary=summary,
+            archive=latest_archive,
+            message_count_before=message_count_before,
+            message_count_after=len(checkpoint.history),
+            estimated_tokens_before=agent._history_token_count,
+        )
+
     def _install_authorization_hook(
         self,
         agent: ToolCallingAgent,
@@ -1054,6 +1115,8 @@ class NasClawAgentRunner:
                 "gate_result": observation.gate_result,
                 "gate_reason": observation.gate_reason,
                 "approval_id": observation.approval_id,
+                "assistant_text": observation.assistant_text or "",
+                "reasoning_content": observation.reasoning_content,
             }
             if observation.tool_name == "mteam_search":
                 candidates = observation.response.data.get("candidates", [])

@@ -118,6 +118,23 @@ export function ChatPanel({
                       </div>
                     </div>
                   );
+                case "reasoning":
+                  return (
+                    <details key={message.id} className="chat-reasoning">
+                      <summary className="chat-reasoning-summary">
+                        {message.text.slice(0, 80)}{message.text.length > 80 ? "…" : ""}
+                      </summary>
+                      <div className="chat-reasoning-body">
+                        <MarkdownContent content={message.text} />
+                        {message.reasoningContent ? (
+                          <details className="chat-reasoning-chain">
+                            <summary>思考链 (thinking)</summary>
+                            <pre>{message.reasoningContent}</pre>
+                          </details>
+                        ) : null}
+                      </div>
+                    </details>
+                  );
                 case "tool_activity":
                   return <ToolActivityCard key={message.id} toolCall={message.toolCall} />;
                 case "search_results":

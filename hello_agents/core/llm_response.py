@@ -20,6 +20,8 @@ class LLMToolResponse:
     model: str
     usage: Dict[str, int] = field(default_factory=dict)
     latency_ms: int = 0
+    reasoning_content: Optional[str] = None
+    """推理过程（仅thinking model如o1、deepseek-reasoner有此字段）"""
 
 
 @dataclass

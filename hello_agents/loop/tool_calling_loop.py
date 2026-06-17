@@ -45,6 +45,10 @@ class ToolObservation:
     approval_id: Optional[str] = None
     # Loop/truncation stats, not tool execution stats. Tool stats live on response.stats.
     stats: Dict[str, Any] = field(default_factory=dict)
+    # Intermediate assistant text emitted before this round of tool calls.
+    assistant_text: str = ""
+    # Thinking-model chain-of-thought (e.g. DeepSeek-R1 reasoning_content).
+    reasoning_content: Optional[str] = None
 
 
 @dataclass
@@ -147,11 +151,15 @@ class ToolCallingLoop:
                 continue
 
             messages.append(assistant_message)
+            assistant_meta: Dict[str, Any] = {"tool_calls": assistant_message["tool_calls"]}
+            llm_reasoning = getattr(response, "reasoning_content", None)
+            if llm_reasoning:
+                assistant_meta["reasoning_content"] = llm_reasoning
             self.agent.add_message(
                 Message(
                     response.content or "",
                     "assistant",
-                    metadata={"tool_calls": assistant_message["tool_calls"]},
+                    metadata=assistant_meta,
                 )
             )
             if ask_user_items:
@@ -164,7 +172,7 @@ class ToolCallingLoop:
                     reason=gate_reason,
                 )
                 pending_approvals.append(approval)
-                observation = self._pending_approval_observation(ask_item, approval)
+                observation = self._pending_approval_observation(ask_item, approval, response.content or "", getattr(response, "reasoning_content", None))
                 tool_observations.append(observation)
                 self._log_tool_result(step, observation)
                 approval_message = self._pending_approval_message(pending_approvals)
@@ -185,25 +193,29 @@ class ToolCallingLoop:
                     paused_loop=paused_loop,
                 )
 
+            _llm_content = response.content or ""
+            _llm_reasoning = getattr(response, "reasoning_content", None)
             for item in gate_plan:
                 tool_call = item["tool_call"]
                 arguments = item["arguments"]
                 gate_result = item["gate_result"]
                 gate_reason = item["gate_reason"]
-                response = item["response"]
-                if response is None:
-                    response = self._execute_tool_call(tool_call.name, arguments or {})
-                observation_text, truncation = self._build_observation_text(tool_call.name, response)
+                tool_response = item["response"]
+                if tool_response is None:
+                    tool_response = self._execute_tool_call(tool_call.name, arguments or {})
+                observation_text, truncation = self._build_observation_text(tool_call.name, tool_response)
                 observation = ToolObservation(
                     tool_name=tool_call.name,
                     tool_call_id=tool_call.id,
                     arguments=arguments or {},
-                    response=response,
+                    response=tool_response,
                     observation_text=observation_text,
                     truncated=bool(truncation.get("truncated", False)),
                     gate_result=gate_result,
                     gate_reason=gate_reason,
                     stats=truncation.get("stats", {}),
+                    assistant_text=_llm_content,
+                    reasoning_content=_llm_reasoning,
                 )
                 self._log_tool_result(step, observation)
                 tool_observations.append(observation)
@@ -280,6 +292,7 @@ class ToolCallingLoop:
                     context={"tool_name": tool_name},
                 )
             observation_text, truncation = self._build_observation_text(tool_name, response)
+            assistant_msg = paused_loop.get("assistant_message") or {}
             observation = ToolObservation(
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
@@ -289,6 +302,7 @@ class ToolCallingLoop:
                 truncated=bool(truncation.get("truncated", False)),
                 approval_id=paused_loop.get("approval_id") if tool_call_id == pending_tool_call_id else None,
                 stats=truncation.get("stats", {}),
+                assistant_text=str(assistant_msg.get("content") or ""),
             )
             self._log_tool_result(step, observation)
             tool_observations.append(observation)
@@ -370,11 +384,15 @@ class ToolCallingLoop:
                 continue
 
             messages.append(assistant_message)
+            assistant_meta: Dict[str, Any] = {"tool_calls": assistant_message["tool_calls"]}
+            llm_reasoning = getattr(response, "reasoning_content", None)
+            if llm_reasoning:
+                assistant_meta["reasoning_content"] = llm_reasoning
             self.agent.add_message(
                 Message(
                     response.content or "",
                     "assistant",
-                    metadata={"tool_calls": assistant_message["tool_calls"]},
+                    metadata=assistant_meta,
                 )
             )
             if ask_user_items:
@@ -387,7 +405,7 @@ class ToolCallingLoop:
                     reason=gate_reason,
                 )
                 pending_approvals.append(approval)
-                observation = self._pending_approval_observation(ask_item, approval)
+                observation = self._pending_approval_observation(ask_item, approval, response.content or "", getattr(response, "reasoning_content", None))
                 tool_observations.append(observation)
                 self._log_tool_result(step, observation)
                 approval_message = self._pending_approval_message(pending_approvals)
@@ -408,28 +426,33 @@ class ToolCallingLoop:
                     paused_loop=paused_loop,
                 )
 
+            _llm_content = response.content or ""
+            _llm_reasoning = getattr(response, "reasoning_content", None)
             for item in gate_plan:
                 tool_call = item["tool_call"]
                 arguments = item["arguments"]
                 gate_result = item["gate_result"]
                 gate_reason = item["gate_reason"]
-                response = item["response"]
-                if response is None:
-                    response = self._execute_tool_call(tool_call.name, arguments or {})
-                observation_text, truncation = self._build_observation_text(tool_call.name, response)
+                tool_response = item["response"]
+                if tool_response is None:
+                    tool_response = self._execute_tool_call(tool_call.name, arguments or {})
+                observation_text, truncation = self._build_observation_text(tool_call.name, tool_response)
                 observation = ToolObservation(
                     tool_name=tool_call.name,
                     tool_call_id=tool_call.id,
                     arguments=arguments or {},
-                    response=response,
+                    response=tool_response,
                     observation_text=observation_text,
                     truncated=bool(truncation.get("truncated", False)),
                     gate_result=gate_result,
                     gate_reason=gate_reason,
                     stats=truncation.get("stats", {}),
+                    assistant_text=_llm_content,
+                    reasoning_content=_llm_reasoning,
                 )
                 self._log_tool_result(step, observation)
                 tool_observations.append(observation)
+
                 tool_message = {
                     "role": "tool",
                     "tool_call_id": tool_call.id,
@@ -524,6 +547,8 @@ class ToolCallingLoop:
         self,
         item: Dict[str, Any],
         approval: Dict[str, Any],
+        assistant_text: str = "",
+        reasoning_content: Optional[str] = None,
     ) -> ToolObservation:
         tool_call = item["tool_call"]
         response = ToolResponse.pending_approval(
@@ -540,6 +565,8 @@ class ToolCallingLoop:
             gate_result="ask_user",
             gate_reason="Tool call requires user approval.",
             approval_id=approval["approval_id"],
+            assistant_text=assistant_text,
+            reasoning_content=reasoning_content,
         )
 
     def _build_visible_tool_schemas(self) -> List[Dict[str, Any]]:

@@ -55,6 +55,18 @@ class AgentSessionDetailResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class CompactResponse(BaseModel):
+    """Result of a manual context compaction."""
+
+    session_id: str
+    compressed: bool
+    summary: str | None = None
+    archive: dict[str, Any] | None = None
+    message_count_before: int = 0
+    message_count_after: int = 0
+    estimated_tokens_before: int = 0
+
+
 class AgentApprovalResponse(BaseModel):
     """Result of a deterministic Agent approval decision."""
 
