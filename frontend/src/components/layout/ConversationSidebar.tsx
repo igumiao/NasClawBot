@@ -110,11 +110,13 @@ export function ConversationSidebar({
             title="展开侧边栏"
             onClick={onToggleCollapsed}
           >
-            <span className="brand-mark-label">N</span>
+            <img className="brand-mark-label" src="/brand-logo.png" alt="NasClawBot" />
             <PanelLeftOpen className="brand-mark-hover-icon" size={17} aria-hidden="true" />
           </button>
         ) : (
-          <div className="brand-mark">N</div>
+          <div className="brand-mark">
+            <img src="/brand-logo.png" alt="NasClawBot" />
+          </div>
         )}
         <div className="brand-copy">
           <div className="brand-title">NasClawBot</div>
