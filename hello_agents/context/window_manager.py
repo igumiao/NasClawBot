@@ -151,6 +151,16 @@ class ContextWindowManager:
         except Exception as exc:
             if self.agent.config.debug:
                 print(f"preflight compression summary failed: {exc}")
+            if self.agent.trace_logger:
+                self.agent.trace_logger.log_event(
+                    "error",
+                    {
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                        "context": "preflight compression summary generation failed — falling back to simple summary",
+                        "message_count": len(messages),
+                    },
+                )
             return self._simple_summary(messages)
 
         content = response.content if hasattr(response, "content") else str(response)
