@@ -31,7 +31,6 @@ ENV PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/
 COPY pyproject.toml ./
 COPY app/ app/
 COPY hello_agents/ hello_agents/
-COPY skills/ skills/
 RUN pip install --no-cache-dir .
 
 # Copy built frontend (served by FastAPI at /, /assets, /static)
