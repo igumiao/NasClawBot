@@ -327,12 +327,13 @@ def test_chat_agent_endpoint_returns_download_pending_approval(tmp_path, monkeyp
 
     assert body.status == "awaiting_approval"
     assert body.pending_approvals[0]["tool_name"] == "qb_add_torrent"
-    assert body.pending_approvals[0]["arguments"] == {"torrent_id": "123", "qb_category": "movie"}
+    assert body.pending_approvals[0]["arguments"] == {"torrent_id": "123", "qb_category": "movie", "save_path": "/tmp/test-downloads"}
     assert body.tool_calls[0]["gate_result"] == "ask_user"
     assert "qb_add_torrent" in FakeLLM.tools_seen[0]
     checkpoint = JSONConversationCheckpointStore(tmp_path).load("agent-download")
     assert checkpoint is not None
-    assert checkpoint.metadata["pending_approvals"] == body.pending_approvals
+    assert checkpoint.metadata["pending_approvals"][0]["tool_name"] == "qb_add_torrent"
+    assert checkpoint.metadata["pending_approvals"][0]["arguments"] == {"torrent_id": "123", "qb_category": "movie"}
 
 
 def test_chat_agent_batch_approval_includes_session_authorization_eligibility(tmp_path, monkeypatch: pytest.MonkeyPatch):

@@ -183,6 +183,13 @@ def _agent_session_prompt(settings: Any, profile_memory: str = "") -> str:
         "判断已上映、未上映、最新、最近时，以工具结果中的日期和当前日期为准。"
     )
     prompt = f"{AGENT_SESSION_PROMPT}\n{date_line}"
+    default_path = (settings.download_default_save_path or "").strip()
+    if default_path:
+        prompt = (
+            f"{prompt}\n\n"
+            f"默认下载路径：{default_path}。"
+            f"添加下载时如不指定 save_path，种子将保存到此目录。"
+        )
     if profile_memory.strip():
         prompt = f"{prompt}\n\n长期用户画像：\n{profile_memory.strip()}"
     return prompt
@@ -292,7 +299,10 @@ class NasClawAgentRunner:
                 answer="当前会话有待确认的工具调用，请先批准或拒绝后再继续。",
                 results=[],
                 tool_calls=[],
-                pending_approvals=self._pending_approval_dicts(checkpoint),
+                pending_approvals=self._enrich_approvals_for_display(
+                    self._pending_approval_dicts(checkpoint),
+                    default_save_path=get_settings().download_default_save_path,
+                ),
                 checkpoint=checkpoint,
                 context_usage=checkpoint.metadata.get("context_usage"),
                 session_usage=checkpoint.metadata.get("session_usage"),
@@ -315,13 +325,18 @@ class NasClawAgentRunner:
         )
         self.checkpoint_store.save(saved_checkpoint)
 
+        # 为 API 响应注入默认存储路径（仅展示用，不修改 checkpoint）
+        display_approvals = self._enrich_approvals_for_display(
+            pending_approvals, default_save_path=get_settings().download_default_save_path,
+        )
+
         return AgentRunResult(
             session_id=session_id,
             status=agent.last_result.status if agent.last_result else "success",
             answer=answer,
             results=self._agent_results(agent),
             tool_calls=self._agent_tool_calls(agent),
-            pending_approvals=pending_approvals,
+            pending_approvals=display_approvals,
             checkpoint=saved_checkpoint,
             context_usage=getattr(agent, "_last_context_usage", None),
             session_usage=getattr(agent, "_session_metadata", {}).get("session_usage"),
@@ -515,7 +530,10 @@ class NasClawAgentRunner:
             message=message,
             receipt=receipt,
             error=error,
-            pending_approvals=self._pending_approval_dicts(saved_checkpoint),
+            pending_approvals=self._enrich_approvals_for_display(
+                self._pending_approval_dicts(saved_checkpoint),
+                default_save_path=get_settings().download_default_save_path,
+            ),
             checkpoint=saved_checkpoint,
             context_usage=saved_checkpoint.metadata.get("context_usage"),
             session_usage=saved_checkpoint.metadata.get("session_usage"),
@@ -567,7 +585,10 @@ class NasClawAgentRunner:
             approval_id=approval_id,
             status="denied",
             message=message,
-            pending_approvals=self._pending_approval_dicts(saved_checkpoint),
+            pending_approvals=self._enrich_approvals_for_display(
+                self._pending_approval_dicts(saved_checkpoint),
+                default_save_path=get_settings().download_default_save_path,
+            ),
             checkpoint=saved_checkpoint,
             context_usage=saved_checkpoint.metadata.get("context_usage"),
             session_usage=saved_checkpoint.metadata.get("session_usage"),
@@ -1180,6 +1201,39 @@ class NasClawAgentRunner:
             )
             approvals.append(record.to_dict())
         return approvals
+
+    @staticmethod
+    def _enrich_approvals_for_display(
+        approvals: list[dict[str, Any]], default_save_path: str,
+    ) -> list[dict[str, Any]]:
+        """为前端展示注入默认存储路径，不修改原始数据。
+
+        仅在 Agent 未指定 save_path 时注入，保证前端审批卡片
+        始终能看到实际存储路径。
+        """
+        resolved = (default_save_path or "").strip()
+        if not resolved or not approvals:
+            return approvals
+        enriched: list[dict[str, Any]] = []
+        for a in approvals:
+            tool_name = str(a.get("tool_name", ""))
+            if tool_name not in ("qb_add_torrent", "qb_add_torrents"):
+                enriched.append(a)
+                continue
+            a = deepcopy(a)
+            args = a.get("arguments", {})
+            if not isinstance(args, dict):
+                enriched.append(a)
+                continue
+            if tool_name == "qb_add_torrents":
+                for item in args.get("torrents", []) or args.get("items", []):
+                    if isinstance(item, dict) and not str(item.get("save_path", "")).strip():
+                        item["save_path"] = resolved
+            else:
+                if not str(args.get("save_path", "")).strip():
+                    args["save_path"] = resolved
+            enriched.append(a)
+        return enriched
 
     @staticmethod
     def _agent_results(agent: ToolCallingAgent) -> list[ResourceCandidate]:

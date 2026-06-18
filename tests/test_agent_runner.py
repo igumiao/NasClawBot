@@ -409,7 +409,7 @@ def test_nasclaw_agent_runner_gates_download_tool_by_default(tmp_path, monkeypat
 
     assert result.status == "awaiting_approval"
     assert result.pending_approvals[0]["tool_name"] == "qb_add_torrent"
-    assert result.pending_approvals[0]["arguments"] == {"torrent_id": "123", "qb_category": "movie"}
+    assert result.pending_approvals[0]["arguments"] == {"torrent_id": "123", "qb_category": "movie", "save_path": "/tmp/test-downloads"}
     assert result.pending_approvals[0]["session_id"] == "session-download"
     assert result.pending_approvals[0]["expires_at"]
     assert result.pending_approvals[0]["decision"] is None

@@ -75,6 +75,7 @@ export function ApprovalCard({
   const argumentsValue = approval.arguments ?? {};
   const torrentId = String(argumentsValue.torrent_id ?? "未提供");
   const qbCategory = String(argumentsValue.qb_category ?? "mteam");
+  const savePath = argumentsValue.save_path ? String(argumentsValue.save_path) : null;
   const items = batchItems(argumentsValue);
   const displayStatus: ApprovalCardStatus = status === "pending" && isPast(approval.expires_at) ? "expired" : status;
   const isPending = displayStatus === "pending";
@@ -113,6 +114,12 @@ export function ApprovalCard({
               <dt>qB 分类</dt>
               <dd>{qbCategory}</dd>
             </div>
+            {savePath && (
+              <div>
+                <dt>存储路径</dt>
+                <dd>{savePath}</dd>
+              </div>
+            )}
           </>
         )}
         <div>
