@@ -20,8 +20,8 @@ NasClawBot is a single-user NAS/PT media assistant and Agent engineering playgro
 
 - `GET /mteam/free-topped` returns topped (置顶) free torrents for ratio boosting. Uses two-pass M-Team search (discount=FREE + mallSingleFree community-funded free), grouped by toppingLevel 2/1. Frontend tab "刷流" at `frontend/src/components/free-torrents/FreeTorrentsPanel.tsx`.
 - The `/download` endpoint supports optional `save_path` in the request body for custom download directories.
-- All Agent downloads go to an inbox directory (`/未整理`) by default. The download path is configured via `DOWNLOAD_DEFAULT_SAVE_PATH` env var — there is no separate JSON store for download defaults.
-- `qb_add_torrent` and `qb_add_torrents` do not expose `qb_category` to the LLM; the category is derived server-side. The Agent only sees optional `save_path`.
+- All Agent downloads go to an inbox directory by default. The download path is configured via `DOWNLOAD_DEFAULT_SAVE_PATH` env var (default `""`); there is no separate JSON store for download defaults. When a non-empty default path is configured, it appears in the system prompt and approval cards.
+- `qb_add_torrent` and `qb_add_torrents` do not expose `qb_category` to the LLM; the category is derived server-side. The Agent sees optional `save_path` and `tag` (for media type labeling, e.g. 电影/电视剧/动漫). Use `qb_list_tags` to query existing qB tags.
 
 - There is no `/confirm` route, no `confirmation_payload`, no `HelloAgentWorkflowRunner`, no `SequentialWorkflow`, no active workflow runtime.
 - `/chat/agent` is the active Agent route. It delegates to `NasClawAgentRunner`, which uses `ToolCallingAgent` with 20 base tools: `current_time`, `memory_search`, `remember_this`, `mteam_search`, `tavily_search`, 4 TMDB tools (`tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`), `member_profile`, 8 qB tools (`qb_add_torrent`, `qb_add_torrents`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_tags`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`), and `skill_load`. An additional 14 MCP filesystem tools are registered dynamically when the MCP pool is active. Read-only tools execute immediately; action tools (`qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_*_speed`) require user approval unless covered by an active session download authorization grant. Supports multi-turn history, and persists JSON conversation checkpoints under `memory/agent-sessions/{session_id}.json`.
@@ -42,7 +42,7 @@ NasClawBot is a single-user NAS/PT media assistant and Agent engineering playgro
 - M-Team and qB integration lives behind adapters in `app/adapters/`.
 - `mteam_search` exposes only optional `keyword`, `sort_by`, `imdb`, and `douban` to the LLM. It always uses M-Team `normal` mode, requests 20 rows, and returns at most 10 candidates.
 - `hello_agents/tools/` provides `Filter` (pre-LLM tool selection) and `Gate` (pre-execution deny/confirm).
-- `app/domain/authorization.py` defines the download authorization policy and session grant helpers. The policy applies only to `qb_add_torrent` and `qb_add_torrents`, requires paused qB adds, and constrains allowed categories, save path prefixes, per-batch count, and per-session total count.
+- `app/domain/authorization.py` defines the download authorization policy and session grant helpers. The policy applies only to `qb_add_torrent` and `qb_add_torrents`, requires paused qB adds, and constrains allowed save path prefixes, per-batch count, and per-session total count. (Categories were removed — auth is path-only.)
 - `app/services/download_authorization_store.py` persists that policy under `memory/settings/download-authorization.json`. Session grants live in checkpoint `metadata["authorization_grants"]` and disappear when the session checkpoint is deleted.
 - `app/domain/tmdb_network.py` and `app/services/tmdb_network_store.py` persist a TMDB-only proxy override under `memory/settings/tmdb-network.json`. This stays service-scoped so qB, M-Team, LLM, Tavily, and local services do not inherit the TMDB proxy.
 
@@ -52,10 +52,10 @@ The project integrates a filesystem MCP server (`@modelcontextprotocol/server-fi
 
 | Env Var | Default | Purpose |
 |---------|---------|---------|
-| `MCP_FS_ENABLED` | `true` | Set to `false`/`0`/`no` to disable |
-| `MCP_FS_ALLOWED_DIRS` | `test-media/` (dev) | Comma-separated allowed directories |
+| `MCP_FS_ENABLED` | `true` | Set to `false`/`0`/`no` to disable — routed through `Settings.mcp_fs_enabled` |
+| `MCP_FS_ALLOWED_DIRS` | `""` | Comma-separated allowed directories — routed through `Settings.mcp_fs_allowed_dirs` |
 
-The MCP pool is managed by `app/mcp_pool.py` with process-level lifecycle (startup/shutdown via FastAPI lifespan). 14 tools are exposed to the Agent: `read_file`, `read_text_file`, `read_media_file`, `read_multiple_files`, `write_file`, `edit_file`, `create_directory`, `list_directory`, `list_directory_with_sizes`, `directory_tree`, `move_file`, `search_files`, `get_file_info`, `list_allowed_directories`.
+The MCP pool is managed by `app/mcp_pool.py` with process-level lifecycle (startup/shutdown via FastAPI lifespan). Configuration is routed through `Settings` (`app/config.py`) supporting process env vars and `.env` fallback: `mcp_fs_enabled` (default `true`) and `mcp_fs_allowed_dirs` (default `""`). 14 tools are exposed to the Agent: `read_file`, `read_text_file`, `read_media_file`, `read_multiple_files`, `write_file`, `edit_file`, `create_directory`, `list_directory`, `list_directory_with_sizes`, `directory_tree`, `move_file`, `search_files`, `get_file_info`, `list_allowed_directories`.
 
 MCP tools are named `mcp_filesystem_{tool_name}` and are registered dynamically via `register_mcp_tools()`. They default to `ALLOW` at the Gate layer (no approval required). The bridge layer (`McpBridgeTool`) converts MCP JSON Schema input schemas to hello_agents `ToolParameter` lists.
 
@@ -95,13 +95,13 @@ Key files:
 
 | File | Purpose |
 |------|---------|
-| `app/services/markdown_memory_store.py` | Markdown file store with sections, append, replace, and delete operations. Thread-safe via file locking. |
+| `app/services/markdown_memory_store.py` | Markdown file store with flat `user_profile` append plus sectioned `knowledge` append, replace, and delete operations. Thread-safe via file locking. |
 | `app/services/curator.py` | LLM-based curator — classifies inbox entries, generates `add`/`modify`/`delete`/`skip` actions, respects evolution rules. |
 | `app/api/memory_routes.py` | `GET /memory/inbox`, `GET /memory/curation`, `POST /memory/curation/apply` |
 | `app/domain/memory.py` | `MemoryKind` enum (user/feedback/project/reference) |
 | `frontend/src/components/memory/MemoryPanel.tsx` | Frontend panel for reviewing curated batches, approving/rejecting per-card |
 
-Memory is stored under `memory/agent-memory/` as markdown files, one per memory. `MEMORY.md` is the index loaded into context. The curator runs with date/time injection for time-aware evolution.
+Memory is stored under `memory/agent-memory/` as markdown files. `user_profile.md` is a flat timestamped bullet log (`- [YYYY-MM-DD] ...`) injected into the Agent system prompt with timestamps stripped; it must not use section headings. `knowledge.md` remains sectioned and is searched on demand by `memory_search`. `MEMORY.md` is the index loaded into context. The curator runs with date/time injection for time-aware evolution.
 
 ## Dev Commands
 
@@ -161,7 +161,7 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 
 `ToolObservation` is the loop-level envelope for one tool call. It stores `tool_name`, `tool_call_id`, arguments, full structured `ToolResponse`, separate LLM-facing `observation_text`, and gate markers.
 
-`ContextWindowManager` performs preflight context checks before LLM calls. NasClawBot currently uses a conservative 64K configured context window, enables smart compression at 70% context pressure, keeps the latest 4 rounds active, writes a `summary` message into active history, and preserves compressed-away originals in checkpoint `archives`.
+`ContextWindowManager` performs preflight context checks before LLM calls. NasClawBot currently uses a 128K configured context window (env `CONTEXT_WINDOW`, default 128000), enables smart compression at 70% context pressure, keeps the latest 4 rounds active, writes a `summary` message into active history, and preserves compressed-away originals in checkpoint `archives`.
 
 `frontend/src/app/AppShell.tsx` is the root layout controller. It owns:
 - `activeAgentSessionId` (lifted from ChatPanel for cross-component switching).
@@ -205,7 +205,7 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 - The adapter requests page 1 with 20 rows. `MTeamSearchTool` applies the product-facing limit of 10.
 - Read `seeders`, `leechers`, and `discount` only from each result's `status` object.
 - Use release `name` as the candidate display title. Detect resolution from `smallDescr` first, falling back to `name` only when `smallDescr` is absent or empty. Current normalized values include `4320p`, `2160p`, `1080p`, and `720p`.
-- `labelsNew` is the primary source for Chinese subtitle detection.
+- `labelsNew` is the primary source for Chinese subtitle detection; `hasChineseSubtitle` (community-submitted flag) serves as a secondary signal.
 - Return `discount` as informational candidate metadata; do not use it as a search input.
 
 ### Tool Safety: Filter + Gate
@@ -241,7 +241,7 @@ Generic MCP (Model Context Protocol) client bridge — JSON-RPC 2.0 over STDIO t
 
 ### Docker Deployment
 
-`Dockerfile` installs Node.js (for `npx`/MCP) alongside Python dependencies. Container listens on fixed port 8000; `docker-compose.yml` maps `${APP_PORT:-8000}:8000` so users can choose the host port. Volume mapping for NAS media paths. See `.env` for configuration.
+`Dockerfile` installs Node.js (for `npx`/MCP) alongside Python dependencies. Container listens on fixed port 18000; `docker-compose.yml` maps `${APP_PORT:-18000}:18000` so users can choose the host port. Bridge networking (no longer host mode). Volume mapping for NAS media paths and `skills/` directory (mounted, not copied). See `.env` for configuration.
 
 ### Current Agent Loop
 
@@ -278,7 +278,7 @@ Continue evolving the gated Agent loop.
 - Keep `/download` as the stable explicit user action.
 - qB Agent tools cover search (read-only) + download + control + speed management. Read-only tools execute freely; action tools require user approval. `qb_control_torrent` with `action=delete` is classified as `DESTRUCTIVE` risk.
 - MCP filesystem tools are available for media library organization (renaming, moving, directory creation). Access is limited to configured directories via `MCP_FS_ALLOWED_DIRS`.
-- "本会话内允许" is limited to download-add tools and the Settings policy boundary: enabled flag, allowed categories, allowed save path prefixes, max items per batch, max total items per session, and `paused_required=true`.
+- "本会话内允许" is limited to download-add tools and the Settings policy boundary: enabled flag, allowed save path prefixes, max items per batch, max total items per session, and `paused_required=true`.
 - Session management in the frontend sidebar: list/switch/new, localStorage-persisted collapse, rename via `PATCH`, delete via `DELETE`.
 - The skill system allows domain-specific rules to be loaded on demand. Extend with new skills as needed.
 - The memory system supports persistent Agent knowledge with automated curation and evolution.

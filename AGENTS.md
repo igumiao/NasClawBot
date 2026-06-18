@@ -28,20 +28,20 @@ There is no active workflow runtime, no `/confirm` route, and no legacy `/chat` 
 - `GET /settings/download-authorization` and `PUT /settings/download-authorization`: read and write the Settings-backed download authorization policy used by the "本会话内允许" approval action.
 - `GET /settings/tmdb-network` and `PUT /settings/tmdb-network`: read and write the Settings-backed TMDB-only proxy override. When enabled, TMDB requests use the configured HTTP/HTTPS proxy and ignore process proxy env vars for those requests; when disabled, HTTPX keeps its normal environment proxy behavior.
 - `GET /health/services/tmdb`: checks only TMDB reachability and credentials, used by the Settings TMDB network card so testing the proxy does not probe Tavily, M-Team, or qB.
-- `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused. Supports optional `save_path`. All Agent downloads go to an inbox directory (`/未整理`) by default, configured via `DOWNLOAD_DEFAULT_SAVE_PATH` env var.
+- `/download`: explicit user action; calls `QBAddTorrentTool` and submits to qBittorrent paused. Supports optional `save_path` and `tag` (media type label). Default download path is configured via `DOWNLOAD_DEFAULT_SAVE_PATH` env var (default `""`); when set, it appears in the system prompt and approval cards.
 - `app/agent/runner.py`: application-level Agent runner that loads/saves conversation checkpoints, builds the current `ToolCallingAgent`, restores history, registers MCP tools and skill tools, and extracts route-facing search results/tool calls.
 - The Agent system prompt is intentionally compact. Tool-specific usage lives in tool descriptions; the runner appends a dynamic current-date/timezone line from `APP_TIMEZONE` and L1 skill metadata.
 - `NasClawAgentRunner.run/approve/deny` are serialized per session inside the current server process so concurrent approval decisions cannot execute the same side effect twice. Cross-process coordination remains a future durable-store concern.
 - `ToolCallingLoop`: applies `Filter` before sending tool schemas to the LLM, applies `Gate` before `tool.run()`, and returns `awaiting_approval` with `pending_approvals` for confirm-gated calls. It supports serial approval resume: approve/deny appends the provider `tool` result, then the loop continues with normal tool choice. It still performs one forced final LLM pass with `tool_choice="none"` when `max_steps` is reached.
-- `ToolCallingLoop` records token/cache usage from model outputs into checkpoint metadata without using trace as a UI data source: `context_usage` is the last model request snapshot, while `session_usage` is the current Agent session cumulative summary.
+- `ToolCallingLoop` records token/cache usage from model outputs into checkpoint metadata: `context_usage` (last model request snapshot) and `session_usage` (cumulative Agent session summary, accumulated across turns).
 - `ToolObservation`: loop-level envelope for one tool call. It stores `tool_name`, `tool_call_id`, arguments, full structured `ToolResponse`, separate LLM-facing `observation_text`, and gate markers.
-- `ContextWindowManager`: runs preflight context checks before LLM calls. NasClawBot uses a conservative 64K configured context window, enables smart compression at 70% context pressure, keeps the latest 4 rounds active, stores a `summary` message for the model, and preserves compressed-away originals in checkpoint `archives`.
+- `ContextWindowManager`: runs preflight context checks before LLM calls. NasClawBot uses a 128K configured context window (env `CONTEXT_WINDOW`, default 128000), enables smart compression at 70% context pressure, keeps the latest 4 rounds active, stores a `summary` message for the model, and preserves compressed-away originals in checkpoint `archives`.
 - `hello_agents/checkpoints/`: framework-level `ConversationCheckpointStore` protocol plus the current JSON implementation.
-- `app/domain/authorization.py`: Settings-backed download authorization policy and session-grant helpers. The policy is limited to `qb_add_torrent` and `qb_add_torrents`, requires paused qB adds, and constrains allowed categories, save path prefixes, per-batch count, and per-session total count.
+- `app/domain/authorization.py`: Settings-backed download authorization policy and session-grant helpers. The policy is limited to `qb_add_torrent` and `qb_add_torrents`, requires paused qB adds, and constrains allowed save path prefixes, per-batch count, and per-session total count. (Categories removed — auth is path-only.)
 - `app/services/download_authorization_store.py`: JSON persistence for the download authorization policy under `memory/settings/download-authorization.json`. Session grants live in conversation checkpoint metadata and disappear with the session.
 - `app/domain/tmdb_network.py` and `app/services/tmdb_network_store.py`: Settings-backed TMDB network override stored under `memory/settings/tmdb-network.json`. This is scoped to TMDB so qB, M-Team, LLM, Tavily, and local services are not accidentally routed through a user proxy.
-- `app/tools/`: per-tool modules (`current_time.py`, `memory_search.py`, `remember_this.py`, `mteam_search.py`, `tavily_search.py`, `member_profile.py`, `qb_add_torrent.py`, `qb_add_torrents.py`, `qb_list_torrents.py`, `qb_get_torrent.py`, `qb_list_categories.py`, `qb_control_torrent.py`, `qb_set_global_speed.py`, `qb_set_torrent_speed.py`, and TMDB tools), re-exported via `__init__.py`.
-- `app/adapters/mteam.py`: M-Team API boundary for search, detail, download token generation, and member profile. `build_search_payload` supports optional `discount` and `hot` parameters; `search_raw()` returns unnormalized items for services that need raw `status` fields.
+- `app/tools/`: per-tool modules (`current_time.py`, `memory_search.py`, `remember_this.py`, `mteam_search.py`, `tavily_search.py`, `member_profile.py`, `qb_add_torrent.py`, `qb_add_torrents.py`, `qb_list_torrents.py`, `qb_get_torrent.py`, `qb_list_tags.py` (active), `qb_list_categories.py` (deprecated, kept for compat), `qb_control_torrent.py`, `qb_set_global_speed.py`, `qb_set_torrent_speed.py`, and TMDB tools), re-exported via `__init__.py`.
+- `app/adapters/mteam.py`: M-Team API boundary for search, detail, download token generation, and member profile. Search results include `labelsNew` (Chinese subtitle detection) and `hasChineseSubtitle` (community-submitted flag). `build_search_payload` supports optional `discount` and `hot` parameters; `search_raw()` returns unnormalized items for services that need raw `status` fields.
 - `app/services/mteam_free_service.py`: two-pass service for finding ratio-boosting torrents. Pass 1 fetches `discount=FREE`; Pass 2 scans without discount filter to catch `mallSingleFree` (community-funded free). Filters by minimum size and groups results by topping level 1/2.
 - `app/api/mteam_routes.py`: `GET /mteam/free-topped?min_size_gb=10&topping_only=true` — returns topped free torrents split by level2/level1 for the ratio-boosting UI tab.
 - `app/adapters/qbittorrent.py`: qBittorrent API boundary for paused add, listing, detail, control, and speed limits (global + per-torrent).
@@ -49,7 +49,7 @@ There is no active workflow runtime, no `/confirm` route, and no legacy `/chat` 
 
 ### MCP Filesystem Integration
 
-The project integrates a filesystem MCP server (`@modelcontextprotocol/server-filesystem` via `npx`) for media library organization. Managed by `app/mcp_pool.py` with process-level lifecycle. 14 tools exposed to the Agent (read, write, create_directory, list_directory, move_file, search_files, get_file_info, etc.). Configurable via `MCP_FS_ENABLED` and `MCP_FS_ALLOWED_DIRS` env vars. Docker deployments use volume mapping with Node.js in the Dockerfile.
+The project integrates a filesystem MCP server (`@modelcontextprotocol/server-filesystem` via `npx`) for media library organization. Managed by `app/mcp_pool.py` with process-level lifecycle. 14 tools exposed to the Agent (read, write, create_directory, list_directory, move_file, search_files, get_file_info, etc.). Configuration routed through `Settings` (`app/config.py`) supporting process env vars and `.env` fallback: `MCP_FS_ENABLED` (default `true`) and `MCP_FS_ALLOWED_DIRS` (default `""`). Docker deployments use volume mapping with Node.js in the Dockerfile.
 
 ### Skill System
 
@@ -70,13 +70,13 @@ The Agent has a persistent markdown-based memory system with automated curation 
 
 | File | Purpose |
 |------|---------|
-| `app/services/markdown_memory_store.py` | Markdown file store with sectioned append/replace/delete, file-locked |
+| `app/services/markdown_memory_store.py` | Markdown file store with flat `user_profile` append plus sectioned `knowledge` append/replace/delete |
 | `app/services/curator.py` | LLM-based curator — classifies inbox entries, generates add/modify/delete/skip actions |
 | `app/api/memory_routes.py` | `GET /memory/inbox`, `GET /memory/curation`, `POST /memory/curation/apply` |
 | `app/domain/memory.py` | `MemoryKind` enum (user/feedback/project/reference) |
 | `frontend/src/components/memory/MemoryPanel.tsx` | Curation review UI with per-card approve/reject |
 
-Memory is stored under `memory/agent-memory/`. `MEMORY.md` is the index loaded into context.
+Memory is stored under `memory/agent-memory/`. `user_profile.md` is a flat timestamped bullet log (`- [YYYY-MM-DD] ...`) injected into the Agent system prompt with timestamps stripped; it must not use section headings. `knowledge.md` remains sectioned and is searched on demand by the `memory_search` tool. `MEMORY.md` is the index loaded into context.
 
 ### Frontend
 
@@ -84,7 +84,7 @@ Memory is stored under `memory/agent-memory/`. `MEMORY.md` is the index loaded i
 - `AppShell` owns `activeAgentSessionId`, drives session switching, refreshes the session list, and routes rename/delete/new-session actions. Polls `GET /health` every 30s for backend status.
 - `ConversationSidebar` is a collapsible multi-session sidebar (64px icon-only, localStorage-persisted), live session list sorted by recent activity, inline rename via `PATCH`, delete with confirm dialog via `DELETE`, "+ 新对话" button.
 - `ChatPanel` receives `activeSessionId` and delegates session lifecycle to `useAgentChatSession`. Assistant messages render as Markdown (`react-markdown` + `remark-gfm`). `ApprovalCard` renders batch torrent items and exposes "本会话内允许" only when policy-eligible. The composer context bar shows last-request context pressure plus both last-request and cumulative session cache hit rates.
-- `SettingsPanel` includes the TMDB network proxy editor and download authorization policy editor.
+- `SettingsPanel` includes the TMDB network proxy editor and download authorization policy editor (save path prefixes, per-batch limit, per-session limit).
 - `MemoryPanel` renders the memory curation review UI.
 - Layout locked to `100vh` with CSS Grid, sidebar transition animation (240ms), acrylic composer backdrop.
 - Session id stored in `sessionStorage` via `agentSessionStorage.ts` for tab-scoped persistence.
@@ -100,7 +100,7 @@ Memory is stored under `memory/agent-memory/`. `MEMORY.md` is the index loaded i
 - The adapter requests page 1 with 20 rows. `MTeamSearchTool` returns at most the first 10 normalized candidates.
 - Read dynamic torrent state only from the response `status` object: `status.seeders`, `status.leechers`, and `status.discount`.
 - Candidate display titles prefer the release `name`. Resolution detection prefers `smallDescr`; falls back to `name`. Supported resolutions: `4320p`, `2160p`, `1080p`, `720p`.
-- `labelsNew` is the primary source for Chinese subtitle detection.
+- `labelsNew` is the primary source for Chinese subtitle detection; `hasChineseSubtitle` (community-submitted flag) is a secondary signal.
 - `discount` is returned as candidate information for user choice, not as an Agent search parameter.
 
 ### Tool Safety
@@ -133,7 +133,7 @@ Key design points:
 
 ### Docker Deployment
 
-`Dockerfile` installs Node.js (for `npx`/MCP) alongside Python dependencies. Container listens on fixed 8000; `docker-compose.yml` maps `${APP_PORT:-8000}:8000` for host port selection. Volume mapping for NAS media paths. See `.env` for configuration.
+`Dockerfile` installs Node.js (for `npx`/MCP) alongside Python dependencies. Container listens on fixed port 18000; `docker-compose.yml` maps `${APP_PORT:-18000}:18000` for host port selection. Bridge networking (no longer host mode). Volumes for NAS media paths, `memory/`, and `skills/` (mounted, not copied). See `.env` for configuration.
 
 ## Dev Commands
 
@@ -180,6 +180,6 @@ DELETE /chat/agent/sessions/{session_id}       # delete checkpoint
 POST   /download      # stable explicit download action
 ```
 
-The current Agent loop exposes 20 base tools: read-only tools (`current_time`, `memory_search`, `mteam_search`, `tavily_search`, `tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`, `member_profile`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_categories`) execute freely; `remember_this` writes to the memory inbox; action tools (`qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`) require user approval unless covered by an active session grant; `skill_load` loads domain-specific skill documents. An additional 14 MCP filesystem tools (`mcp_filesystem_*`) are available when the MCP pool is active. All qB submissions are paused by default. Downloads go to an inbox (`/未整理`) for later manual organization.
+The current Agent loop exposes 20 base tools: read-only tools (`current_time`, `memory_search`, `mteam_search`, `tavily_search`, `tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`, `member_profile`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_tags`) execute freely; `remember_this` writes to the memory inbox; action tools (`qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`) require user approval unless covered by an active session grant; `skill_load` loads domain-specific skill documents. Download tools accept optional `tag` for media type labeling. An additional 14 MCP filesystem tools (`mcp_filesystem_*`) are available when the MCP pool is active. All qB submissions are paused by default. Downloads go to an inbox for later manual organization.
 
 Future improvement ideas are intentionally not finalized. Preserve them in `docs/design/agent-loop-improvement-notes.md` rather than overfitting the first loop implementation.
