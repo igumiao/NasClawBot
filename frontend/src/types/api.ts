@@ -210,7 +210,6 @@ export type HealthServicesResponse = {
 
 export type DownloadAuthorizationPolicy = {
   enabled: boolean;
-  categories: string[];
   save_path_prefixes: string[];
   max_items_per_batch: number;
   max_total_items_per_session: number;

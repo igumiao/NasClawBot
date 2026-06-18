@@ -18,7 +18,7 @@ type FreeTorrentsAction =
 
 export const freeTorrentsInitialState: FreeTorrentsState = {
   level2: [], level1: [], isLoading: false, lastError: null,
-  minSizeGb: 30, savePath: "/vol1/1000/NasClawBot下载区域",
+  minSizeGb: 30, savePath: "/vol2/1000/AAA扩容空间/liemo",
 };
 
 export function freeTorrentsReducer(

@@ -11,20 +11,18 @@ from pydantic import BaseModel, Field, field_validator
 
 DOWNLOAD_AUTHORIZATION_POLICY_ID = "download-add-torrents-v1"
 POLICY_ELIGIBLE_TOOLS = {"qb_add_torrent", "qb_add_torrents"}
-PRESET_CATEGORIES = ["电影", "电视剧", "综艺", "动漫", "纪录片"]
 
 
 class DownloadAuthorizationPolicy(BaseModel):
     """User-configured boundary for session-scoped auto authorization."""
 
     enabled: bool = False
-    categories: list[str] = Field(default_factory=list)
     save_path_prefixes: list[str] = Field(default_factory=list)
     max_items_per_batch: int = Field(default=10, ge=1, le=10)
     max_total_items_per_session: int = Field(default=20, ge=1, le=100)
     paused_required: bool = True
 
-    @field_validator("categories", "save_path_prefixes", mode="before")
+    @field_validator("save_path_prefixes", mode="before")
     @classmethod
     def _normalize_list(cls, value: Any) -> list[str]:
         if value is None:
@@ -54,6 +52,7 @@ def approval_authorization_info(
     policy: DownloadAuthorizationPolicy,
     tool_name: str,
     arguments: dict[str, Any],
+    default_save_path: str = "",
 ) -> dict[str, Any]:
     """Return UI-facing eligibility information for one pending approval."""
 
@@ -62,7 +61,7 @@ def approval_authorization_info(
             "eligible": False,
             "reason": "Tool is not eligible for session authorization",
         }
-    ok, reason, item_count = _arguments_match_policy(policy, tool_name, arguments)
+    ok, reason, item_count = _arguments_match_policy(policy, tool_name, arguments, default_save_path)
     if not ok:
         return {
             "eligible": False,
@@ -73,7 +72,6 @@ def approval_authorization_info(
         "policy_id": DOWNLOAD_AUTHORIZATION_POLICY_ID,
         "grant_scope_preview": {
             "tool_names": sorted(POLICY_ELIGIBLE_TOOLS),
-            "categories": policy.categories,
             "save_path_prefixes": policy.save_path_prefixes,
             "max_items_per_batch": policy.max_items_per_batch,
             "max_total_items_per_session": policy.max_total_items_per_session,
@@ -89,10 +87,11 @@ def create_session_grant(
     arguments: dict[str, Any],
     used_items: int = 0,
     now: datetime | None = None,
+    default_save_path: str = "",
 ) -> dict[str, Any]:
     """Create an active session grant from the current Settings policy."""
 
-    ok, reason, _ = _arguments_match_policy(policy, tool_name, arguments)
+    ok, reason, _ = _arguments_match_policy(policy, tool_name, arguments, default_save_path)
     if not ok:
         raise ValueError(reason)
     created_at = (now or datetime.now(timezone.utc)).isoformat()
@@ -104,7 +103,6 @@ def create_session_grant(
         "created_at": created_at,
         "used_total_items": used_items,
         "scope": {
-            "categories": list(policy.categories),
             "save_path_prefixes": list(policy.save_path_prefixes),
             "max_items_per_batch": policy.max_items_per_batch,
             "max_total_items_per_session": policy.max_total_items_per_session,
@@ -118,10 +116,11 @@ def authorize_with_session_grant(
     policy: DownloadAuthorizationPolicy,
     tool_name: str,
     arguments: dict[str, Any],
+    default_save_path: str = "",
 ) -> dict[str, Any] | None:
     """Consume session grant quota when a tool call fits the active policy."""
 
-    ok, reason, item_count = _arguments_match_policy(policy, tool_name, arguments)
+    ok, reason, item_count = _arguments_match_policy(policy, tool_name, arguments, default_save_path)
     if not ok:
         return None
 
@@ -174,13 +173,12 @@ def _arguments_match_policy(
     policy: DownloadAuthorizationPolicy,
     tool_name: str,
     arguments: dict[str, Any],
+    default_save_path: str = "",
 ) -> tuple[bool, str, int]:
     if tool_name not in POLICY_ELIGIBLE_TOOLS:
         return False, "Tool is not eligible for session authorization", 0
     if not policy.enabled:
         return False, "Download authorization policy is disabled", 0
-    if not policy.categories:
-        return False, "Download authorization policy has no allowed categories", 0
     if not policy.save_path_prefixes:
         return False, "Download authorization policy has no allowed save path prefixes", 0
     if arguments.get("paused") is False:
@@ -192,13 +190,16 @@ def _arguments_match_policy(
     if len(items) > policy.max_items_per_batch:
         return False, "Batch item count exceeds policy limit", len(items)
 
+    resolved_default = default_save_path.strip()
     for item in items:
-        category = _item_category(item)
-        if category not in policy.categories:
-            return False, f"Category is outside policy scope: {category or '(empty)'}", len(items)
         save_path = str(item.get("save_path") or "").strip()
         if not save_path:
-            return False, "Save path is required for session authorization", len(items)
+            if not resolved_default:
+                return False, (
+                    "Save path is required for session authorization — "
+                    "either pass save_path or configure DOWNLOAD_DEFAULT_SAVE_PATH"
+                ), len(items)
+            save_path = resolved_default
         if not _path_in_prefixes(save_path, policy.save_path_prefixes):
             return False, f"Save path is outside policy scope: {save_path}", len(items)
     return True, "", len(items)
@@ -214,13 +215,12 @@ def _arguments_match_grant_scope(
         return False
     policy = DownloadAuthorizationPolicy(
         enabled=True,
-        categories=list(scope.get("categories") or []),
         save_path_prefixes=list(scope.get("save_path_prefixes") or []),
         max_items_per_batch=int(scope.get("max_items_per_batch") or 1),
         max_total_items_per_session=int(scope.get("max_total_items_per_session") or 1),
         paused_required=True,
     )
-    ok, _, _ = _arguments_match_policy(policy, tool_name, arguments)
+    ok, _, _ = _arguments_match_policy(policy, tool_name, arguments, default_save_path="")
     return ok
 
 
@@ -229,7 +229,6 @@ def _extract_items(arguments: dict[str, Any]) -> list[dict[str, Any]]:
         return [
             {
                 "torrent_id": arguments.get("torrent_id"),
-                "qb_category": arguments.get("qb_category"),
                 "save_path": arguments.get("save_path"),
             }
         ]
@@ -237,10 +236,6 @@ def _extract_items(arguments: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(items, list):
         return []
     return [dict(item) for item in items if isinstance(item, dict)]
-
-
-def _item_category(item: dict[str, Any]) -> str:
-    return str(item.get("qb_category") or item.get("category") or "").strip()
 
 
 def _path_in_prefixes(path: str, prefixes: list[str]) -> bool:

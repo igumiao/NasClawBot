@@ -159,7 +159,6 @@ def test_download_authorization_settings_roundtrip(tmp_path, monkeypatch: pytest
     saved = put_endpoint(
         DownloadAuthorizationPolicy(
             enabled=True,
-            categories=["电视剧"],
             save_path_prefixes=["/downloads/tv"],
             max_items_per_batch=4,
             max_total_items_per_session=12,
@@ -167,7 +166,7 @@ def test_download_authorization_settings_roundtrip(tmp_path, monkeypatch: pytest
     )
 
     assert saved.enabled is True
-    assert saved.categories == ["电视剧"]
+    assert saved.save_path_prefixes == ["/downloads/tv"]
     assert get_endpoint().save_path_prefixes == ["/downloads/tv"]
 
 
@@ -343,7 +342,6 @@ def test_chat_agent_batch_approval_includes_session_authorization_eligibility(tm
     DownloadAuthorizationPolicyStore(tmp_path / "settings").save(
         DownloadAuthorizationPolicy(
             enabled=True,
-            categories=["电视剧"],
             save_path_prefixes=["/downloads/tv"],
             max_items_per_batch=10,
             max_total_items_per_session=20,
@@ -397,7 +395,6 @@ def test_chat_agent_single_approval_includes_session_authorization_eligibility(t
     DownloadAuthorizationPolicyStore(tmp_path / "settings").save(
         DownloadAuthorizationPolicy(
             enabled=True,
-            categories=["电视剧"],
             save_path_prefixes=["/downloads/tv"],
             max_items_per_batch=10,
             max_total_items_per_session=20,
@@ -447,7 +444,6 @@ def test_chat_agent_session_grant_auto_authorizes_batch_download(tmp_path, monke
     monkeypatch.setattr(agent_runner, "_SETTINGS_DIR", settings_dir)
     policy = DownloadAuthorizationPolicy(
         enabled=True,
-        categories=["电视剧"],
         save_path_prefixes=["/downloads/tv"],
         max_items_per_batch=10,
         max_total_items_per_session=20,
@@ -521,7 +517,6 @@ def test_chat_agent_session_grant_auto_authorizes_single_download(tmp_path, monk
     monkeypatch.setattr(agent_runner, "_SETTINGS_DIR", settings_dir)
     policy = DownloadAuthorizationPolicy(
         enabled=True,
-        categories=["电视剧"],
         save_path_prefixes=["/downloads/tv"],
         max_items_per_batch=10,
         max_total_items_per_session=20,
@@ -781,7 +776,6 @@ def test_approve_agent_batch_approval_can_create_session_grant(tmp_path, monkeyp
     DownloadAuthorizationPolicyStore(settings_dir).save(
         DownloadAuthorizationPolicy(
             enabled=True,
-            categories=["电视剧"],
             save_path_prefixes=["/downloads/tv"],
             max_items_per_batch=10,
             max_total_items_per_session=20,

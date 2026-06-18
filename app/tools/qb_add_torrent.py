@@ -24,6 +24,7 @@ class QBAddTorrentTool(Tool):
         mteam_adapter: MTeamAdapter,
         qb_adapter: QBittorrentAdapter,
         default_save_path: str | None = None,
+        default_tags: list[str] | None = None,
     ) -> None:
         super().__init__(
             name="qb_add_torrent",
@@ -32,6 +33,7 @@ class QBAddTorrentTool(Tool):
         self._mteam = mteam_adapter
         self._qb = qb_adapter
         self._default_save_path = (default_save_path or "").strip() or None
+        self._default_tags = list(default_tags) if default_tags else ["mteam"]
 
     def get_parameters(self) -> list[ToolParameter]:
         return [
@@ -45,6 +47,12 @@ class QBAddTorrentTool(Tool):
                 name="save_path",
                 type="string",
                 description="自定义保存路径（可选）。不传则自动使用默认路径",
+                required=False,
+            ),
+            ToolParameter(
+                name="tag",
+                type="string",
+                description="可选标签，用于后续列表过滤。如 电影、电视剧、综艺、动漫、纪录片。不传则仅标记 mteam",
                 required=False,
             ),
         ]
@@ -78,12 +86,17 @@ class QBAddTorrentTool(Tool):
                 message=f"Download URL is not a torrent for id={torrent_id}.",
             )
 
+        user_tag = str(parameters.get("tag", "")).strip()
+        tags = list(self._default_tags)
+        if user_tag:
+            tags.append(user_tag)
+
         rename = self._qb.generate_mteam_torrent_name(torrent_id, detail, qb_category)
         add_kwargs: dict[str, Any] = {
             "url": download_url,
             "category": qb_category,
             "rename": rename,
-            "tags": ["mteam"],
+            "tags": tags,
             "paused": True,
         }
         save_path = str(parameters.get("save_path", "")).strip()

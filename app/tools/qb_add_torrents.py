@@ -42,7 +42,7 @@ class QBAddTorrentsTool(Tool):
                 type="array",
                 description=(
                     "要添加的 torrent 列表。每项是对象："
-                    '{"torrent_id":"M-Team torrent ID","save_path":"可选保存路径"}'
+                    '{"torrent_id":"M-Team torrent ID","save_path":"可选保存路径","tag":"可选标签 如 电影"}'
                 ),
                 required=True,
             ),
@@ -86,6 +86,9 @@ class QBAddTorrentsTool(Tool):
             save_path = str(item.get("save_path") or "").strip()
             if save_path:
                 single_params["save_path"] = save_path
+            user_tag = str(item.get("tag") or "").strip()
+            if user_tag:
+                single_params["tag"] = user_tag
 
             response = self._single_tool.run(single_params)
             row: dict[str, Any] = {

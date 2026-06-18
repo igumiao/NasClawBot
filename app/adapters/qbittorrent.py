@@ -287,6 +287,20 @@ class QBittorrentAdapter:
         )
         return categories if isinstance(categories, dict) else {}
 
+    def list_tags(self) -> list[str]:
+        """Read all qB torrent tags (flat list of tag name strings)."""
+        client = self.login()
+        if client is None:
+            return []
+        try:
+            tags = client.torrents_tags()
+            if isinstance(tags, list):
+                return [str(t) for t in tags]
+            return list(tags) if hasattr(tags, "__iter__") else []
+        except Exception as exc:
+            logger.warning("qB list_tags failed: %s", exc)
+            return []
+
     def add_torrent_url(
         self,
         url: str,

@@ -91,7 +91,7 @@ from app.tools import (
     QBAddTorrentsTool,
     QBListTorrentsTool,
     QBGetTorrentTool,
-    QBListCategoriesTool,
+    QBListTagsTool,
     QBControlTorrentTool,
     QBSetGlobalSpeedTool,
     QBSetTorrentSpeedTool,
@@ -156,6 +156,10 @@ AGENT_SESSION_PROMPT = f"""你是 NasClawBot 的媒体搜索和下载助手。
 - 其他任何让下次对话更懂用户的信息
 
 原则：宁可多记，不要漏记。记录时放心写，后台记忆整理系统会自动去重、合并和更新。
+
+下载策略：
+- 添加下载时，根据媒体类型传入 tag 参数（电影/电视剧/综艺/动漫/纪录片），方便后续 qb_list_torrents 按标签过滤。
+- 可用 qb_list_tags 查询 qBittorrent 中已存在的标签。
 
 安全边界：
 - 下载、控制、限速、删除等操作类工具会等待用户确认；确认前不要声称已经执行。
@@ -252,7 +256,7 @@ class NasClawAgentRunner:
             "qb_add_torrents",
             "qb_list_torrents",
             "qb_get_torrent",
-            "qb_list_categories",
+            "qb_list_tags",
             "qb_control_torrent",
             "qb_set_global_speed",
             "qb_set_torrent_speed",
@@ -373,7 +377,7 @@ class NasClawAgentRunner:
         registry.register_tool(QBAddTorrentsTool(mteam_adapter, qb_adapter, default_save_path=default_save_path))
         registry.register_tool(QBListTorrentsTool(qb_adapter))
         registry.register_tool(QBGetTorrentTool(qb_adapter))
-        registry.register_tool(QBListCategoriesTool(qb_adapter))
+        registry.register_tool(QBListTagsTool(qb_adapter))
         registry.register_tool(QBControlTorrentTool(qb_adapter))
         registry.register_tool(QBSetGlobalSpeedTool(qb_adapter))
         registry.register_tool(QBSetTorrentSpeedTool(qb_adapter))
@@ -729,10 +733,11 @@ class NasClawAgentRunner:
         metadata["authorization_grants"] = list(metadata.get("authorization_grants") or [])
         setattr(agent, "_session_metadata", metadata)
         policy = self._load_download_authorization_policy()
+        default_save_path = get_settings().download_default_save_path
 
         def authorize_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
             session_metadata = getattr(agent, "_session_metadata", metadata)
-            return authorize_with_session_grant(session_metadata, policy, tool_name, arguments)
+            return authorize_with_session_grant(session_metadata, policy, tool_name, arguments, default_save_path)
 
         setattr(agent, "authorize_tool_call", authorize_tool_call)
 
@@ -741,10 +746,12 @@ class NasClawAgentRunner:
         return DownloadAuthorizationPolicyStore(_SETTINGS_DIR).load()
 
     def _validate_grant_decision(self, approval: ApprovalRecord) -> None:
+        default_save_path = get_settings().download_default_save_path
         info = approval_authorization_info(
             self._load_download_authorization_policy(),
             approval.tool_name,
             approval.arguments,
+            default_save_path=default_save_path,
         )
         if not info.get("eligible"):
             raise ValueError(str(info.get("reason") or "Tool is not eligible for session authorization"))
@@ -756,12 +763,14 @@ class NasClawAgentRunner:
         response: ToolResponse,
     ) -> None:
         policy = self._load_download_authorization_policy()
+        default_save_path = get_settings().download_default_save_path
         used_items = granted_item_count(approval.tool_name, response.data, approval.arguments)
         grant = create_session_grant(
             policy,
             approval.tool_name,
             approval.arguments,
             used_items=used_items,
+            default_save_path=default_save_path,
         )
         grants = [
             grant_item
@@ -1162,10 +1171,13 @@ class NasClawAgentRunner:
         if not agent.last_result:
             return []
         policy = self._load_download_authorization_policy()
+        default_save_path = get_settings().download_default_save_path
         approvals: list[dict[str, Any]] = []
         for raw in deepcopy(agent.last_result.pending_approvals):
             record = create_pending_approval(raw, session_id=session_id)
-            record.authorization = approval_authorization_info(policy, record.tool_name, record.arguments)
+            record.authorization = approval_authorization_info(
+                policy, record.tool_name, record.arguments, default_save_path=default_save_path,
+            )
             approvals.append(record.to_dict())
         return approvals
 

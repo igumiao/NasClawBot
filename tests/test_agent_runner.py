@@ -194,7 +194,7 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
         "qb_add_torrents",
         "qb_control_torrent",
         "qb_get_torrent",
-        "qb_list_categories",
+        "qb_list_tags",
         "qb_list_torrents",
         "qb_set_global_speed",
         "qb_set_torrent_speed",

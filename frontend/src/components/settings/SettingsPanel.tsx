@@ -41,11 +41,8 @@ const SERVICE_NAMES: Record<string, string> = {
 
 const ALL_SERVICES = ["tmdb", "tavily", "mteam", "qbittorrent"];
 
-const CATEGORY_OPTIONS = ["电影", "电视剧", "综艺", "动漫", "纪录片"];
-
 const DEFAULT_POLICY: DownloadAuthorizationPolicy = {
   enabled: false,
-  categories: [],
   save_path_prefixes: [],
   max_items_per_batch: 10,
   max_total_items_per_session: 20,
@@ -198,24 +195,17 @@ export function SettingsPanel({
     return () => controller.abort();
   }, [loadTMDBNetwork]);
 
-  function toggleCategory(category: string) {
-    setPolicy((current) => ({
-      ...current,
-      categories: current.categories.includes(category)
-        ? current.categories.filter((item) => item !== category)
-        : [...current.categories, category]
-    }));
-  }
-
   async function savePolicy() {
     setSettingsLoading(true);
     setSettingsStatus(null);
     const next: DownloadAuthorizationPolicy = {
-      ...policy,
+      enabled: policy.enabled,
       save_path_prefixes: savePathText
         .split("\n")
         .map((line) => line.trim())
         .filter(Boolean),
+      max_items_per_batch: policy.max_items_per_batch,
+      max_total_items_per_session: policy.max_total_items_per_session,
       paused_required: true
     };
     try {
@@ -324,19 +314,6 @@ export function SettingsPanel({
             />
             <span>允许在审批后启用本会话自动添加 paused torrent</span>
           </label>
-
-          <div className="settings-field-group" aria-label="允许分类">
-            {CATEGORY_OPTIONS.map((category) => (
-              <label key={category} className="settings-check-chip">
-                <input
-                  type="checkbox"
-                  checked={policy.categories.includes(category)}
-                  onChange={() => toggleCategory(category)}
-                />
-                <span>{category}</span>
-              </label>
-            ))}
-          </div>
 
           <label className="settings-field">
             <span>允许保存路径前缀</span>

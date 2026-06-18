@@ -12,7 +12,8 @@ from app.tools.qb_add_torrent import QBAddTorrentTool
 from app.tools.qb_add_torrents import QBAddTorrentsTool
 from app.tools.qb_list_torrents import QBListTorrentsTool
 from app.tools.qb_get_torrent import QBGetTorrentTool
-from app.tools.qb_list_categories import QBListCategoriesTool
+from app.tools.qb_list_categories import QBListCategoriesTool  # deprecated — kept for compat
+from app.tools.qb_list_tags import QBListTagsTool
 from app.tools.qb_control_torrent import QBControlTorrentTool
 from app.tools.qb_set_global_speed import QBSetGlobalSpeedTool
 from app.tools.qb_set_torrent_speed import QBSetTorrentSpeedTool
@@ -32,7 +33,8 @@ __all__ = [
     "QBAddTorrentsTool",
     "QBListTorrentsTool",
     "QBGetTorrentTool",
-    "QBListCategoriesTool",
+    "QBListCategoriesTool",  # deprecated
+    "QBListTagsTool",
     "QBControlTorrentTool",
     "QBSetGlobalSpeedTool",
     "QBSetTorrentSpeedTool",
