@@ -144,26 +144,19 @@ def test_search_rejects_invalid_limit(tmp_path: Path):
 
 def test_format_user_profile_prompt_compacts_blank_lines(tmp_path: Path):
     (tmp_path / "user_profile.md").write_text(
-        "\n# User\n\nPrefers concise answers.\n\nAvoids real downloads.\n",
+        "\n<!-- note -->\n\n- [2026-06-18] Prefers concise answers.\n\n- [2026-06-18] Avoids real downloads.\n",
         encoding="utf-8",
     )
     store = MarkdownMemoryStore(tmp_path)
 
     assert store.format_user_profile_prompt() == (
-        "User profile memory:\n"
-        "# User\n"
-        "Prefers concise answers.\n"
-        "Avoids real downloads."
+        "- Prefers concise answers.\n"
+        "- Avoids real downloads."
     )
 
 
 def test_format_user_profile_prompt_ignores_heading_only_template(tmp_path: Path):
-    (tmp_path / "user_profile.md").write_text(
-        "# User Profile\n\n"
-        "## Communication Style\n\n"
-        "## Tool Preferences\n\n",
-        encoding="utf-8",
-    )
+    (tmp_path / "user_profile.md").write_text("", encoding="utf-8")
     store = MarkdownMemoryStore(tmp_path)
 
     assert store.format_user_profile_prompt() == ""
@@ -185,7 +178,7 @@ def test_ensure_template_files_creates_missing_files(tmp_path: Path):
     store = MarkdownMemoryStore(tmp_path)
     store.ensure_template_files()
 
-    assert (tmp_path / "user_profile.md").read_text(encoding="utf-8").startswith("# User Profile")
+    assert (tmp_path / "user_profile.md").read_text(encoding="utf-8") == ""
     assert (tmp_path / "knowledge.md").read_text(encoding="utf-8").startswith("# Knowledge")
     assert not (tmp_path / "memory.md").exists()
 
@@ -259,6 +252,28 @@ def test_append_to_section_creates_section_if_missing(tmp_path: Path):
     content = (tmp_path / "knowledge.md").read_text(encoding="utf-8")
     assert "## NewSection" in content
     assert "first item" in content
+
+
+def test_append_user_profile_entry_appends_flat_timestamped_bullet(tmp_path: Path):
+    (tmp_path / "user_profile.md").write_text("", encoding="utf-8")
+    store = MarkdownMemoryStore(tmp_path)
+
+    store.append_user_profile_entry("喜欢简洁回答。")
+
+    content = (tmp_path / "user_profile.md").read_text(encoding="utf-8")
+    assert "## " not in content
+    assert "- [" in content
+    assert "喜欢简洁回答。" in content
+
+
+def test_append_user_profile_entry_strips_existing_date_prefix(tmp_path: Path):
+    store = MarkdownMemoryStore(tmp_path)
+
+    store.append_user_profile_entry("- [2026-06-01] 已带日期的条目")
+
+    content = (tmp_path / "user_profile.md").read_text(encoding="utf-8")
+    assert content.count("- [") == 1
+    assert "已带日期的条目" in content
 
 
 # ---------------------------------------------------------------------------

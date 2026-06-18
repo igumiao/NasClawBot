@@ -57,7 +57,7 @@ def test_run_curation_with_mock_llm(tmp_path: Path):
         encoding="utf-8",
     )
     (tmp_path / "user_profile.md").write_text(
-        "# User Profile\n\n## Identity\n- 我叫 IGUMIAO-NAS\n",
+        "- [2026-06-01] 我叫 IGUMIAO-NAS\n",
         encoding="utf-8",
     )
     (tmp_path / "knowledge.md").write_text(
@@ -88,8 +88,8 @@ def test_run_curation_with_mock_llm(tmp_path: Path):
                     "preview": "",
                     "action": "modify",
                     "destination": "user_profile",
-                    "section": "Identity",
-                    "existing_text": "- 我叫 IGUMIAO-NAS",
+                    "section": None,
+                    "existing_text": "- [2026-06-01] 我叫 IGUMIAO-NAS",
                     "new_text": "- [2026-06-15] 用户称呼为 Maifa / M大人",
                     "reason": "称呼已更新",
                 },
@@ -120,7 +120,7 @@ def test_run_curation_with_mock_llm(tmp_path: Path):
 
     modify = [s for s in result.suggestions if s.action == "modify"]
     assert len(modify) == 1
-    assert modify[0].existing_text == "- 我叫 IGUMIAO-NAS"
+    assert modify[0].existing_text == "- [2026-06-01] 我叫 IGUMIAO-NAS"
     assert modify[0].new_text is not None
 
     delete = [s for s in result.suggestions if s.action == "delete"]
@@ -135,7 +135,7 @@ def test_curator_suggestion_modify_accepts_new_fields():
         preview="",
         action="modify",
         destination="user_profile",
-        section="Identity",
+        section=None,
         existing_text="我叫 IGUMIAO-NAS",
         new_text="- [2026-06-15] 用户称呼为 Maifa",
         reason="称呼已更新",
@@ -176,12 +176,14 @@ def test_build_prompt_includes_current_date_and_evolution_rules(monkeypatch):
 
     prompt = _build_prompt(
         entries=[{"index": 0, "timestamp": "2026-06-15", "text": "test"}],
-        user_profile="# User Profile\n\n## Identity\n- old info\n",
+        user_profile="- [2026-06-01] old info\n",
         knowledge="# Knowledge\n\n## TMDB\n- some tip\n",
-        sections={"user_profile": ["Identity"], "knowledge": ["TMDB"]},
+        sections={"user_profile": [], "knowledge": ["TMDB"]},
     )
     assert "当前日期：2026-06-15" in prompt
     assert "UTC" in prompt
     assert "modify" in prompt.lower()
     assert "delete" in prompt.lower()
     assert "existing_text" in prompt
+    assert "user_profile 可用章节" not in prompt
+    assert "`destination=\"user_profile\"` 时必须为 null" in prompt

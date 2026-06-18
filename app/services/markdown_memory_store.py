@@ -26,41 +26,7 @@ BODY_MATCH_SCORE = 1.0
 MEMORY_INBOX_FILENAME = "memory_inbox.md"
 
 _TEMPLATES: dict[MemoryKind, str] = {
-    MemoryKind.USER_PROFILE: (
-        "# User Profile\n"
-        "\n"
-        "## Identity\n"
-        "\n"
-        "<!-- 姓名、称呼、身份背景、所在地域 -->\n"
-        "\n"
-        "## Communication Style\n"
-        "\n"
-        "<!-- 语言偏好、语气、沟通习惯 -->\n"
-        "\n"
-        "## Interests & Hobbies\n"
-        "\n"
-        "<!-- 兴趣爱好：影视、音乐、游戏、运动、美食等 -->\n"
-        "\n"
-        "## Media Preferences\n"
-        "\n"
-        "<!-- 影视规格偏好：画质、编码、音轨、字幕 -->\n"
-        "\n"
-        "## Values & Opinions\n"
-        "\n"
-        "<!-- 对事物的看法、价值观、偏好倾向 -->\n"
-        "\n"
-        "## Life Context\n"
-        "\n"
-        "<!-- 生活节奏、工作状态、日常习惯 -->\n"
-        "\n"
-        "## NAS & Tech\n"
-        "\n"
-        "<!-- 硬件配置、网络环境、技术约束 -->\n"
-        "\n"
-        "## Prohibitions\n"
-        "\n"
-        "<!-- 绝对不能做的事 -->\n"
-    ),
+    MemoryKind.USER_PROFILE: "",
     MemoryKind.KNOWLEDGE: (
         "# Knowledge\n"
         "\n"
@@ -174,6 +140,22 @@ class MarkdownMemoryStore:
             new_lines = lines[:insert_at] + [entry_line, ""] + lines[insert_at:]
             path.write_text("\n".join(new_lines).rstrip("\n") + "\n", encoding="utf-8")
 
+    def append_user_profile_entry(self, text: str) -> None:
+        """Append a dated entry to user_profile.md without section headings."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        clean_text = _strip_date_prefix(text)
+        entry_line = f"- [{today}] {clean_text}"
+
+        with self._inbox_lock:
+            path = self._path_for(MemoryKind.USER_PROFILE)
+            content = path.read_text(encoding="utf-8") if path.exists() else ""
+            lines = content.splitlines()
+            content_lines = [line for line in lines if line.strip()]
+            if content_lines and not content.endswith("\n"):
+                content += "\n"
+            content += f"{entry_line}\n"
+            path.write_text(content, encoding="utf-8")
+
     def path_for(self, kind: MemoryKind) -> Path:
         """Return the resolved path for a memory kind file."""
         return self._path_for(kind)
@@ -259,19 +241,19 @@ class MarkdownMemoryStore:
         return [line for _, line in scored[:top_n]]
 
     def format_user_profile_prompt(self) -> str:
-        """Return compact prompt text for the user profile memory, or empty string."""
+        """Return compact user profile entries for prompt injection, or empty string."""
 
         document = self.load(MemoryKind.USER_PROFILE)
-        lines = [line.strip() for line in document.text.splitlines() if line.strip()]
         content_lines = [
-            line
-            for line in lines
-            if not line.startswith("#") and not _is_html_comment_line(line)
+            _strip_user_profile_prompt_line(line.strip())
+            for line in document.text.splitlines()
+            if line.strip()
+            and not line.strip().startswith("#")
+            and not _is_html_comment_line(line.strip())
         ]
         if not content_lines:
             return ""
-        compact = "\n".join(lines)
-        return f"User profile memory:\n{compact}"
+        return "\n".join(content_lines)
 
     def parse_inbox(self) -> list[dict[str, object]]:
         """Parse memory_inbox.md into indexed entries.  Returns empty list when file is absent."""
@@ -400,3 +382,10 @@ _DATE_PREFIX_RE = re.compile(r"^- \[\d{4}-\d{2}-\d{2}\] ")
 def _strip_date_prefix(text: str) -> str:
     """Strip a leading '- [YYYY-MM-DD] ' prefix so append_to_section can add its own."""
     return _DATE_PREFIX_RE.sub("", text, count=1)
+
+
+def _strip_user_profile_prompt_line(text: str) -> str:
+    """Strip stored dates from user_profile bullets while preserving bullet shape."""
+    if _DATE_PREFIX_RE.match(text):
+        return f"- {_strip_date_prefix(text)}"
+    return text

@@ -52,7 +52,6 @@ def _build_prompt(entries: list[dict], user_profile: str, knowledge: str, sectio
     entries_text = "\n\n---\n\n".join(
         f"[索引 {e['index']}] {e['timestamp']}\n{e['text']}" for e in entries
     )
-    user_sections = "\n".join(f"- {s}" for s in sections.get("user_profile", []))
     knowledge_sections = "\n".join(f"- {s}" for s in sections.get("knowledge", []))
 
     return f"""当前日期：{now}（UTC）。用这个日期判断信息是否过时。
@@ -73,9 +72,6 @@ def _build_prompt(entries: list[dict], user_profile: str, knowledge: str, sectio
 
 ## 可用的章节
 
-user_profile 可用章节：
-{user_sections}
-
 knowledge 可用章节：
 {knowledge_sections}
 
@@ -86,14 +82,11 @@ knowledge 可用章节：
 NasClawBot 是用户的贴身管家，不是只记技术参数的工具。收到关于用户的信息时，从这些维度判断归属：
 
 - **user_profile** 适合：
-  - Identity — 名字称呼、职业、所在地域
-  - Communication Style — 语言偏好、语气、沟通习惯
-  - Interests & Hobbies — 影视、音乐、游戏、运动、美食等兴趣
-  - Media Preferences — 画质、编码、音轨、字幕等规格偏好
-  - Values & Opinions — 对事物的看法、价值观、好恶
-  - Life Context — 生活节奏、工作状态、日常习惯
-  - NAS & Tech — 硬件配置、网络环境、技术约束
-  - Prohibitions — 绝对不能做的事
+  - 用户身份、称呼、职业、所在地域
+  - 语言偏好、语气、沟通习惯
+  - 兴趣爱好、媒体偏好、价值观、生活习惯
+  - NAS / 技术约束、明确禁忌
+  - 保留为独立条目，写入 `user_profile.md` 时**不要提供 section**
 - **knowledge** 适合：领域技巧、操作经验、可复用的方法、生活效率技巧。
 - 如果条目和已有内容高度重复，标记为 discard。
 - 如果条目没有长期保留价值，标记为 discard。
@@ -126,7 +119,7 @@ NasClawBot 是用户的贴身管家，不是只记技术参数的工具。收到
 - preview: 原文前30字（modify/delete 时为空字符串）
 - action: "keep" / "discard" / "modify" / "delete"
 - destination: "user_profile" 或 "knowledge"（discard 时为 null）
-- section: 章节名（discard 时为 null）
+- section: 章节名；`destination="user_profile"` 时必须为 null，`destination="knowledge"` 时必填（discard/modify/delete 按需为 null）
 - edited_text: 润色后文本（discard/modify/delete 时为 null）
 - existing_text: 文件中的精确原文（仅 modify/delete 需要，必须一字不差）
 - new_text: 替换后的行内容（仅 modify 需要）
@@ -143,7 +136,7 @@ def run_curation(store: MarkdownMemoryStore) -> CuratorResult:
     user_profile = store.load(MemoryKind.USER_PROFILE).text
     knowledge = store.load(MemoryKind.KNOWLEDGE).text
     sections = {
-        "user_profile": store.get_sections(MemoryKind.USER_PROFILE),
+        "user_profile": [],
         "knowledge": store.get_sections(MemoryKind.KNOWLEDGE),
     }
 

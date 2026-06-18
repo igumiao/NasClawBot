@@ -68,7 +68,7 @@ def build_memory_router() -> APIRouter:
             ],
             inbox_entry_count=result.inbox_entry_count,
             sections=CurationSections(
-                user_profile=store.get_sections(MemoryKind.USER_PROFILE),
+                user_profile=[],
                 knowledge=store.get_sections(MemoryKind.KNOWLEDGE),
             ),
         )
@@ -122,11 +122,14 @@ def build_memory_router() -> APIRouter:
         for decision in request.decisions:
             processed.add(decision.inbox_index)
             if decision.action == "keep" and decision.destination and decision.text:
-                store.append_to_section(
-                    kind=kind_map[decision.destination],
-                    section=decision.section or "Other",
-                    text=decision.text,
-                )
+                if decision.destination == "user_profile":
+                    store.append_user_profile_entry(decision.text)
+                else:
+                    store.append_to_section(
+                        kind=kind_map[decision.destination],
+                        section=decision.section or "Other",
+                        text=decision.text,
+                    )
                 applied += 1
             elif decision.action == "modify" and decision.destination and decision.existing_text and decision.new_text:
                 store.replace_in_section(

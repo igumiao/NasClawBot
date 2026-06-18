@@ -14,14 +14,7 @@ def _setup_memory_files(tmp_path: Path, inbox_content: str = ""):
     memory_dir.mkdir(parents=True)
     if inbox_content:
         (memory_dir / "memory_inbox.md").write_text(inbox_content, encoding="utf-8")
-    (memory_dir / "user_profile.md").write_text(
-        "# User Profile\n"
-        "\n"
-        "## Media Preferences\n"
-        "\n"
-        "## Communication Style\n",
-        encoding="utf-8",
-    )
+    (memory_dir / "user_profile.md").write_text("", encoding="utf-8")
     (memory_dir / "knowledge.md").write_text(
         "# Knowledge\n"
         "\n"
@@ -89,6 +82,7 @@ def test_curate_with_mock_llm(monkeypatch, tmp_path: Path):
     assert data["inbox_entry_count"] == 1
     assert data["suggestions"][0]["action"] == "keep"
     assert "sections" in data
+    assert data["sections"]["user_profile"] == []
     assert data["sections"]["knowledge"] == ["TMDB", "M-Team", "Other"]
 
 
@@ -159,9 +153,9 @@ def test_full_curation_flow(monkeypatch, tmp_path: Path):
     mock_response = MagicMock()
     mock_response.content = json.dumps({
         "suggestions": [
-            {"inbox_index": 0, "preview": "用户偏好 4K", "action": "keep", "destination": "user_profile", "section": "Media Preferences", "edited_text": "偏好 4K HDR 画质。"},
+            {"inbox_index": 0, "preview": "用户偏好 4K", "action": "keep", "destination": "user_profile", "section": None, "edited_text": "偏好 4K HDR 画质。"},
             {"inbox_index": 1, "preview": "M-Team 搜索", "action": "keep", "destination": "knowledge", "section": "M-Team", "edited_text": "搜索中文片名时不加 IMDb 过滤更准。"},
-            {"inbox_index": 2, "preview": "用户不喜欢恐怖片", "action": "keep", "destination": "user_profile", "section": "Media Preferences", "edited_text": "不喜欢恐怖片。"},
+            {"inbox_index": 2, "preview": "用户不喜欢恐怖片", "action": "keep", "destination": "user_profile", "section": None, "edited_text": "不喜欢恐怖片。"},
         ],
         "inbox_entry_count": 3,
     })
@@ -175,9 +169,9 @@ def test_full_curation_flow(monkeypatch, tmp_path: Path):
     resp = client.patch("/memory/curate/apply", json={
         "inbox_entry_count": 3,
         "decisions": [
-            {"inbox_index": 0, "action": "keep", "destination": "user_profile", "section": "Media Preferences", "text": "偏好 4K HDR 画质。"},
+            {"inbox_index": 0, "action": "keep", "destination": "user_profile", "text": "偏好 4K HDR 画质。"},
             {"inbox_index": 1, "action": "keep", "destination": "knowledge", "section": "M-Team", "text": "搜索中文片名时不加 IMDb 过滤更准。"},
-            {"inbox_index": 2, "action": "keep", "destination": "user_profile", "section": "Media Preferences", "text": "不喜欢恐怖片。"},
+            {"inbox_index": 2, "action": "keep", "destination": "user_profile", "text": "不喜欢恐怖片。"},
         ],
     })
     assert resp.status_code == 200
@@ -191,6 +185,34 @@ def test_full_curation_flow(monkeypatch, tmp_path: Path):
     assert "恐怖片" in user_profile
     knowledge = (memory_dir / "knowledge.md").read_text(encoding="utf-8")
     assert "IMDb" in knowledge
+
+
+def test_apply_user_profile_keep_ignores_section(monkeypatch, tmp_path: Path):
+    memory_dir = _setup_memory_files(
+        tmp_path,
+        "## 2026-06-12 10:17 | 知识\n\n用户喜欢简洁回答。\n\n---\n",
+    )
+    monkeypatch.setattr("app.api.memory_routes._MEMORY_DIR", memory_dir)
+    client = TestClient(app)
+
+    response = client.patch("/memory/curate/apply", json={
+        "inbox_entry_count": 1,
+        "decisions": [
+            {
+                "inbox_index": 0,
+                "action": "keep",
+                "destination": "user_profile",
+                "section": "Communication Style",
+                "text": "用户喜欢简洁回答。",
+            },
+        ],
+    })
+
+    assert response.status_code == 200
+    user_profile = (memory_dir / "user_profile.md").read_text(encoding="utf-8")
+    assert "Communication Style" not in user_profile
+    assert "- [" in user_profile
+    assert "用户喜欢简洁回答。" in user_profile
 
 
 def test_apply_modify_replaces_line(monkeypatch, tmp_path: Path):

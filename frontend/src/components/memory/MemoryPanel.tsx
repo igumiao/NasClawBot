@@ -9,21 +9,27 @@ import {
 } from "../../api/chatApi";
 
 type CardStatus = "keep" | "discard" | "modify" | "delete" | "skipped";
+type MemoryDestination = "user_profile" | "knowledge";
+type MemorySections = { user_profile: string[]; knowledge: string[] };
 
 type CardState = {
   suggestion: CurationSuggestion;
   entry: MemoryInboxEntry | null;
   editedText: string;
-  destination: "user_profile" | "knowledge";
-  section: string;
+  destination: MemoryDestination;
+  section: string | null;
   status: CardStatus;
 };
+
+function getDefaultKnowledgeSection(sections: string[]): string {
+  return sections[0] ?? "Other";
+}
 
 export function MemoryPanel({ visible }: { visible: boolean }) {
   const panelId = useId();
   const [entries, setEntries] = useState<MemoryInboxEntry[]>([]);
   const [cardStates, setCardStates] = useState<CardState[]>([]);
-  const [sections, setSections] = useState<{ user_profile: string[]; knowledge: string[] }>({
+  const [sections, setSections] = useState<MemorySections>({
     user_profile: [],
     knowledge: [],
   });
@@ -58,6 +64,7 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
     setError(null);
     try {
       const data = await fetchCuration();
+      const defaultKnowledgeSection = getDefaultKnowledgeSection(data.sections.knowledge);
       const cards: CardState[] = [];
       for (const s of data.suggestions) {
         const entry = s.inbox_index != null
@@ -79,12 +86,13 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
           status = "discard";
           editedText = entry?.text ?? "";
         }
+        const destination = s.destination ?? "knowledge";
         cards.push({
           suggestion: s,
           entry,
           editedText,
-          destination: s.destination ?? "knowledge",
-          section: s.section ?? "Other",
+          destination,
+          section: destination === "knowledge" ? (s.section ?? defaultKnowledgeSection) : null,
           status,
         });
       }
@@ -99,6 +107,7 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
   };
 
   const applyDecisions = async () => {
+    const defaultKnowledgeSection = getDefaultKnowledgeSection(sections.knowledge);
     const decisions: CuratorApplyDecision[] = [];
     for (const card of cardStates) {
       if (card.status === "skipped") continue;
@@ -107,7 +116,7 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
           action: "keep",
           inbox_index: card.entry?.index,
           destination: card.destination,
-          section: card.section,
+          section: card.destination === "knowledge" ? (card.section ?? defaultKnowledgeSection) : undefined,
           text: card.editedText,
         });
       } else if (card.status === "discard") {
@@ -158,6 +167,21 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
       if (index >= 0 && index < next.length) {
         next[index] = { ...next[index], ...update };
       }
+      return next;
+    });
+  };
+
+  const updateCardDestination = (index: number, destination: MemoryDestination) => {
+    const defaultKnowledgeSection = getDefaultKnowledgeSection(sections.knowledge);
+    setCardStates((prev) => {
+      const next = [...prev];
+      const current = next[index];
+      if (!current) return prev;
+      next[index] = {
+        ...current,
+        destination,
+        section: destination === "knowledge" ? defaultKnowledgeSection : null,
+      };
       return next;
     });
   };
@@ -275,9 +299,7 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
                   {(isInbox || isModify) && (
                     <select
                       value={card.destination}
-                      onChange={(e) =>
-                        updateCard(idx, { destination: e.target.value as "user_profile" | "knowledge" })
-                      }
+                      onChange={(e) => updateCardDestination(idx, e.target.value as MemoryDestination)}
                       disabled={isSkipped}
                     >
                       <option value="user_profile">user_profile</option>
@@ -285,16 +307,23 @@ export function MemoryPanel({ visible }: { visible: boolean }) {
                     </select>
                   )}
 
-                  {/* Section dropdown (not for delete) */}
-                  <select
-                    value={card.section}
-                    onChange={(e) => updateCard(idx, { section: e.target.value })}
-                    disabled={isSkipped || isDelete}
-                  >
-                    {(sections[card.destination] ?? []).map((sec) => (
-                      <option key={sec} value={sec}>{sec}</option>
-                    ))}
-                  </select>
+                  {/* Section dropdown (knowledge only, not for delete) */}
+                  {!isDelete && card.destination === "knowledge" && (
+                    <select
+                      value={card.section ?? getDefaultKnowledgeSection(sections.knowledge)}
+                      onChange={(e) => updateCard(idx, { section: e.target.value })}
+                      disabled={isSkipped}
+                    >
+                      {(() => {
+                        const knowledgeSections = sections.knowledge.length > 0
+                          ? sections.knowledge
+                          : [getDefaultKnowledgeSection(sections.knowledge)];
+                        return knowledgeSections.map((sec) => (
+                          <option key={sec} value={sec}>{sec}</option>
+                        ));
+                      })()}
+                    </select>
+                  )}
 
                   {/* Status badge */}
                   {isActive && (
