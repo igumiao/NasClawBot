@@ -12,7 +12,7 @@ from app.domain.tmdb_network import TMDBNetworkSettings
 class ContextUsage(BaseModel):
     """Last model request prompt-context utilization snapshot."""
 
-    context_window: int = 64000
+    context_window: int
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
@@ -38,7 +38,7 @@ class ContextUsage(BaseModel):
 class SessionUsage(BaseModel):
     """Cumulative token and cache usage for the current Agent session."""
 
-    context_window: int = 64000
+    context_window: int
     model_calls: int = 0
     total_tokens: int = 0
     total_prompt_tokens: int = 0

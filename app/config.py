@@ -48,6 +48,15 @@ def _get_bool_env(name: str, default: bool = False) -> bool:
     raise ValueError(f"{name} must be a boolean-like value.")
 
 
+def _get_int_env(name: str, default: int = 0) -> int:
+    """Resolve an integer config value from env vars."""
+    raw = _get_env(name, str(default))
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        raise ValueError(f"{name} must be an integer.") from None
+
+
 def _get_log_level_env(name: str, default: str = "INFO") -> str:
     """Resolve a logging level name with a clear validation error."""
     value = _get_env(name, default).strip().upper()
@@ -73,11 +82,18 @@ class Settings(BaseModel):
     llm_log_raw_output: bool = Field(default_factory=lambda: _get_bool_env("LLM_LOG_RAW_OUTPUT", False))
     log_level: str = Field(default_factory=lambda: _get_log_level_env("LOG_LEVEL", "INFO"))
     app_timezone: str = Field(default_factory=lambda: _get_env("APP_TIMEZONE", "Asia/Shanghai"))
+    context_window: int = Field(default_factory=lambda: _get_int_env("CONTEXT_WINDOW", 128000))
     tmdb_api_key: str = Field(default_factory=lambda: _get_env("TMDB_API_KEY"))
     tavily_api_key: str = Field(default_factory=lambda: _get_env("TAVILY_API_KEY"))
     database_path: str = Field(default_factory=lambda: _get_env("DATABASE_PATH", "nas_media_agent.db"))
     download_default_save_path: str = Field(
         default_factory=lambda: _get_env("DOWNLOAD_DEFAULT_SAVE_PATH", ""),
+    )
+    mcp_fs_enabled: bool = Field(
+        default_factory=lambda: _get_bool_env("MCP_FS_ENABLED", True),
+    )
+    mcp_fs_allowed_dirs: str = Field(
+        default_factory=lambda: _get_env("MCP_FS_ALLOWED_DIRS", ""),
     )
 
 

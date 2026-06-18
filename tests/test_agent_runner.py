@@ -26,6 +26,7 @@ class FakeSettings:
     tmdb_api_key = ""
     tavily_api_key = ""
     download_default_save_path = "/tmp/test-downloads"
+    context_window = 128000
 
 
 class UTCFakeSettings(FakeSettings):

@@ -4,9 +4,10 @@
 进行文件操作（读、写、创建目录、移动/重命名等）。
 
 配置方式（按优先级）:
-1. .env 中设置 MCP_FS_ALLOWED_DIRS（逗号分隔多个目录）
-2. 未设置时默认使用项目内的 test-media/ 测试目录
-3. 设置 MCP_FS_ENABLED=false 完全禁用 MCP
+1. 进程环境变量 MCP_FS_ALLOWED_DIRS（逗号分隔多个目录）
+2. .env 文件中 MCP_FS_ALLOWED_DIRS
+3. 都未设置时默认使用项目内的 test-media/ 测试目录
+4. 设置 MCP_FS_ENABLED=false 完全禁用 MCP（同样支持 .env）
 
 Docker 部署示例:
     容器内路径统一为 /影视，通过 volume 映射到 NAS:
@@ -18,10 +19,11 @@ Docker 部署示例:
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
 from hello_agents.tools.mcp.client import McpConnection, McpPool, McpServerConfig
+
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +33,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _parse_allowed_dirs() -> list[str]:
-    """解析允许访问的目录列表。"""
-    env_value = os.getenv("MCP_FS_ALLOWED_DIRS", "")
+    """解析允许访问的目录列表（进程环境 > .env > test-media/）。"""
+    env_value = get_settings().mcp_fs_allowed_dirs
     if env_value.strip():
         return [d.strip() for d in env_value.split(",") if d.strip()]
     # 开发环境默认值
@@ -51,11 +53,11 @@ async def init_mcp_pool() -> McpPool | None:
     执行文件操作（read_file、write_file、edit_file、create_directory、
     list_directory、move_file、search_files、get_file_info 等）。
 
-    通过 MCP_FS_ENABLED 环境变量控制开关，默认启用。
+    通过 MCP_FS_ENABLED 控制开关（进程环境 > .env > 默认 true）。
     """
     global _mcp_pool
 
-    if os.getenv("MCP_FS_ENABLED", "true").strip().lower() in ("false", "0", "no", "off"):
+    if not get_settings().mcp_fs_enabled:
         logger.info("MCP filesystem disabled via MCP_FS_ENABLED")
         return None
 

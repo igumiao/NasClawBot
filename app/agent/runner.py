@@ -407,7 +407,7 @@ class NasClawAgentRunner:
             "preflight_compression_enabled": True,
             "write_time_compression_enabled": False,
             "enable_smart_compression": True,
-            "context_window": 64000,
+            "context_window": settings.context_window,
             "compression_threshold": 0.7,
             "min_retain_rounds": 4,
         }
