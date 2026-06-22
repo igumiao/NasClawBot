@@ -47,8 +47,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.adapters.qbittorrent import QBittorrentAdapter
+from pathlib import Path
+
 from app.domain.runtime_tasks import RuntimeTask, TaskStatus
 from app.runtime.handlers.download_watch import DownloadWatchConfig, DownloadWatchHandler
+from app.runtime.handlers.organize_download import (
+    OrganizeDownloadConfig,
+    OrganizeDownloadHandler,
+)
 from app.runtime.registry import Handler, HandlerRegistry
 from app.runtime.scheduler import TaskScheduler
 from app.runtime.store import RuntimeTaskStore
@@ -372,4 +378,60 @@ def setup_download_watch_handler(
         "download_watch handler registered (poll_seconds=%s, error_backoff_max=%s)",
         config.poll_seconds,
         config.error_backoff_max,
+    )
+
+
+def setup_organize_download_handler(
+    runtime: TaskRuntime,
+    config: OrganizeDownloadConfig | None = None,
+) -> None:
+    """Create and register the ``organize_download`` handler on *runtime*.
+
+    Must be called **before** ``runtime.start()`` so the handler is
+    registered before the worker loop begins dispatching tasks.
+
+    When ``config.destination_root`` is empty, the handler attempts to
+    derive it from the task payload or the organisation automation policy.
+
+    Args:
+        runtime: A :class:`TaskRuntime` instance (created via
+            :func:`create_task_runtime`) that has not yet started.
+        config: :class:`OrganizeDownloadConfig` with destination root,
+            worker settings, and journal path.  A default config is used
+            when ``None``.
+
+    Raises:
+        ValueError: If ``organize_download`` is already registered.
+    """
+    cfg = config or OrganizeDownloadConfig()
+
+    # If no destination_root is provided in the config, try to read it
+    # from the organisation automation policy store.
+    if not cfg.destination_root:
+        try:
+            from app.services.organization_policy_store import (
+                OrganizationAutomationPolicyStore,
+            )
+
+            policy = OrganizationAutomationPolicyStore(
+                Path(__file__).resolve().parents[1] / "memory" / "settings"
+            ).load()
+            cfg.destination_root = policy.destination_root
+        except Exception:
+            logger.warning(
+                "Could not read organization policy for destination_root; "
+                "handler will derive it from task payload at runtime"
+            )
+
+    handler = OrganizeDownloadHandler(
+        config=cfg,
+        scheduler=runtime.scheduler,
+        store=runtime.store,
+        clock=runtime.clock,
+    )
+    runtime.register_handler("organize_download", handler)
+    logger.info(
+        "organize_download handler registered (destination_root=%s, worker_max_steps=%s)",
+        cfg.destination_root or "(derived at runtime)",
+        cfg.worker_max_steps,
     )
