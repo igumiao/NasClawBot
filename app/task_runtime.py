@@ -9,17 +9,28 @@
 
 Typical usage in the FastAPI lifespan::
 
-    runtime = create_task_runtime(
-        db_path="memory/runtime/tasks.db",
-        config=TaskWorkerConfig(
-            worker_id="worker-1",
-            tick_seconds=2,
-            lease_seconds=120,
+    from app.adapters.qbittorrent import QBittorrentAdapter
+    from app.config import get_settings
+    from app.runtime.handlers.download_watch import DownloadWatchConfig
+    from app.task_runtime import create_task_runtime, setup_download_watch_handler
+
+    settings = get_settings()
+    qb = QBittorrentAdapter(
+        base_url=settings.qb_base_url,
+        username=settings.qb_username,
+        password=settings.qb_password,
+    )
+    runtime = create_task_runtime(db_path="memory/runtime/tasks.db")
+    setup_download_watch_handler(
+        runtime=runtime,
+        qb_adapter=qb,
+        config=DownloadWatchConfig(
+            poll_seconds=settings.download_watch_poll_seconds,
+            error_backoff_max=settings.download_watch_error_backoff_max_seconds,
         ),
     )
+    runtime.reconcile_stale_initializing()
     asyncio.create_task(runtime.start())
-
-    runtime.register_handler("download_watch", my_handler)
 
     yield
 
@@ -35,7 +46,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
+from app.adapters.qbittorrent import QBittorrentAdapter
 from app.domain.runtime_tasks import RuntimeTask, TaskStatus
+from app.runtime.handlers.download_watch import DownloadWatchConfig, DownloadWatchHandler
 from app.runtime.registry import Handler, HandlerRegistry
 from app.runtime.scheduler import TaskScheduler
 from app.runtime.store import RuntimeTaskStore
@@ -123,6 +136,11 @@ class TaskRuntime:
     def registry(self) -> HandlerRegistry:
         """Expose the :class:`HandlerRegistry` for reading registered kinds."""
         return self._registry
+
+    @property
+    def clock(self) -> Callable[[], datetime]:
+        """Expose the clock callable for dependent handler creation."""
+        return self._clock
 
     # ------------------------------------------------------------------
     # Handler registration
@@ -313,4 +331,45 @@ def create_task_runtime(
         config=config,
         clock=clock,
         id_factory=id_factory,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Handler setup
+# ---------------------------------------------------------------------------
+
+
+def setup_download_watch_handler(
+    runtime: TaskRuntime,
+    qb_adapter: QBittorrentAdapter,
+    config: DownloadWatchConfig,
+) -> None:
+    """Create and register the ``download_watch`` handler on *runtime*.
+
+    Must be called **before** ``runtime.start()`` so the handler is
+    registered before the worker loop begins dispatching tasks.
+
+    Args:
+        runtime: A :class:`TaskRuntime` instance (created via
+            :func:`create_task_runtime`) that has not yet started.
+        qb_adapter: Configured :class:`QBittorrentAdapter` instance for
+            polling torrent status.
+        config: :class:`DownloadWatchConfig` with polling interval, error
+            backoff, and related settings.
+
+    Raises:
+        ValueError: If ``download_watch`` is already registered on *runtime*.
+    """
+    handler = DownloadWatchHandler(
+        qb_adapter=qb_adapter,
+        config=config,
+        scheduler=runtime.scheduler,
+        store=runtime.store,
+        clock=runtime.clock,
+    )
+    runtime.register_handler("download_watch", handler)
+    logger.info(
+        "download_watch handler registered (poll_seconds=%s, error_backoff_max=%s)",
+        config.poll_seconds,
+        config.error_backoff_max,
     )
