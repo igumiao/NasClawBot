@@ -1,7 +1,10 @@
 """HTTP routes for chat search and explicit download actions."""
 
 import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Callable
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
@@ -33,9 +36,15 @@ from app.api.schemas import (
 )
 from app.config import get_settings
 from app.domain.authorization import DownloadAuthorizationPolicy
+from app.domain.downloads import DownloadSubmissionRequest
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
+from app.services.download_coordinator import DownloadCoordinator
+from app.services.download_submission import DownloadSubmission
+from app.services.organization_policy_store import OrganizationAutomationPolicyStore
 from app.services.tmdb_network_store import TMDBNetworkSettingsStore
-from app.tools import QBAddTorrentTool
+from app.runtime.scheduler import TaskScheduler
+from app.runtime.store import RuntimeTaskStore
+from app.storage.db import ensure_schema
 from hello_agents.checkpoints import JSONConversationCheckpointStore
 
 _FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
@@ -94,6 +103,76 @@ def _download_authorization_store() -> DownloadAuthorizationPolicyStore:
 
 def _tmdb_network_store() -> TMDBNetworkSettingsStore:
     return TMDBNetworkSettingsStore(_SETTINGS_DIR)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _uuid_hex() -> str:
+    return uuid.uuid4().hex
+
+
+# Module-level database path for the runtime task store.
+_DB_PATH = Path(__file__).resolve().parents[2] / "nas_media_agent.db"
+
+
+def _build_download_coordinator_factory(
+    default_tags: list[str] | None = None,
+) -> Callable[[], DownloadCoordinator]:
+    """Return a factory that creates a DownloadCoordinator on demand.
+
+    Each call to the factory builds a fresh coordinator wired with a new
+    MTeam/QB adapter pair, the shared SQLite task store, and the
+    organization-automation policy store.  The coordinator itself is
+    stateless so a new instance per invocation is safe.
+    """
+
+    def factory() -> DownloadCoordinator:
+        settings = get_settings()
+        mteam = _build_mteam_adapter()
+        qb = _build_qb_adapter()
+        submission = DownloadSubmission(
+            mteam, qb,
+            default_save_path=settings.download_default_save_path,
+            default_tags=default_tags,
+        )
+        # Ensure the task schema exists before the store is used.
+        ensure_schema(_DB_PATH)
+        store = RuntimeTaskStore(
+            db_path=_DB_PATH,
+            clock=_utc_now,
+            id_factory=_uuid_hex,
+        )
+        scheduler = TaskScheduler(
+            store=store,
+            clock=_utc_now,
+            id_factory=_uuid_hex,
+        )
+        policy_store = OrganizationAutomationPolicyStore(_SETTINGS_DIR)
+        return DownloadCoordinator(
+            submission=submission,
+            scheduler=scheduler,
+            policy_store=policy_store,
+            clock=_utc_now,
+            id_factory=_uuid_hex,
+        )
+
+    return factory
+
+
+def _build_agent_runner() -> NasClawAgentRunner:
+    """Build a NasClawAgentRunner wired with a DownloadCoordinator factory.
+
+    The Agent tools use the default ``["mteam"]`` tag set, matching the
+    pre-existing behavior.
+    """
+    return NasClawAgentRunner(
+        checkpoint_store=_agent_checkpoint_store(),
+        download_coordinator_factory=_build_download_coordinator_factory(
+            default_tags=["mteam"],
+        ),
+    )
 
 
 def build_router() -> APIRouter:
@@ -229,9 +308,7 @@ def build_router() -> APIRouter:
                 error="message is required",
             )
 
-        runner = NasClawAgentRunner(
-            checkpoint_store=_agent_checkpoint_store(),
-        )
+        runner = _build_agent_runner()
 
         try:
             result = runner.run(request.session_id, query)
@@ -313,7 +390,7 @@ def build_router() -> APIRouter:
         """
         import traceback as _tb
         try:
-            runner = NasClawAgentRunner(checkpoint_store=_agent_checkpoint_store())
+            runner = _build_agent_runner()
             return runner.compact_session(session_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -351,7 +428,7 @@ def build_router() -> APIRouter:
     ) -> AgentApprovalResponse:
         """Approve one pending Agent tool call and execute it deterministically."""
 
-        runner = NasClawAgentRunner(checkpoint_store=_agent_checkpoint_store())
+        runner = _build_agent_runner()
         try:
             result = runner.approve(
                 session_id,
@@ -379,7 +456,7 @@ def build_router() -> APIRouter:
     def deny_agent_approval(session_id: str, approval_id: str) -> AgentApprovalResponse:
         """Reject one pending Agent tool call without executing it."""
 
-        runner = NasClawAgentRunner(checkpoint_store=_agent_checkpoint_store())
+        runner = _build_agent_runner()
         try:
             result = runner.deny(session_id, approval_id)
         except KeyError as exc:
@@ -403,25 +480,37 @@ def build_router() -> APIRouter:
     def download(request: DownloadRequest) -> DownloadResponse:
         """Explicitly add one M-Team torrent to qBittorrent in paused mode."""
 
-        settings = get_settings()
-        download_tool = QBAddTorrentTool(
-            _build_mteam_adapter(),
-            _build_qb_adapter(),
-            default_save_path=settings.download_default_save_path or None,
-            default_tags=["刷流"],
+        coord = _build_download_coordinator_factory(default_tags=["刷流"])()
+        req = DownloadSubmissionRequest(
+            torrent_id=request.torrent_id,
+            qb_category=request.qb_category,
+            save_path=request.save_path or None,
+            tag=None,
+            after_download=None,
         )
-        tool_params = {
-            "torrent_id": request.torrent_id,
-            "qb_category": request.qb_category,
-        }
-        if request.save_path:
-            tool_params["save_path"] = request.save_path
-        response = download_tool.run(tool_params)
-        if response.status.value == "error":
-            return DownloadResponse(status="error", error=response.text)
+        result = coord.submit(req, source_session_id=None)
+
+        if result.status == "accepted":
+            return DownloadResponse(
+                status="completed",
+                receipt=result.submission_receipt,
+                watch_task_id=result.watch_task_id,
+                resolved_follow_up=(
+                    result.resolved_follow_up.model_dump()
+                    if result.resolved_follow_up
+                    else None
+                ),
+            )
+
         return DownloadResponse(
-            status="completed",
-            receipt=response.data.get("receipt"),
+            status="error",
+            error=result.error or "Unknown submission error",
+            watch_task_id="",
+            resolved_follow_up=(
+                result.resolved_follow_up.model_dump()
+                if result.resolved_follow_up
+                else None
+            ),
         )
 
     @router.get("/favicon.png", response_class=FileResponse)

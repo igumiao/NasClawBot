@@ -7,6 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.domain.downloads import (
+    BatchDownloadSubmissionResult,
+    DownloadSubmissionResult,
+    ResolvedFollowUp,
+)
 from app.tools.qb_add_torrent import QBAddTorrentTool
 from app.tools.qb_add_torrents import MAX_BATCH_ITEMS, QBAddTorrentsTool
 from app.tools.qb_control_torrent import QBControlTorrentTool
@@ -287,47 +292,60 @@ def test_qb_set_torrent_speed_empty_hash():
 
 def test_qb_add_torrent_category_optional_with_presets():
     """qb_category has been removed — downloads go directly to inbox without categorization."""
-    tool = QBAddTorrentTool(MagicMock(), MagicMock())
+    tool = QBAddTorrentTool(MagicMock())
     params = {p.name: p for p in tool.get_parameters()}
 
     assert "qb_category" not in params, "qb_category should no longer be exposed to the LLM"
 
 
 def test_qb_add_torrent_internal_tag_not_in_agent_schema():
-    """internal_tag is programmatic-only and must NOT appear in the Agent tool schema."""
-    tool = QBAddTorrentTool(MagicMock(), MagicMock())
+    """internal_tag must NOT appear in the Agent tool schema (handled by coordinator)."""
+    tool = QBAddTorrentTool(MagicMock())
     params = {p.name: p for p in tool.get_parameters()}
 
     assert "internal_tag" not in params, "internal_tag must not be exposed in the Agent tool schema"
 
 
-def test_qb_add_torrent_programmatic_internal_tag_forwards_to_adapter():
-    """When internal_tag is passed programmatically, it should be formatted and forwarded as add_tags."""
-    mteam = MagicMock()
-    mteam.get_torrent_details.return_value = {"title": "Test Movie", "smallDescr": "1080p"}
-    mteam.get_torrent_download_url.return_value = "https://example.com/dl/token"
-    mteam.is_download_url_torrent.return_value = True
+def test_qb_add_torrent_submits_through_coordinator():
+    """The tool should delegate to DownloadCoordinator.submit with a properly built request."""
+    coord = MagicMock()
+    coord.submit.return_value = DownloadSubmissionResult(
+        receipt_id="r1",
+        torrent_id="123",
+        status="accepted",
+        watch_task_id="wt-1",
+        resolved_follow_up=ResolvedFollowUp(mode="none", source="fallback"),
+        submission_receipt={
+            "resource_title": "Test Movie",
+            "external_id": "123",
+            "qb_category": "电影",
+            "qb_hash": "fake-hash",
+            "status": "submitted_paused",
+            "subtitle_count": 0,
+        },
+    )
 
-    qb = MagicMock()
-    qb.generate_mteam_torrent_name.return_value = "[123][电影][Test.Movie]"
-    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
-
-    tool = QBAddTorrentTool(mteam, qb)
+    tool = QBAddTorrentTool(coord)
     response = tool.run({
         "torrent_id": "123",
         "qb_category": "电影",
-        "internal_tag": "task-42",
+        "save_path": "/downloads/movies",
+        "tag": "4K",
     })
 
     assert response.status.value == "success"
-    call_kwargs = qb.add_torrent_url.call_args.kwargs
-    assert call_kwargs.get("add_tags") == ["nasclaw-task-task-42"], \
-        "internal_tag should be formatted as nasclaw-task-{value} and passed as add_tags"
+    assert response.data["receipt"]["resource_title"] == "Test Movie"
+    coord.submit.assert_called_once()
+    req = coord.submit.call_args[0][0]
+    assert req.torrent_id == "123"
+    assert req.qb_category == "电影"
+    assert req.save_path == "/downloads/movies"
+    assert req.tag == "4K"
 
 
 def test_qb_add_torrent_has_save_path_param():
     """save_path should be an optional new parameter."""
-    tool = QBAddTorrentTool(MagicMock(), MagicMock())
+    tool = QBAddTorrentTool(MagicMock())
     params = {p.name: p for p in tool.get_parameters()}
 
     assert "save_path" in params
@@ -335,18 +353,26 @@ def test_qb_add_torrent_has_save_path_param():
     assert params["save_path"].type == "string"
 
 
-def test_qb_add_torrent_passes_save_path_to_adapter():
-    """save_path should be forwarded to the adapter's add_torrent_url."""
-    mteam = MagicMock()
-    mteam.get_torrent_details.return_value = {"title": "Test Movie", "smallDescr": "1080p"}
-    mteam.get_torrent_download_url.return_value = "https://example.com/dl/token"
-    mteam.is_download_url_torrent.return_value = True
+def test_qb_add_torrent_passes_save_path_to_coordinator():
+    """save_path should be forwarded to the coordinator via the request."""
+    coord = MagicMock()
+    coord.submit.return_value = DownloadSubmissionResult(
+        receipt_id="r1",
+        torrent_id="123",
+        status="accepted",
+        watch_task_id="wt-1",
+        resolved_follow_up=ResolvedFollowUp(mode="none", source="fallback"),
+        submission_receipt={
+            "resource_title": "Test Movie",
+            "external_id": "123",
+            "qb_category": "电影",
+            "qb_hash": "fake-hash",
+            "status": "submitted_paused",
+            "subtitle_count": 0,
+        },
+    )
 
-    qb = MagicMock()
-    qb.generate_mteam_torrent_name.return_value = "[123][电影][Test.Movie]"
-    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
-
-    tool = QBAddTorrentTool(mteam, qb)
+    tool = QBAddTorrentTool(coord)
     response = tool.run({
         "torrent_id": "123",
         "qb_category": "电影",
@@ -354,45 +380,59 @@ def test_qb_add_torrent_passes_save_path_to_adapter():
     })
 
     assert response.status.value == "success"
-    call_kwargs = qb.add_torrent_url.call_args.kwargs
-    assert call_kwargs.get("save_path") == "/downloads/movies"
+    req = coord.submit.call_args[0][0]
+    assert req.save_path == "/downloads/movies"
 
 
 def test_qb_add_torrent_default_category_when_omitted():
     """When category is omitted, should still proceed."""
-    mteam = MagicMock()
-    mteam.get_torrent_details.return_value = {"title": "Test"}
-    mteam.get_torrent_download_url.return_value = "https://example.com/dl/token"
-    mteam.is_download_url_torrent.return_value = True
+    coord = MagicMock()
+    coord.submit.return_value = DownloadSubmissionResult(
+        receipt_id="r1",
+        torrent_id="123",
+        status="accepted",
+        watch_task_id="wt-1",
+        resolved_follow_up=ResolvedFollowUp(mode="none", source="fallback"),
+        submission_receipt={
+            "resource_title": "Test",
+            "external_id": "123",
+            "qb_category": "",
+            "qb_hash": "fake-hash",
+            "status": "submitted_paused",
+            "subtitle_count": 0,
+        },
+    )
 
-    qb = MagicMock()
-    qb.generate_mteam_torrent_name.return_value = "[123][other][Test]"
-    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
-
-    tool = QBAddTorrentTool(mteam, qb)
+    tool = QBAddTorrentTool(coord)
     response = tool.run({"torrent_id": "123"})
 
     assert response.status.value == "success"
 
 
 def test_qb_add_torrents_submits_all_items_paused():
-    """Batch add should add each item through the same paused qB path."""
-    mteam = MagicMock()
-    mteam.get_torrent_details.side_effect = [
-        {"title": "Episode 1"},
-        {"title": "Episode 2"},
-    ]
-    mteam.get_torrent_download_url.side_effect = [
-        "https://example.com/dl/101",
-        "https://example.com/dl/102",
-    ]
-    mteam.is_download_url_torrent.return_value = True
+    """Batch add should add each item through the coordinator."""
+    coord = MagicMock()
+    coord.submit_many.return_value = BatchDownloadSubmissionResult(
+        items=[
+            DownloadSubmissionResult(
+                receipt_id="r1", torrent_id="101", status="accepted",
+                watch_task_id="wt-1", resolved_follow_up=ResolvedFollowUp(mode="none", source="fallback"),
+                submission_receipt={"resource_title": "Episode 1", "external_id": "101",
+                                    "qb_category": "电视剧", "qb_hash": "h1", "status": "submitted_paused",
+                                    "subtitle_count": 0},
+            ),
+            DownloadSubmissionResult(
+                receipt_id="r2", torrent_id="102", status="accepted",
+                watch_task_id="wt-2", resolved_follow_up=ResolvedFollowUp(mode="none", source="fallback"),
+                submission_receipt={"resource_title": "Episode 2", "external_id": "102",
+                                    "qb_category": "电视剧", "qb_hash": "h2", "status": "submitted_paused",
+                                    "subtitle_count": 0},
+            ),
+        ],
+        summary={"accepted": 2},
+    )
 
-    qb = MagicMock()
-    qb.generate_mteam_torrent_name.side_effect = ["[101][电视剧][Episode 1]", "[102][电视剧][Episode 2]"]
-    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
-
-    tool = QBAddTorrentsTool(mteam, qb)
+    tool = QBAddTorrentsTool(coord)
     response = tool.run({
         "items": [
             {"torrent_id": "101", "qb_category": "电视剧", "save_path": "/downloads/tv"},
@@ -404,26 +444,30 @@ def test_qb_add_torrents_submits_all_items_paused():
     assert response.data["summary"] == {"total": 2, "succeeded": 2, "failed": 0}
     assert response.data["receipt"]["type"] == "batch"
     assert len(response.data["receipts"]) == 2
-    assert qb.add_torrent_url.call_count == 2
-    assert all(call.kwargs["paused"] is True for call in qb.add_torrent_url.call_args_list)
-    assert all(call.kwargs["save_path"] == "/downloads/tv" for call in qb.add_torrent_url.call_args_list)
 
 
 def test_qb_add_torrents_reports_partial_success():
     """A failed item should not hide successfully submitted paused tasks."""
-    mteam = MagicMock()
-    mteam.get_torrent_details.side_effect = [
-        {"title": "Episode 1"},
-        None,
-    ]
-    mteam.get_torrent_download_url.return_value = "https://example.com/dl/101"
-    mteam.is_download_url_torrent.return_value = True
+    coord = MagicMock()
+    coord.submit_many.return_value = BatchDownloadSubmissionResult(
+        items=[
+            DownloadSubmissionResult(
+                receipt_id="r1", torrent_id="101", status="accepted",
+                watch_task_id="wt-1", resolved_follow_up=ResolvedFollowUp(mode="none", source="fallback"),
+                submission_receipt={"resource_title": "Episode 1", "external_id": "101",
+                                    "qb_category": "电视剧", "qb_hash": "h1", "status": "submitted_paused",
+                                    "subtitle_count": 0},
+            ),
+            DownloadSubmissionResult(
+                receipt_id="r2", torrent_id="102", status="failed",
+                watch_task_id="", resolved_follow_up=ResolvedFollowUp(mode="none", source="fallback"),
+                error="Torrent detail not found",
+            ),
+        ],
+        summary={"accepted": 1, "failed": 1},
+    )
 
-    qb = MagicMock()
-    qb.generate_mteam_torrent_name.return_value = "[101][电视剧][Episode 1]"
-    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
-
-    tool = QBAddTorrentsTool(mteam, qb)
+    tool = QBAddTorrentsTool(coord)
     response = tool.run({
         "items": [
             {"torrent_id": "101", "qb_category": "电视剧"},
@@ -437,31 +481,35 @@ def test_qb_add_torrents_reports_partial_success():
 
 
 def test_qb_add_torrents_rejects_oversized_batch():
-    tool = QBAddTorrentsTool(MagicMock(), MagicMock())
+    tool = QBAddTorrentsTool(MagicMock())
     response = tool.run({"items": [{"torrent_id": str(i)} for i in range(MAX_BATCH_ITEMS + 1)]})
 
     assert response.status.value == "error"
     assert response.error_info["code"] == "BATCH_TOO_LARGE"
 
 
-def test_qb_add_torrents_internal_tag_propagates_to_single_tool():
-    """internal_tag in batch items should propagate to each single tool call."""
-    mteam = MagicMock()
-    mteam.get_torrent_details.return_value = {"title": "Episode 1"}
-    mteam.get_torrent_download_url.return_value = "https://example.com/dl/101"
-    mteam.is_download_url_torrent.return_value = True
+def test_qb_add_torrents_handles_single_item():
+    """Batch tool should correctly delegate a single item through the coordinator."""
+    coord = MagicMock()
+    coord.submit_many.return_value = BatchDownloadSubmissionResult(
+        items=[
+            DownloadSubmissionResult(
+                receipt_id="r1", torrent_id="101", status="accepted",
+                watch_task_id="wt-1", resolved_follow_up=ResolvedFollowUp(mode="none", source="fallback"),
+                submission_receipt={"resource_title": "Episode 1", "external_id": "101",
+                                    "qb_category": "电视剧", "qb_hash": "h1", "status": "submitted_paused",
+                                    "subtitle_count": 0},
+            ),
+        ],
+        summary={"accepted": 1},
+    )
 
-    qb = MagicMock()
-    qb.generate_mteam_torrent_name.return_value = "[101][电视剧][Episode 1]"
-    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
-
-    tool = QBAddTorrentsTool(mteam, qb)
+    tool = QBAddTorrentsTool(coord)
     response = tool.run({
         "items": [
-            {"torrent_id": "101", "qb_category": "电视剧", "internal_tag": "batch-1"},
+            {"torrent_id": "101", "qb_category": "电视剧"},
         ]
     })
 
     assert response.status.value == "success"
-    call_kwargs = qb.add_torrent_url.call_args.kwargs
-    assert call_kwargs.get("add_tags") == ["nasclaw-task-batch-1"]
+    assert len(response.data["receipts"]) == 1

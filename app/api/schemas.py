@@ -161,6 +161,11 @@ class DownloadResponse(BaseModel):
     status: str
     receipt: dict[str, Any] | None = None
     error: str | None = None
+    watch_task_id: str = ""
+    """Runtime task ID for the watch task spawned to track this download."""
+
+    resolved_follow_up: dict[str, Any] | None = None
+    """How the after-download follow-up mode was resolved for this item."""
 
 
 class QBTorrentSummary(BaseModel):

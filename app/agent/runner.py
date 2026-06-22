@@ -79,6 +79,7 @@ from app.domain.authorization import (
 )
 from app.domain.models import ResourceCandidate
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
+from app.services.download_coordinator import DownloadCoordinator
 from app.services.markdown_memory_store import MarkdownMemoryStore
 from app.services.tmdb_network_store import TMDBNetworkSettingsStore
 from app.tools import (
@@ -246,6 +247,7 @@ class NasClawAgentRunner:
         tool_gate: Gate | None = None,
         approval_summary_enabled: bool = True,
         memory_root: Path | None = None,
+        download_coordinator_factory: Callable[[], DownloadCoordinator] | None = None,
     ):
         self.checkpoint_store = checkpoint_store
         self.llm_factory = llm_factory or HelloAgentsLLM
@@ -286,6 +288,7 @@ class NasClawAgentRunner:
         ])
         self.approval_summary_enabled = approval_summary_enabled
         self.memory_root = memory_root or _MEMORY_DIR
+        self._download_coordinator_factory = download_coordinator_factory
 
     @_serialize_session
     def run(self, session_id: str, message: str) -> AgentRunResult:
@@ -364,6 +367,16 @@ class NasClawAgentRunner:
             )
             return _qb_adapter
 
+    def _build_coordinator(self) -> DownloadCoordinator | None:
+        """Create a DownloadCoordinator via the injected factory.
+
+        Returns ``None`` when no factory was provided (e.g. in tests that
+        do not exercise the download path).
+        """
+        if self._download_coordinator_factory is None:
+            return None
+        return self._download_coordinator_factory()
+
     def _build_agent(self) -> ToolCallingAgent:
         settings = get_settings()
         llm = self.llm_factory(
@@ -388,8 +401,10 @@ class NasClawAgentRunner:
 
         default_save_path = settings.download_default_save_path
 
-        registry.register_tool(QBAddTorrentTool(mteam_adapter, qb_adapter, default_save_path=default_save_path))
-        registry.register_tool(QBAddTorrentsTool(mteam_adapter, qb_adapter, default_save_path=default_save_path))
+        coordinator = self._build_coordinator()
+        if coordinator is not None:
+            registry.register_tool(QBAddTorrentTool(coordinator))
+            registry.register_tool(QBAddTorrentsTool(coordinator))
         registry.register_tool(QBListTorrentsTool(qb_adapter))
         registry.register_tool(QBGetTorrentTool(qb_adapter))
         registry.register_tool(QBListTagsTool(qb_adapter))
@@ -806,38 +821,28 @@ class NasClawAgentRunner:
         checkpoint.metadata["authorization_grants"] = grants
 
     def _execute_approved_tool(self, approval: ApprovalRecord) -> ToolResponse:
-        settings = get_settings()
-        qb_adapter = self._get_qb_adapter()
-
-        default_save_path = settings.download_default_save_path
-
         tool_name = approval.tool_name
-        if tool_name == "qb_add_torrent":
-            tool = QBAddTorrentTool(
-                self.mteam_adapter_factory(
-                    base_url=settings.mteam_base_url,
-                    api_key=settings.mteam_api_key,
-                ),
-                qb_adapter,
-                default_save_path=default_save_path,
-            )
-        elif tool_name == "qb_add_torrents":
-            tool = QBAddTorrentsTool(
-                self.mteam_adapter_factory(
-                    base_url=settings.mteam_base_url,
-                    api_key=settings.mteam_api_key,
-                ),
-                qb_adapter,
-                default_save_path=default_save_path,
-            )
-        elif tool_name == "qb_control_torrent":
-            tool = QBControlTorrentTool(qb_adapter)
-        elif tool_name == "qb_set_global_speed":
-            tool = QBSetGlobalSpeedTool(qb_adapter)
-        elif tool_name == "qb_set_torrent_speed":
-            tool = QBSetTorrentSpeedTool(qb_adapter)
+        if tool_name in ("qb_add_torrent", "qb_add_torrents"):
+            coordinator = self._build_coordinator()
+            if coordinator is None:
+                raise RuntimeError(
+                    "DownloadCoordinator factory not configured — "
+                    "cannot execute download-add approvals."
+                )
+            if tool_name == "qb_add_torrent":
+                tool = QBAddTorrentTool(coordinator)
+            else:
+                tool = QBAddTorrentsTool(coordinator)
         else:
-            raise ValueError(f"Cannot execute tool: {tool_name}")
+            qb_adapter = self._get_qb_adapter()
+            if tool_name == "qb_control_torrent":
+                tool = QBControlTorrentTool(qb_adapter)
+            elif tool_name == "qb_set_global_speed":
+                tool = QBSetGlobalSpeedTool(qb_adapter)
+            elif tool_name == "qb_set_torrent_speed":
+                tool = QBSetTorrentSpeedTool(qb_adapter)
+            else:
+                raise ValueError(f"Cannot execute tool: {tool_name}")
 
         return tool.run_with_timing(dict(approval.arguments))
 
