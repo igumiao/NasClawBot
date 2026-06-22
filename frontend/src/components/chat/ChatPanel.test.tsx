@@ -229,6 +229,9 @@ describe("ChatPanel", () => {
         }),
       )
       .mockResolvedValueOnce(
+        jsonResponse({ events: [], total_count: 0 }),
+      )
+      .mockResolvedValueOnce(
         jsonResponse({
           session_id: "session-1",
           status: "awaiting_approval",
@@ -259,7 +262,8 @@ describe("ChatPanel", () => {
           receipt: { external_id: "r1", status: "submitted_paused" },
           error: null
         }),
-      );
+      )
+      .mockResolvedValue(jsonResponse({ events: [], total_count: 0 }));
 
     render(<ChatPanelHarness onDownloadSubmitted={onDownloadSubmitted} />);
 
@@ -277,8 +281,8 @@ describe("ChatPanel", () => {
     expect(await screen.findByText("已提交到 qBittorrent，任务保持暂停。")).toBeInTheDocument();
     expect(onDownloadSubmitted).toHaveBeenCalledWith({ external_id: "r1", status: "submitted_paused" });
     expect(screen.getByRole("textbox", { name: "媒体需求" })).toBeEnabled();
-    expect(fetchMock.mock.calls[1]?.[0]).toBe("/chat/agent");
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("/chat/agent");
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
       session_id: expect.stringMatching(/^nasclaw-/),
       message: "请下载 M-Team torrent id r1"
     });
@@ -304,8 +308,12 @@ describe("ChatPanel", () => {
         }),
       )
       .mockResolvedValueOnce(
+        jsonResponse({ events: [], total_count: 0 }),
+      )
+      .mockResolvedValueOnce(
         jsonResponse({ detail: "Approval has expired" }, 409, "Conflict"),
-      );
+      )
+      .mockResolvedValue(jsonResponse({ events: [], total_count: 0 }));
 
     render(<ChatPanelHarness />);
 

@@ -250,3 +250,69 @@ export type FreeToppedResponse = {
   level1: FreeToppedTorrent[];
   total_count: number;
 };
+
+// ── Runtime Task types (Task 10/11) ─────────────────────────────
+
+export type TaskSummary = {
+  task_id: string;
+  kind: string;
+  status: string;
+  source_session_id: string | null;
+  parent_task_id: string | null;
+  attempts: number;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
+export type WorkerRunSummary = {
+  run_id: string;
+  attempt: number;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+};
+
+export type TaskDetail = TaskSummary & {
+  child_task_ids: string[];
+  max_attempts: number;
+  latest_run: WorkerRunSummary | null;
+};
+
+export type TaskListResponse = {
+  tasks: TaskSummary[];
+  total_count: number;
+};
+
+export type TaskDetailResponse = {
+  task: TaskDetail;
+};
+
+export type TaskCancelResponse = {
+  task_id: string;
+  status: string;
+  previous_status: string;
+};
+
+export type TaskEventSummary = {
+  event_id: string;
+  task_id: string;
+  source_session_id: string | null;
+  kind: string;
+  severity: string;
+  title: string;
+  summary: string;
+  created_at: string;
+  acknowledged_at: string | null;
+};
+
+export type TaskEventListResponse = {
+  events: TaskEventSummary[];
+  total_count: number;
+};
+
+export type TaskEventAcknowledgeResponse = {
+  event_id: string;
+  status: string;
+};

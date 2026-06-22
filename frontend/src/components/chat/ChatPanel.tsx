@@ -1,11 +1,13 @@
 import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useAgentChatSession } from "../../hooks/useAgentChatSession";
+import { useTaskEvents } from "../../state/taskEventsState";
 import { ApprovalCard } from "./ApprovalCard";
 import { ErrorCard } from "./ErrorCard";
 import type { ContextUsage, SessionUsage } from "../../types/api";
 import { MarkdownContent } from "./MarkdownContent";
 import { ReceiptCard } from "./ReceiptCard";
 import { SearchResultCard } from "./SearchResultCard";
+import { TaskEventCard } from "./TaskEventCard";
 import { ToolActivityCard } from "./ToolActivityCard";
 
 type ChatPanelProps = {
@@ -34,6 +36,10 @@ export function ChatPanel({
     onDownloadSubmitted,
     onSessionActivity
   });
+
+  const { events: taskEvents, acknowledge: acknowledgeEvent, acknowledgeAll: acknowledgeAllEvents } = useTaskEvents(
+    activeSessionId,
+  );
 
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: "end", behavior: "smooth" });
@@ -101,6 +107,29 @@ export function ChatPanel({
           </div>
         ) : (
           <div className="chat-message-list">
+            {taskEvents != null && taskEvents.length > 0 && (
+              <div className="task-events-section" role="feed" aria-label="后台任务事件">
+                <div className="task-events-header">
+                  <span className="task-events-heading">后台任务</span>
+                  {taskEvents.length > 1 && (
+                    <button
+                      className="task-events-dismiss-all"
+                      onClick={acknowledgeAllEvents}
+                      aria-label="忽略所有事件"
+                    >
+                      全部忽略
+                    </button>
+                  )}
+                </div>
+                {taskEvents.map((event) => (
+                  <TaskEventCard
+                    key={event.event_id}
+                    event={event}
+                    onAcknowledge={acknowledgeEvent}
+                  />
+                ))}
+              </div>
+            )}
             {state.messages.map((message) => {
               switch (message.kind) {
                 case "user":

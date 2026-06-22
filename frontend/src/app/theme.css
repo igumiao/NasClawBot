@@ -1082,6 +1082,173 @@ textarea {
   border-color: #e2cabc;
 }
 
+/* ── Task Events (background task notifications) ── */
+
+.task-events-section {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.task-events-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.task-events-heading {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.task-events-dismiss-all {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.task-events-dismiss-all:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+/* Task Event Card */
+
+.task-event-card {
+  box-shadow: none;
+  padding: 12px 14px;
+}
+
+.task-event-card .chat-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.task-event-header-icon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.task-event-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex: 0 0 28px;
+}
+
+.task-event-card.task-event-severity--success {
+  border-left: 3px solid var(--success);
+}
+
+.task-event-card.task-event-severity--success .task-event-icon {
+  background: rgba(47, 122, 84, 0.1);
+  color: var(--success);
+}
+
+.task-event-card.task-event-severity--info {
+  border-left: 3px solid #3b82f6;
+}
+
+.task-event-card.task-event-severity--info .task-event-icon {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.task-event-card.task-event-severity--warning {
+  border-left: 3px solid var(--warning);
+}
+
+.task-event-card.task-event-severity--warning .task-event-icon {
+  background: rgba(152, 104, 15, 0.1);
+  color: var(--warning);
+}
+
+.task-event-card.task-event-severity--error {
+  border-left: 3px solid var(--danger);
+}
+
+.task-event-card.task-event-severity--error .task-event-icon {
+  background: rgba(198, 95, 54, 0.1);
+  color: var(--danger);
+}
+
+.task-event-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.task-event-time {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-event-dismiss {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.task-event-card:hover .task-event-dismiss {
+  opacity: 1;
+}
+
+.task-event-dismiss:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.task-event-summary {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-soft);
+}
+
+.task-event-footer {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.task-event-kind {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
 /* ── Context window usage bar ── */
 .context-bar {
   max-width: 820px;

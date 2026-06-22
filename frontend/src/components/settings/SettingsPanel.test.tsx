@@ -180,7 +180,8 @@ describe("SettingsPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "保存 TMDB 网络设置" }));
 
     // Should show save confirmation (no auto-test, so no TMDB API response text)
-    expect(await screen.findByRole("status")).toHaveTextContent("已保存 TMDB 网络设置。");
+    const statuses = await screen.findAllByRole("status");
+    expect(statuses.some((el) => el.textContent === "已保存 TMDB 网络设置。")).toBe(true);
 
     const putCall = fetchSpy.mock.calls.find(([url, init]) => String(url) === "/settings/tmdb-network" && init?.method === "PUT");
     expect(putCall).toBeTruthy();
