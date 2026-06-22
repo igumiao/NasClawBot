@@ -346,6 +346,32 @@ class QBittorrentAdapter:
             raw_response = client.torrents_add(**payload)
         except Exception as exc:
             return _build_error_result(exc, "add_torrent")
+
+        # -- qB 5.x returns TorrentsAddedMetadata (dict subclass) ----------
+        if isinstance(raw_response, dict):
+            success_count = raw_response.get("success_count", 0)
+            pending_count = raw_response.get("pending_count", 0)
+            hashes = raw_response.get("added_torrent_ids", [])
+            ok = (success_count + pending_count) > 0
+            qb_hash = hashes[0] if hashes else None
+            submitted_status = "submitted_paused" if paused else "submitted"
+            status = submitted_status if ok else "unknown"
+            logger.info(
+                "qB add torrent finished ok=%s status=%s success=%s pending=%s hash=%s",
+                ok,
+                status,
+                success_count,
+                pending_count,
+                qb_hash,
+            )
+            return {
+                "ok": ok,
+                "status": status,
+                "qb_hash": qb_hash,
+                "raw_response": raw_response,
+            }
+
+        # -- qB 4.x returns "Ok." / "Ok" / "true" string ------------------
         body = str(raw_response).strip().lower()
         ok = body in {"ok.", "ok", "true"}
         submitted_status = "submitted_paused" if paused else "submitted"
