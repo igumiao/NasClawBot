@@ -30,7 +30,91 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
 
 def initialize_schema(conn: sqlite3.Connection) -> None:
     """Create tables/indexes required by the current MVP."""
-    conn.executescript("")
+    # ------------------------------------------------------------------
+    # WAL mode -- best-effort; fall back to rollback journal silently.
+    # ------------------------------------------------------------------
+    try:
+        conn.execute("PRAGMA journal_mode = wal")
+    except sqlite3.OperationalError:
+        # Filesystem or platform may not support WAL (e.g. network mount).
+        # Deployment limitation; startup continues with rollback journal.
+        pass
+
+    conn.execute("PRAGMA busy_timeout = 5000")
+
+    conn.executescript("""
+    -- ------------------------------------------------------------------
+    -- Runtime tasks (plan SS7.1)
+    -- ------------------------------------------------------------------
+    CREATE TABLE IF NOT EXISTS runtime_tasks (
+        task_id          TEXT PRIMARY KEY,
+        kind             TEXT NOT NULL,
+        status           TEXT NOT NULL,
+        payload_json     TEXT NOT NULL,
+        result_json      TEXT,
+        error_json       TEXT,
+        run_after        TEXT,
+        attempts         INTEGER NOT NULL DEFAULT 0,
+        max_attempts     INTEGER NOT NULL DEFAULT 20,
+        parent_task_id   TEXT,
+        source_session_id TEXT,
+        dedupe_key       TEXT UNIQUE,
+        lease_owner      TEXT,
+        lease_expires_at TEXT,
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL,
+        started_at       TEXT,
+        completed_at     TEXT,
+        FOREIGN KEY (parent_task_id) REFERENCES runtime_tasks (task_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_runtime_tasks_due
+        ON runtime_tasks (status, run_after);
+
+    CREATE INDEX IF NOT EXISTS idx_runtime_tasks_session
+        ON runtime_tasks (source_session_id, created_at DESC);
+
+    -- ------------------------------------------------------------------
+    -- Worker runs (plan SS7.2)
+    -- ------------------------------------------------------------------
+    CREATE TABLE IF NOT EXISTS runtime_task_runs (
+        run_id          TEXT PRIMARY KEY,
+        task_id         TEXT NOT NULL,
+        attempt         INTEGER NOT NULL,
+        status          TEXT NOT NULL,
+        handoff_json    TEXT,
+        history_json    TEXT,
+        result_json     TEXT,
+        error_json      TEXT,
+        started_at      TEXT NOT NULL,
+        completed_at    TEXT,
+        FOREIGN KEY (task_id) REFERENCES runtime_tasks (task_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_runtime_task_runs_task
+        ON runtime_task_runs (task_id, attempt DESC);
+
+    -- ------------------------------------------------------------------
+    -- Task events (plan SS7.3)
+    -- ------------------------------------------------------------------
+    CREATE TABLE IF NOT EXISTS runtime_task_events (
+        event_id           TEXT PRIMARY KEY,
+        task_id            TEXT NOT NULL,
+        source_session_id  TEXT,
+        kind               TEXT NOT NULL,
+        severity           TEXT NOT NULL,
+        title              TEXT NOT NULL,
+        summary            TEXT NOT NULL,
+        payload_json       TEXT,
+        created_at         TEXT NOT NULL,
+        acknowledged_at    TEXT,
+        injected_at        TEXT,
+        FOREIGN KEY (task_id) REFERENCES runtime_tasks (task_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_runtime_task_events_session
+        ON runtime_task_events (source_session_id, created_at);
+    """)
 
 
 def ensure_schema(db_path: str | Path) -> None:
