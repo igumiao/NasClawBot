@@ -3,6 +3,7 @@ import { healthApi } from "../../api/healthApi";
 import { settingsApi } from "../../api/settingsApi";
 import type {
   DownloadAuthorizationPolicy,
+  OrganizationAutomationPolicy,
   ServiceHealth,
   ServiceHealthStatus,
   TMDBNetworkSettings
@@ -52,6 +53,15 @@ const DEFAULT_POLICY: DownloadAuthorizationPolicy = {
 const DEFAULT_TMDB_NETWORK: TMDBNetworkSettings = {
   enabled: false,
   proxy_url: ""
+};
+
+const DEFAULT_ORGANIZATION_POLICY: OrganizationAutomationPolicy = {
+  enabled: false,
+  default_after_download: "notify_only",
+  allowed_source_path_prefixes: [],
+  destination_root: "",
+  allow_delete: false,
+  allow_overwrite: false
 };
 
 type CardState = {
@@ -129,6 +139,11 @@ export function SettingsPanel({
   const [tmdbProxyText, setTMDBProxyText] = useState("");
   const [tmdbNetworkLoading, setTMDBNetworkLoading] = useState(false);
   const [tmdbNetworkStatus, setTMDBNetworkStatus] = useState<string | null>(null);
+  const [orgPolicy, setOrgPolicy] = useState<OrganizationAutomationPolicy>(DEFAULT_ORGANIZATION_POLICY);
+  const [orgSourcePrefixText, setOrgSourcePrefixText] = useState("");
+  const [orgDestRoot, setOrgDestRoot] = useState("");
+  const [orgPolicyLoading, setOrgPolicyLoading] = useState(false);
+  const [orgPolicyStatus, setOrgPolicyStatus] = useState<string | null>(null);
 
   const checkService = useCallback(async (service: string) => {
     setCards((prev) => ({
@@ -195,6 +210,28 @@ export function SettingsPanel({
     return () => controller.abort();
   }, [loadTMDBNetwork]);
 
+  const loadOrgPolicy = useCallback(async (signal?: AbortSignal) => {
+    setOrgPolicyLoading(true);
+    setOrgPolicyStatus(null);
+    try {
+      const response = await settingsApi.getOrganizationPolicy(signal);
+      setOrgPolicy(response);
+      setOrgSourcePrefixText(response.allowed_source_path_prefixes.join("\n"));
+      setOrgDestRoot(response.destination_root);
+    } catch (err) {
+      if (signal?.aborted) return;
+      setOrgPolicyStatus(err instanceof Error ? err.message : "组织策略设置读取失败");
+    } finally {
+      setOrgPolicyLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadOrgPolicy(controller.signal);
+    return () => controller.abort();
+  }, [loadOrgPolicy]);
+
   async function savePolicy() {
     setSettingsLoading(true);
     setSettingsStatus(null);
@@ -236,6 +273,33 @@ export function SettingsPanel({
       setTMDBNetworkStatus(err instanceof Error ? err.message : "TMDB 网络设置保存失败");
     } finally {
       setTMDBNetworkLoading(false);
+    }
+  }
+
+  async function saveOrgPolicy() {
+    setOrgPolicyLoading(true);
+    setOrgPolicyStatus(null);
+    const next: OrganizationAutomationPolicy = {
+      enabled: orgPolicy.enabled,
+      default_after_download: orgPolicy.default_after_download,
+      allowed_source_path_prefixes: orgSourcePrefixText
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
+      destination_root: orgDestRoot.trim(),
+      allow_delete: false,
+      allow_overwrite: false
+    };
+    try {
+      const saved = await settingsApi.updateOrganizationPolicy(next);
+      setOrgPolicy(saved);
+      setOrgSourcePrefixText(saved.allowed_source_path_prefixes.join("\n"));
+      setOrgDestRoot(saved.destination_root);
+      setOrgPolicyStatus("已保存组织自动化设置。");
+    } catch (err) {
+      setOrgPolicyStatus(err instanceof Error ? err.message : "组织自动化设置保存失败");
+    } finally {
+      setOrgPolicyLoading(false);
     }
   }
 
@@ -365,6 +429,76 @@ export function SettingsPanel({
             </button>
           </div>
           {settingsStatus && <p className="settings-card-copy" role="status">{settingsStatus}</p>}
+        </section>
+
+        <section className="settings-card settings-policy-card" aria-label="组织自动化">
+          <div className="settings-card-label">组织自动化</div>
+          <p className="settings-card-copy">
+            下载完成后自动整理媒体文件。删除和覆写操作永久禁用以确保安全。
+          </p>
+
+          <label className="settings-toggle-row">
+            <input
+              type="checkbox"
+              checked={orgPolicy.enabled}
+              onChange={(event) => setOrgPolicy((current) => ({ ...current, enabled: event.target.checked }))}
+            />
+            <span>启用自动组织</span>
+          </label>
+
+          <label className="settings-field">
+            <span>下载完成后</span>
+            <select
+              value={orgPolicy.default_after_download}
+              onChange={(event) => setOrgPolicy((current) => ({
+                ...current,
+                default_after_download: event.target.value as "auto_organize" | "notify_only"
+              }))}
+            >
+              <option value="auto_organize">自动整理 (auto_organize)</option>
+              <option value="notify_only">仅通知 (notify_only)</option>
+            </select>
+          </label>
+
+          <label className="settings-field">
+            <span>允许的来源路径前缀</span>
+            <textarea
+              value={orgSourcePrefixText}
+              onChange={(event) => setOrgSourcePrefixText(event.target.value)}
+              rows={3}
+              placeholder="/downloads/tv"
+            />
+          </label>
+
+          <label className="settings-field">
+            <span>目标根路径</span>
+            <input
+              type="text"
+              value={orgDestRoot}
+              onChange={(event) => setOrgDestRoot(event.target.value)}
+              placeholder="/media/library"
+            />
+          </label>
+
+          <div className="settings-card-copy" style={{ marginTop: 8, opacity: 0.7 }}>
+            <p>安全限制（不可更改）:</p>
+            <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+              <li><code>allow_delete</code> — 永久禁用，不会删除任何源文件</li>
+              <li><code>allow_overwrite</code> — 永久禁用，不会覆盖任何现有文件</li>
+            </ul>
+          </div>
+
+          <div className="settings-actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => void saveOrgPolicy()}
+              disabled={orgPolicyLoading}
+            >
+              {orgPolicyLoading ? "保存中..." : "保存组织自动化设置"}
+            </button>
+          </div>
+          {orgPolicyStatus && <p className="settings-card-copy" role="status">{orgPolicyStatus}</p>}
         </section>
       </div>
     </section>

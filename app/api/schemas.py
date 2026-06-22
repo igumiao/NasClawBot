@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, computed_field
 
 from app.domain.authorization import DownloadAuthorizationPolicy
 from app.domain.models import ResourceCandidate
+from app.domain.organization import OrganizationAutomationPolicy
 from app.domain.tmdb_network import TMDBNetworkSettings
 
 
@@ -175,8 +176,10 @@ class QBTorrentSummary(BaseModel):
     upload_speed: int
     eta: int
     save_path: str
+    content_path: str = ""
     size: int
     total_size: int
+    completion_on: int = 0
 
 
 class QBTorrentDetailResponse(QBTorrentSummary):
@@ -252,6 +255,10 @@ class HealthServicesResponse(BaseModel):
 
 class DownloadAuthorizationPolicyResponse(DownloadAuthorizationPolicy):
     """Settings response for download authorization policy."""
+
+
+class OrganizationAutomationPolicyResponse(OrganizationAutomationPolicy):
+    """Settings response for organization automation policy."""
 
 
 class MemoryInboxEntry(BaseModel):

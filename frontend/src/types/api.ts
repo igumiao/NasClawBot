@@ -221,6 +221,15 @@ export type TMDBNetworkSettings = {
   proxy_url: string;
 };
 
+export type OrganizationAutomationPolicy = {
+  enabled: boolean;
+  default_after_download: "auto_organize" | "notify_only";
+  allowed_source_path_prefixes: string[];
+  destination_root: string;
+  allow_delete: boolean;
+  allow_overwrite: boolean;
+};
+
 export type FreeToppedTorrent = {
   id: string;
   name: string;
