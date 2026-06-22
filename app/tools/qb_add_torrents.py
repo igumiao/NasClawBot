@@ -89,6 +89,9 @@ class QBAddTorrentsTool(Tool):
             user_tag = str(item.get("tag") or "").strip()
             if user_tag:
                 single_params["tag"] = user_tag
+            internal_tag = str(item.get("internal_tag") or "").strip() or None
+            if internal_tag:
+                single_params["internal_tag"] = internal_tag
 
             response = self._single_tool.run(single_params)
             row: dict[str, Any] = {

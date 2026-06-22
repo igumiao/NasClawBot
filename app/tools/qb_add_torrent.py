@@ -91,6 +91,10 @@ class QBAddTorrentTool(Tool):
         if user_tag:
             tags.append(user_tag)
 
+        # internal_tag is programmatic-only (NOT exposed in Agent schema)
+        internal_tag = str(parameters.get("internal_tag", "")).strip() or None
+        add_tags = [f"nasclaw-task-{internal_tag}"] if internal_tag else None
+
         rename = self._qb.generate_mteam_torrent_name(torrent_id, detail, qb_category)
         add_kwargs: dict[str, Any] = {
             "url": download_url,
@@ -105,7 +109,7 @@ class QBAddTorrentTool(Tool):
         if save_path:
             add_kwargs["save_path"] = save_path
 
-        add_result = self._qb.add_torrent_url(**add_kwargs)
+        add_result = self._qb.add_torrent_url(**add_kwargs, add_tags=add_tags)
 
         if add_result.get("ok"):
             title = str(detail.get("title") or torrent_id)

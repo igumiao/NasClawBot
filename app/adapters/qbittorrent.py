@@ -249,12 +249,22 @@ class QBittorrentAdapter:
         rename: str,
         paused: bool = False,
         tags: list[str] | None = None,
+        add_tags: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Validate and build the qbittorrent-api add kwargs."""
+        """Validate and build the qbittorrent-api add kwargs.
+
+        ``add_tags`` is an internal-only tag list (e.g. correlation tracking
+        tags like ``nasclaw-task-{id}``). These are merged into the final
+        ``tags`` parameter sent to qB but are kept separate at the adapter
+        boundary so the caller can distinguish user-facing tags from
+        internal tracking tags.
+        """
         clean_url = url.strip()
         clean_category = category.strip()
         clean_rename = rename.strip()
         clean_tags = [tag.strip() for tag in (tags or []) if tag.strip()]
+        clean_add_tags = [tag.strip() for tag in (add_tags or []) if tag.strip()]
+        all_tags = clean_tags + clean_add_tags
         if not clean_url:
             raise ValueError("url must not be empty")
         if not clean_rename:
@@ -267,8 +277,8 @@ class QBittorrentAdapter:
         }
         if clean_category:
             payload["category"] = clean_category
-        if clean_tags:
-            payload["tags"] = clean_tags
+        if all_tags:
+            payload["tags"] = all_tags
         return payload
 
     def list_categories(self) -> dict[str, Any]:
@@ -308,9 +318,10 @@ class QBittorrentAdapter:
         rename: str,
         paused: bool = False,
         tags: list[str] | None = None,
+        add_tags: list[str] | None = None,
         **extra_kwargs: Any,
     ) -> dict[str, Any]:
-        """Submit tokenized URL to qB and return structured result."""
+        """Submit tokenized URL to qB and return structured result.``"""
         client = self.login()
         if client is None:
             return {"ok": False, "status": "not_configured", "error_code": "NOT_CONFIGURED",
@@ -321,6 +332,7 @@ class QBittorrentAdapter:
             rename=rename,
             paused=paused,
             tags=tags,
+            add_tags=add_tags,
         )
         payload.update(extra_kwargs)
         logger.info(
@@ -364,8 +376,10 @@ class QBittorrentAdapter:
             "upload_speed": int(_read_value(torrent, "upspeed", 0) or 0),
             "eta": int(_read_value(torrent, "eta", 0) or 0),
             "save_path": str(_read_value(torrent, "save_path", "") or ""),
+            "content_path": str(_read_value(torrent, "content_path", "") or ""),
             "size": int(_read_value(torrent, "size", 0) or 0),
             "total_size": int(_read_value(torrent, "total_size", 0) or 0),
+            "completion_on": int(_read_value(torrent, "completion_on", 0) or 0),
         }
 
     def _fetch_tracker_diagnostics(self, torrent_hash: str) -> dict[str, Any]:

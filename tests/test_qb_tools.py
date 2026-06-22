@@ -293,6 +293,38 @@ def test_qb_add_torrent_category_optional_with_presets():
     assert "qb_category" not in params, "qb_category should no longer be exposed to the LLM"
 
 
+def test_qb_add_torrent_internal_tag_not_in_agent_schema():
+    """internal_tag is programmatic-only and must NOT appear in the Agent tool schema."""
+    tool = QBAddTorrentTool(MagicMock(), MagicMock())
+    params = {p.name: p for p in tool.get_parameters()}
+
+    assert "internal_tag" not in params, "internal_tag must not be exposed in the Agent tool schema"
+
+
+def test_qb_add_torrent_programmatic_internal_tag_forwards_to_adapter():
+    """When internal_tag is passed programmatically, it should be formatted and forwarded as add_tags."""
+    mteam = MagicMock()
+    mteam.get_torrent_details.return_value = {"title": "Test Movie", "smallDescr": "1080p"}
+    mteam.get_torrent_download_url.return_value = "https://example.com/dl/token"
+    mteam.is_download_url_torrent.return_value = True
+
+    qb = MagicMock()
+    qb.generate_mteam_torrent_name.return_value = "[123][电影][Test.Movie]"
+    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
+
+    tool = QBAddTorrentTool(mteam, qb)
+    response = tool.run({
+        "torrent_id": "123",
+        "qb_category": "电影",
+        "internal_tag": "task-42",
+    })
+
+    assert response.status.value == "success"
+    call_kwargs = qb.add_torrent_url.call_args.kwargs
+    assert call_kwargs.get("add_tags") == ["nasclaw-task-task-42"], \
+        "internal_tag should be formatted as nasclaw-task-{value} and passed as add_tags"
+
+
 def test_qb_add_torrent_has_save_path_param():
     """save_path should be an optional new parameter."""
     tool = QBAddTorrentTool(MagicMock(), MagicMock())
@@ -410,3 +442,26 @@ def test_qb_add_torrents_rejects_oversized_batch():
 
     assert response.status.value == "error"
     assert response.error_info["code"] == "BATCH_TOO_LARGE"
+
+
+def test_qb_add_torrents_internal_tag_propagates_to_single_tool():
+    """internal_tag in batch items should propagate to each single tool call."""
+    mteam = MagicMock()
+    mteam.get_torrent_details.return_value = {"title": "Episode 1"}
+    mteam.get_torrent_download_url.return_value = "https://example.com/dl/101"
+    mteam.is_download_url_torrent.return_value = True
+
+    qb = MagicMock()
+    qb.generate_mteam_torrent_name.return_value = "[101][电视剧][Episode 1]"
+    qb.add_torrent_url.return_value = {"ok": True, "status": "submitted_paused", "qb_hash": None}
+
+    tool = QBAddTorrentsTool(mteam, qb)
+    response = tool.run({
+        "items": [
+            {"torrent_id": "101", "qb_category": "电视剧", "internal_tag": "batch-1"},
+        ]
+    })
+
+    assert response.status.value == "success"
+    call_kwargs = qb.add_torrent_url.call_args.kwargs
+    assert call_kwargs.get("add_tags") == ["nasclaw-task-batch-1"]

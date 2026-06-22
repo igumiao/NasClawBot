@@ -42,6 +42,57 @@ def test_qb_add_payload_supports_tags_and_paused():
     assert payload["tags"] == ["mteam", "night-watch"], "tag list should preserve non-empty tags"
 
 
+def test_qb_add_payload_merges_add_tags_into_tags():
+    adapter = QBittorrentAdapter(
+        base_url="http://qb.local/",
+        username="user",
+        password="pass",
+    )
+    payload = adapter.build_add_payload(
+        url="https://download.local/token",
+        category="movie",
+        rename="[123] Dune",
+        paused=True,
+        tags=["mteam"],
+        add_tags=["nasclaw-task-42"],
+    )
+
+    assert payload["tags"] == ["mteam", "nasclaw-task-42"]
+
+
+def test_qb_add_payload_add_tags_only():
+    adapter = QBittorrentAdapter(
+        base_url="http://qb.local/",
+        username="user",
+        password="pass",
+    )
+    payload = adapter.build_add_payload(
+        url="https://download.local/token",
+        category="movie",
+        rename="[123] Dune",
+        paused=True,
+        add_tags=["nasclaw-task-99"],
+    )
+
+    assert payload["tags"] == ["nasclaw-task-99"]
+
+
+def test_qb_add_payload_omits_tags_when_all_empty():
+    adapter = QBittorrentAdapter(
+        base_url="http://qb.local/",
+        username="user",
+        password="pass",
+    )
+    payload = adapter.build_add_payload(
+        url="https://download.local/token",
+        category="movie",
+        rename="[123] Dune",
+        add_tags=[],
+    )
+
+    assert "tags" not in payload, "no tags should be in payload when both tags and add_tags are empty"
+
+
 def test_qb_add_payload_rejects_empty_url():
     adapter = QBittorrentAdapter(
         base_url="http://qb.local",
@@ -80,6 +131,7 @@ def test_qb_add_torrent_url_delegates_to_qbittorrent_api_client(monkeypatch: pyt
         rename="[123] Dune",
         paused=True,
         tags=["mteam"],
+        add_tags=["nasclaw-task-42"],
     )
 
     assert captured["client_kwargs"]["host"] == "http://qb.local", "client host should be normalized without trailing slash"
@@ -88,7 +140,7 @@ def test_qb_add_torrent_url_delegates_to_qbittorrent_api_client(monkeypatch: pyt
     assert captured["add_kwargs"]["category"] == "movie", "category should be forwarded to qB"
     assert captured["add_kwargs"]["rename"] == "[123] Dune", "rename should be forwarded to qB"
     assert captured["add_kwargs"]["is_paused"] is True, "paused flag should be forwarded to qB"
-    assert captured["add_kwargs"]["tags"] == ["mteam"], "tags should be forwarded to qB"
+    assert captured["add_kwargs"]["tags"] == ["mteam", "nasclaw-task-42"], "tags and add_tags should be merged and forwarded to qB"
     assert result["status"] == "submitted_paused", "paused add should report submitted_paused"
 
 
@@ -179,8 +231,10 @@ def test_qb_list_torrents_returns_structured_rows(monkeypatch: pytest.MonkeyPatc
                     upspeed=128,
                     eta=3600,
                     save_path="/downloads/movie",
+                    content_path="/downloads/movie/Dune.Part.Two",
                     size=123456,
                     total_size=654321,
+                    completion_on=1719999999,
                 )
             ]
 
@@ -203,8 +257,10 @@ def test_qb_list_torrents_returns_structured_rows(monkeypatch: pytest.MonkeyPatc
             "upload_speed": 128,
             "eta": 3600,
             "save_path": "/downloads/movie",
+            "content_path": "/downloads/movie/Dune.Part.Two",
             "size": 123456,
             "total_size": 654321,
+            "completion_on": 1719999999,
         }
     ], "list_torrents should normalize the returned rows"
 
@@ -237,8 +293,10 @@ def test_qb_get_torrent_returns_combined_info_and_properties(monkeypatch: pytest
                     upspeed=512,
                     eta=1800,
                     save_path="/downloads/movie",
+                    content_path="/downloads/movie/Dune.Part.Two",
                     size=123456,
                     total_size=654321,
+                    completion_on=0,
                 )
             ]
 
@@ -270,8 +328,10 @@ def test_qb_get_torrent_returns_combined_info_and_properties(monkeypatch: pytest
         "upload_speed": 512,
         "eta": 1800,
         "save_path": "/downloads/movie",
+        "content_path": "/downloads/movie/Dune.Part.Two",
         "size": 123456,
         "total_size": 654321,
+        "completion_on": 0,
         "comment": "from mteam",
         "total_uploaded": 999,
         "share_ratio": 0.5,

@@ -989,6 +989,65 @@ def test_list_qb_torrents_endpoint_returns_adapter_rows(monkeypatch: pytest.Monk
     assert body.items[0].hash == "abc123"
 
 
+def test_list_qb_torrents_serializes_content_path_and_completion_on(monkeypatch: pytest.MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    class ContentQBAdapter:
+        def __init__(self, base_url: str, username: str, password: str):
+            captured["init"] = (base_url, username, password)
+
+        def list_torrents(self, **kwargs):
+            captured["list_kwargs"] = kwargs
+            return [
+                {
+                    "hash": "abc123",
+                    "name": "Dune Part Two",
+                    "category": "movie",
+                    "tags": ["mteam", "nasclaw-task-42"],
+                    "state": "pausedDL",
+                    "progress": 0.42,
+                    "download_speed": 1024,
+                    "upload_speed": 128,
+                    "eta": 3600,
+                    "save_path": "/downloads/movie",
+                    "content_path": "/downloads/movie/Dune.Part.Two",
+                    "size": 123456,
+                    "total_size": 654321,
+                    "completion_on": 1719999999,
+                },
+                {
+                    "hash": "def456",
+                    "name": "Incomplete Torrent",
+                    "category": "tv",
+                    "tags": ["mteam"],
+                    "state": "downloading",
+                    "progress": 0.8,
+                    "download_speed": 2048,
+                    "upload_speed": 256,
+                    "eta": 600,
+                    "save_path": "/downloads/tv",
+                    "content_path": "",
+                    "size": 789012,
+                    "total_size": 789012,
+                    "completion_on": 0,
+                },
+            ]
+
+    monkeypatch.setattr(qb_routes, "QBittorrentAdapter", ContentQBAdapter)
+    monkeypatch.setattr(qb_routes, "get_settings", lambda: FakeSettings())
+
+    endpoint = _route_for(create_app(), "/qb/torrents", "GET").endpoint
+    body = endpoint()
+
+    # Verify content_path and completion_on are serialized
+    assert body.items[0].content_path == "/downloads/movie/Dune.Part.Two"
+    assert body.items[0].completion_on == 1719999999
+    assert body.items[0].tags == ["mteam", "nasclaw-task-42"]
+
+    assert body.items[1].content_path == ""
+    assert body.items[1].completion_on == 0
+
+
 def test_get_qb_torrent_endpoint_returns_not_found_when_missing(monkeypatch: pytest.MonkeyPatch):
     class MissingQBAdapter:
         def __init__(self, base_url: str, username: str, password: str):
