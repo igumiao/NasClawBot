@@ -58,6 +58,8 @@ _DYN_POLL_MIN: int = 30
 _DYN_POLL_MAX: int = 600
 _DYN_POLL_DEFAULT: int = 30  # First poll / no history.
 _DYN_POLL_STALL: int = 60   # Progress stalled (speed ≈ 0).
+_DYN_WARMUP_POLLS: int = 2  # Fixed-interval polls before dynamic mode.
+_DYN_EMA_ALPHA: float = 0.3  # Smoothing factor for speed EMA.
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +258,7 @@ class DownloadWatchHandler:
                     "consecutive_errors": 0,
                     "last_poll_at": now.isoformat(),
                     "last_progress": 0.0,
+                    "poll_count": 0,
                 },
             )
 
@@ -289,51 +292,59 @@ class DownloadWatchHandler:
         current_progress: float,
         now: datetime,
         default_seconds: int = _DYN_POLL_DEFAULT,
-    ) -> int:
-        """Compute the next poll delay from progress delta.
+    ) -> tuple[int, float | None]:
+        """Compute the next poll delay and EMA-smoothed speed.
 
-        Uses the speed between the previous and current progress to
-        estimate the remaining time, then schedules the next poll at
-        roughly half of that ETA.  Bounded by ``_DYN_POLL_MIN`` /
-        ``_DYN_POLL_MAX``.
-
-        Args:
-            payload: Task payload containing ``last_progress`` and
-                ``last_poll_at`` from the previous poll cycle.
-            current_progress: The qB-reported progress at this poll.
-            now: Current timestamp from the injectable clock.
-            default_seconds: Fallback when no history is available.
+        Returns ``(delay_seconds, smooth_speed)``.  *smooth_speed* is
+        ``None`` during warm-up (no speed computed yet); the caller
+        should persist it in the task payload for the next cycle.
         """
+        poll_count = payload.get("poll_count", 0)
+
+        # Warm-up: fixed interval for the first few polls.
+        if poll_count < _DYN_WARMUP_POLLS:
+            return default_seconds, None
+
         last_progress = payload.get("last_progress")
         last_poll_at = payload.get("last_poll_at")
 
         if last_progress is None or last_poll_at is None:
-            return default_seconds
+            return default_seconds, None
 
         try:
             last_time = datetime.fromisoformat(last_poll_at)
         except (ValueError, TypeError):
-            return default_seconds
+            return default_seconds, None
 
         elapsed = (now - last_time).total_seconds()
         if elapsed <= 0:
-            return default_seconds
+            return default_seconds, None
 
         delta = current_progress - float(last_progress)
         if delta <= 0:
-            return _DYN_POLL_STALL
+            return _DYN_POLL_STALL, None
 
-        speed = delta / elapsed
-        if speed <= 0:
-            return _DYN_POLL_STALL
+        current_speed = delta / elapsed
+        if current_speed <= 0:
+            return _DYN_POLL_STALL, None
+
+        # EMA smoothing to reduce jitter.
+        prev_smooth = payload.get("smooth_speed")
+        if prev_smooth is not None and float(prev_smooth) > 0:
+            smooth_speed = (
+                _DYN_EMA_ALPHA * current_speed
+                + (1 - _DYN_EMA_ALPHA) * float(prev_smooth)
+            )
+        else:
+            smooth_speed = current_speed
 
         remaining = 1.0 - current_progress
         if remaining <= 0:
-            return _DYN_POLL_MIN
+            return _DYN_POLL_MIN, smooth_speed
 
-        eta = remaining / speed
+        eta = remaining / smooth_speed
         next_poll = int(eta * 0.5)
-        return max(_DYN_POLL_MIN, min(_DYN_POLL_MAX, next_poll))
+        return max(_DYN_POLL_MIN, min(_DYN_POLL_MAX, next_poll)), smooth_speed
 
     def _poll_torrent(
         self,
@@ -372,21 +383,29 @@ class DownloadWatchHandler:
         # Reset error/miss counters on any successful fetch.
         progress = torrent.get("progress", 0.0)
         state = torrent.get("state", "")
+        poll_count = int(payload.get("poll_count", 0)) + 1
         payload_patch: dict[str, Any] = {
             "consecutive_misses": 0,
             "consecutive_errors": 0,
             "last_poll_at": now.isoformat(),
             "last_progress": progress,
+            "poll_count": poll_count,
         }
 
         if progress < 1.0:
-            delay = self._compute_next_poll(payload, progress, now)
+            delay, smooth_speed = self._compute_next_poll(
+                payload, progress, now,
+            )
+            if smooth_speed is not None:
+                payload_patch["smooth_speed"] = smooth_speed
             logger.info(
-                "Torrent %s still in progress progress=%.4f state=%s next_poll=%ds",
+                "Torrent %s still in progress progress=%.4f state=%s "
+                "next_poll=%ds poll=%d",
                 qb_hash,
                 progress,
                 state,
                 delay,
+                poll_count,
             )
             return Reschedule(
                 run_after=(

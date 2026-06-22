@@ -11,6 +11,7 @@ The current codebase has been intentionally simplified to a gated Agent loop wit
 /download -> explicit user action -> qB add paused
 /mteam/free-topped -> topped free torrent browser for ratio boosting
 /memory/* -> Agent memory inbox, curation, and evolution
+/runtime/* -> Durable background tasks: download watch, organize
 ```
 
 There is no active workflow runtime, no `/confirm` route, and no legacy `/chat` route. `/chat/agent` is the sole chat interaction path.
@@ -46,6 +47,14 @@ There is no active workflow runtime, no `/confirm` route, and no legacy `/chat` 
 - `app/api/mteam_routes.py`: `GET /mteam/free-topped?min_size_gb=10&topping_only=true` — returns topped free torrents split by level2/level1 for the ratio-boosting UI tab.
 - `app/adapters/qbittorrent.py`: qBittorrent API boundary for paused add, listing, detail, control, and speed limits (global + per-torrent).
 - `app/domain/models.py`: shared search result models.
+- `app/runtime/`: durable background task system. `RuntimeTaskStore` (SQLite persistence), `TaskScheduler` (external API), `TaskWorker` (in-process async loop with per-kind semaphores), `HandlerRegistry` (kind-to-handler mapping). Two handlers: `download_watch` (qB completion polling with dynamic ETA-based intervals), `organize_download` (file organization via `OrganizeWorkerAgent`).
+- `app/services/download_coordinator.py`: `DownloadCoordinator` orchestrates prepare → submit → activate/fail for download tasks with post-download follow-up (auto_organize/notify_only/none). `app/services/download_submission.py`: `DownloadSubmission` extracts M-Team/qB submission logic (fetch details, generate token, add to qB paused, download subtitles).
+- `app/domain/downloads.py`: `DownloadSubmissionRequest`, `ResolvedFollowUp`, `DownloadSubmissionResult`, `BatchDownloadSubmissionResult`. Follow-up modes: `auto_organize`, `notify_only`, `none`.
+- `app/domain/organization.py`: `OrganizationAutomationPolicy` — enabled, default_after_download, allowed_source_path_prefixes, destination_root. `allow_delete` and `allow_overwrite` forced `False`. `app/services/organization_policy_store.py`: JSON persistence under `memory/settings/organization-automation.json`.
+- `app/api/task_routes.py`: `GET /tasks`, `GET /tasks/{id}`, `POST /tasks/{id}/cancel`, `GET /task-events`, `POST /task-events/{id}/acknowledge`, `GET /settings/organization-automation`, `PUT /settings/organization-automation`.
+- `app/agent/organize_worker.py`: `OrganizeWorkerAgent` — single-use `ToolCallingAgent` per download with 10 constrained tools and dynamic Gate (denies create_directory/move_file until `skill_load("renaming-rules")` succeeds). Uses `skills_auto_register=False` to prevent overwriting the wrapper.
+- `app/task_runtime.py`: `TaskRuntime` composition root — factory functions `create_task_runtime()`, `setup_download_watch_handler()`, `setup_organize_download_handler()`. Lifecycle managed in `app/main.py` app lifespan. Reconcilies stale INITIALIZING tasks at startup.
+- `current_agent_session_id` ContextVar in `app/agent/runner.py` propagates session id to download tools for task-event-to-session matching.
 
 ### MCP Filesystem Integration
 
@@ -84,8 +93,11 @@ Memory is stored under `memory/agent-memory/`. `user_profile.md` is a flat times
 - `AppShell` owns `activeAgentSessionId`, drives session switching, refreshes the session list, and routes rename/delete/new-session actions. Polls `GET /health` every 30s for backend status.
 - `ConversationSidebar` is a collapsible multi-session sidebar (64px icon-only, localStorage-persisted), live session list sorted by recent activity, inline rename via `PATCH`, delete with confirm dialog via `DELETE`, "+ 新对话" button.
 - `ChatPanel` receives `activeSessionId` and delegates session lifecycle to `useAgentChatSession`. Assistant messages render as Markdown (`react-markdown` + `remark-gfm`). `ApprovalCard` renders batch torrent items and exposes "本会话内允许" only when policy-eligible. The composer context bar shows last-request context pressure plus both last-request and cumulative session cache hit rates.
-- `SettingsPanel` includes the TMDB network proxy editor and download authorization policy editor (save path prefixes, per-batch limit, per-session limit).
+- `SettingsPanel` includes the TMDB network proxy editor, download authorization policy editor (save path prefixes, per-batch limit, per-session limit), and organization automation section (enabled toggle, after_download mode selector, source path prefixes textarea, destination root input, safety lock display).
 - `MemoryPanel` renders the memory curation review UI.
+- `TaskEventCard` (`frontend/src/components/chat/TaskEventCard.tsx`) renders background task events (download_completed, organize_completed) in the chat thread with severity-based icon/color styling and an acknowledge button.
+- `useTaskEvents` hook (`frontend/src/state/taskEventsState.ts`) polls `GET /task-events` every 15s for unacknowledged events, exposes acknowledge/acknowledgeAll.
+- `tasksApi` (`frontend/src/api/tasksApi.ts`) provides `listTasks`, `getTaskDetail`, `cancelTask`, `listTaskEvents`, `acknowledgeEvent`.
 - Layout locked to `100vh` with CSS Grid, sidebar transition animation (240ms), acrylic composer backdrop.
 - Session id stored in `sessionStorage` via `agentSessionStorage.ts` for tab-scoped persistence.
 - `ref/mteam-api-reference.md`: authoritative local M-Team API reference.
@@ -180,6 +192,8 @@ DELETE /chat/agent/sessions/{session_id}       # delete checkpoint
 POST   /download      # stable explicit download action
 ```
 
-The current Agent loop exposes 20 base tools: read-only tools (`current_time`, `memory_search`, `mteam_search`, `tavily_search`, `tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`, `member_profile`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_tags`) execute freely; `remember_this` writes to the memory inbox; action tools (`qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`) require user approval unless covered by an active session grant; `skill_load` loads domain-specific skill documents. Download tools accept optional `tag` for media type labeling. An additional 14 MCP filesystem tools (`mcp_filesystem_*`) are available when the MCP pool is active. All qB submissions are paused by default. Downloads go to an inbox for later manual organization.
+The current Agent loop exposes 20 base tools: read-only tools (`current_time`, `memory_search`, `mteam_search`, `tavily_search`, `tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`, `member_profile`, `qb_list_torrents`, `qb_get_torrent`, `qb_list_tags`) execute freely; `remember_this` writes to the memory inbox; action tools (`qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed`) require user approval unless covered by an active session grant; `skill_load` loads domain-specific skill documents. Download tools accept optional `tag` for media type labeling. An additional 14 MCP filesystem tools (`mcp_filesystem_*`) are available when the MCP pool is active. All qB submissions are paused by default.
+
+The runtime task system provides post-download automation: `download_watch` tasks poll qB for completion (dynamic ETA-based intervals, 30s–600s), then spawn `organize_download` tasks that run a constrained `ToolCallingAgent` (10 tools) via `OrganizeWorkerAgent` to move files into the media library. Task events (download_completed, organize_completed) are injected into the Agent system prompt on each turn so the LLM is aware of background activity. The `OperationJournal` (`app/runtime/organize_journal.py`) is reserved for V2 idempotent retry reconciliation.
 
 Future improvement ideas are intentionally not finalized. Preserve them in `docs/design/agent-loop-improvement-notes.md` rather than overfitting the first loop implementation.

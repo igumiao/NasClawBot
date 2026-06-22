@@ -1088,7 +1088,15 @@ class RuntimeTaskStore:
             rows = conn.execute(
                 "SELECT task_id FROM runtime_tasks "
                 "WHERE status IN ('failed', 'succeeded', 'cancelled') "
-                "AND updated_at < ?",
+                "AND updated_at < ? "
+                # Keep terminal tasks that are still referenced as parent
+                # by a non-terminal child — the FK is meaningful; we'll
+                # purge the parent once the child becomes terminal too.
+                "AND task_id NOT IN ("
+                "  SELECT DISTINCT parent_task_id FROM runtime_tasks "
+                "  WHERE parent_task_id IS NOT NULL "
+                "  AND status NOT IN ('failed', 'succeeded', 'cancelled')"
+                ")",
                 (cutoff,),
             ).fetchall()
             task_ids = [r["task_id"] for r in rows]

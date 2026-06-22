@@ -12,6 +12,7 @@ NasClawBot is a single-user NAS/PT media assistant and Agent engineering playgro
 /qb/*     -> qB task management
 /mteam/free-topped -> topped free torrent browser for ratio boosting
 /memory/* -> Agent memory inbox, curation, and evolution
+/runtime/* -> Durable background tasks: download watch, organize
 ```
 
 `/chat/agent` is the sole chat interaction path. There is no legacy `/chat` route and no workflow runtime.
@@ -45,6 +46,12 @@ NasClawBot is a single-user NAS/PT media assistant and Agent engineering playgro
 - `app/domain/authorization.py` defines the download authorization policy and session grant helpers. The policy applies only to `qb_add_torrent` and `qb_add_torrents`, requires paused qB adds, and constrains allowed save path prefixes, per-batch count, and per-session total count. (Categories were removed — auth is path-only.)
 - `app/services/download_authorization_store.py` persists that policy under `memory/settings/download-authorization.json`. Session grants live in checkpoint `metadata["authorization_grants"]` and disappear when the session checkpoint is deleted.
 - `app/domain/tmdb_network.py` and `app/services/tmdb_network_store.py` persist a TMDB-only proxy override under `memory/settings/tmdb-network.json`. This stays service-scoped so qB, M-Team, LLM, Tavily, and local services do not inherit the TMDB proxy.
+- The runtime task system (`app/runtime/`) provides SQLite-backed durable background tasks with an in-process worker loop. Two handlers are registered: `download_watch` polls qBittorrent for completion with dynamic ETA-based intervals; `organize_download` runs an `OrganizeWorkerAgent` to move files into the media library.
+- `app/services/download_coordinator.py` orchestrates download submission with post-download follow-up: prepare an INITIALIZING task, submit to qB paused, then activate on success or fail on error. Follow-up modes: `auto_organize` (spawns organize task), `notify_only` (emits event), `none`.
+- `GET /tasks`, `GET /tasks/{id}`, `POST /tasks/{id}/cancel`, `GET /task-events`, and `POST /task-events/{id}/acknowledge` expose the runtime task system for listing, cancelling, and acknowledging completion events.
+- `GET /settings/organization-automation` and `PUT /settings/organization-automation` read/write the `OrganizationAutomationPolicy`: `enabled`, `default_after_download` (auto_organize/notify_only), `allowed_source_path_prefixes`, `destination_root`. `allow_delete` and `allow_overwrite` are forced `False` by Pydantic validator.
+- The organize worker (`app/agent/organize_worker.py`) runs a separate `ToolCallingAgent` per download with 10 tools (skill_load + 2 TMDB + 7 MCP filesystem) and a dynamic Gate that denies `create_directory`/`move_file` until `skill_load("renaming-rules")` succeeds. Uses `skills_auto_register=False` to prevent overwriting the wrapper.
+- `current_agent_session_id` ContextVar in `app/agent/runner.py` is set at each Agent turn start so that `qb_add_torrent`/`qb_add_torrents` pass the correct `source_session_id` to the coordinator, enabling task-event-to-session matching in the frontend.
 
 ### MCP Filesystem Integration
 
@@ -103,6 +110,88 @@ Key files:
 
 Memory is stored under `memory/agent-memory/` as markdown files. `user_profile.md` is a flat timestamped bullet log (`- [YYYY-MM-DD] ...`) injected into the Agent system prompt with timestamps stripped; it must not use section headings. `knowledge.md` remains sectioned and is searched on demand by `memory_search`. `MEMORY.md` is the index loaded into context. The curator runs with date/time injection for time-aware evolution.
 
+### Runtime Task System
+
+New subsystem under `app/runtime/` that manages durable background tasks for post-download automation:
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `app/runtime/store.py` | `RuntimeTaskStore` — SQLite-backed persistence with `BEGIN IMMEDIATE` for atomic task claiming. Tables: `runtime_tasks`, `runtime_task_runs`, `runtime_task_events`. 18+ methods including `prepare`, `activate`, `enqueue`, `claim_due`, `finish`, `cancel`, `get`, `list_tasks`, `get_task_with_runs`, `purge_terminal_tasks`, event lifecycle. |
+| `app/runtime/scheduler.py` | `TaskScheduler` — external-facing API over the store. Provides `prepare`, `activate`, `enqueue`, `fail_initialization`, `cancel`, `get`, `list_tasks`, `get_task_with_runs`. Wraps internal `payload_json`/`error_json`/`result_json` as plain dicts. |
+| `app/runtime/worker.py` | `TaskWorker` — in-process async loop that claims due tasks and dispatches to registered handlers. `TaskWorkerConfig` with `tick_seconds` (default 2), `lease_seconds` (default 120), `max_concurrency` (default 4), `per_kind_semaphores`. Auto-purges terminal tasks older than 60s each tick. |
+| `app/runtime/registry.py` | `HandlerRegistry` — maps task kind strings to async handler callables: `Handler = Callable[[RuntimeTask, RuntimeTaskStore, TaskScheduler], Awaitable[TaskOutcome]]`. |
+| `app/runtime/handlers/download_watch.py` | `DownloadWatchHandler` — polls qBittorrent for progress via correlation tags (`nasclaw-task-{id}`). Hash resolution on first poll, then periodic progress checks with dynamic polling interval based on speed delta (ETA/2, bounded 30s–600s). On completion, spawns `organize_download` child task or emits `download_completed` event. |
+| `app/runtime/handlers/organize_download.py` | `OrganizeDownloadHandler` — runs `OrganizeWorkerAgent` via `run_in_executor` for file organization. On success emits `organize_completed` event. Configurable `destination_root`, `enabled` flag, `worker_max_steps`. |
+| `app/task_runtime.py` | `TaskRuntime` — composition root owning store, scheduler, registry, and worker. Factory functions: `create_task_runtime()`, `setup_download_watch_handler()`, `setup_organize_download_handler()`. Reconcilies stale INITIALIZING tasks at startup. |
+| `app/domain/runtime_tasks.py` | Domain models — `TaskStatus` enum (`INITIALIZING`→`QUEUED`→`RUNNING`→`WAITING`→`SUCCEEDED`/`FAILED`/`CANCELLED`), `RuntimeTask`, `WorkerRun`, `TaskEvent`, `TaskOutcome` discriminated union (`Complete`/`Reschedule`/`Fail`/`Spawn`), `FilesystemOperationRecord`. `max_attempts` default is 8. |
+| `app/runtime/organize_journal.py` | `OperationJournal` — thread-safe append-only journal for idempotent retry of filesystem operations. Implemented but not yet wired — reserved for V2. |
+
+**Configuration (env vars):**
+
+| Env Var | Default | Purpose |
+|---------|---------|---------|
+| `TASK_WORKER_TICK_SECONDS` | 2 | Worker claim interval |
+| `DOWNLOAD_WATCH_POLL_SECONDS` | 30 | Default download poll interval (actual uses dynamic ETA-based) |
+| `DOWNLOAD_WATCH_ERROR_BACKOFF_MAX_SECONDS` | 600 | Max backoff for qB errors |
+| `TASK_LEASE_SECONDS` | 120 | Task lease duration |
+| `TASK_WORKER_CONCURRENCY` | 4 | Global handler concurrency |
+| `DOWNLOAD_WATCH_CONCURRENCY` | 4 | Per-kind download_watch concurrency |
+| `ORGANIZE_WORKER_CONCURRENCY` | 1 | Per-kind organize_download concurrency (serial) |
+| `QB_PATH_MAPPING` | `""` | Windows→WSL path prefix translation, e.g. `D:\->/mnt/d/` |
+
+**Design decisions:**
+
+- Download watch polls with dynamic intervals: computes speed from progress delta between two polls, estimates ETA, polls at half-ETA (clamped to 30s–600s). Stalled progress falls back to 60s.
+- Terminal tasks auto-purged after 60s (purge runs each worker tick).
+- `max_attempts` is 8. Failed tasks retry with exponential backoff (30s, 60s, 120s… capped at 3600s).
+- `QB_PATH_MAPPING` translates Windows backslash paths to Linux forward-slash paths (e.g. `D:\影视\foo` → `/mnt/d/影视/foo`). Only needed for cross-OS deployments (Windows qB + WSL MCP).
+- Request logging middleware in `app/main.py` skips `/task-events` and `/health` to reduce log noise from polling.
+
+### Download Coordination
+
+`app/services/download_coordinator.py` (`DownloadCoordinator`) orchestrates the submission sequence: resolve follow-up mode → validate policy → prepare INITIALIZING task → submit to qB → activate or fail. Supports `submit()` for single torrents and `submit_many()` for batches. In `auto_organize` mode, the policy's immutable authorization snapshot is captured in the task payload. In `notify_only` mode, a `download_completed` event is emitted for frontend display.
+
+`app/services/download_submission.py` (`DownloadSubmission`) extracts the M-Team/qB submission logic: fetch details, generate download token, add to qB paused, auto-download community subtitles. Returns a receipt dict with `resource_title`, `external_id`, `qb_hash`, `subtitle_count`, and `error`.
+
+`app/domain/downloads.py` defines `DownloadSubmissionRequest` (torrent_id, qb_category, save_path, tag, after_download), `ResolvedFollowUp` (mode, source, authorization_snapshot), `DownloadSubmissionResult` (receipt_id, watch_task_id, status, resolved_follow_up), and `BatchDownloadSubmissionResult`.
+
+### Organize Worker Agent
+
+`app/agent/organize_worker.py` (`OrganizeWorkerAgent`) is a single-use `ToolCallingAgent` per organization run. Key characteristics:
+
+- **Constrained tools:** 10 tools — `skill_load` + `tmdb_search` + `tmdb_details` + 7 MCP filesystem tools (`list_directory`, `directory_tree`, `read_text_file`, `get_file_info`, `search_files`, `create_directory`, `move_file`).
+- **Dynamic Gate:** `_SkillGateState` flag — denies `create_directory`/`move_file` until `skill_load("renaming-rules")` returns success. `_OrganizeSkillTool` wraps `SkillTool` to toggle this flag when the skill is loaded.
+- **`skills_auto_register=False`** in `Config` prevents the auto-registered `SkillTool` from overwriting the `_OrganizeSkillTool` wrapper.
+- **System prompt (Chinese):** six-step workflow — load skill → scan → identify → create directories → move files → verify. Bans write operations before skill is loaded.
+- **Result extraction:** post-run, parses tool observations to count `move_file` successes, detect destination, and collect issues.
+- **Synchronous execution** via `loop.run_in_executor()` to avoid blocking the async event loop. Context window capped at `min(settings.context_window, 64000)`.
+
+### Organization Automation Policy
+
+`app/domain/organization.py` (`OrganizationAutomationPolicy`): `enabled` (default `False`), `default_after_download` (`"auto_organize"` / `"notify_only"`), `allowed_source_path_prefixes` (list), `destination_root` (string). `allow_delete` and `allow_overwrite` are forced `False` by a Pydantic validator.
+
+`app/services/organization_policy_store.py` persists the policy under `memory/settings/organization-automation.json`.
+
+### Task Routes API
+
+In `app/api/task_routes.py`:
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `GET /tasks` | List tasks with optional filters (`source_session_id`, `status`, `kind`, `limit`) |
+| `GET /tasks/{id}` | Task detail with runs (excludes payload/result/error) |
+| `POST /tasks/{id}/cancel` | Cancel a task (idempotent) |
+| `GET /task-events` | List events with filters (`source_session_id`, `acknowledged`, `after`, `limit`) |
+| `POST /task-events/{id}/acknowledge` | Acknowledge an event |
+| `GET /settings/organization-automation` | Read organization policy |
+| `PUT /settings/organization-automation` | Write organization policy (forces allow_delete/allow_overwrite to False) |
+
+The `POST /download` endpoint's response now includes `watch_task_id` when a download-watch task is created, enabling the frontend to correlate the download with its background task.
+
+Task events flow: `download_completed` (from `DownloadWatchHandler`) → injected into Agent system prompt on next turn via `_format_background_events` in the runner → `organize_completed` (from `OrganizeDownloadHandler`) → also injected. The frontend polls unacknowledged events and renders `TaskEventCard` components.
+
 ## Dev Commands
 
 Backend, from repo root:
@@ -142,12 +231,16 @@ There is no formal Python formatter configured yet. A `Makefile` and `package.js
 - `GET /health/services/tmdb`: run a TMDB-only health check for the Settings proxy test button.
 - qB management routes are included from `app/api/qb_routes.py`.
 - Memory routes are included from `app/api/memory_routes.py`.
+- Task routes are included from `app/api/task_routes.py`: `GET /tasks`, `GET /tasks/{id}`, `POST /tasks/{id}/cancel`, `GET /task-events`, `POST /task-events/{id}/acknowledge`, `GET /settings/organization-automation`, `PUT /settings/organization-automation`.
+- `POST /download` response now includes `watch_task_id` when a download-watch task is created for the submitted torrent.
 
 `app/agent/runner.py` owns the Agent conversation lifecycle: load checkpoint, build the current tool-calling agent, restore history, run one turn, save checkpoint, extract route-facing search results/tool calls. Also registers MCP tools and skill tools at startup.
 
 The Agent system prompt is intentionally compact: cross-tool search strategy, side-effect safety, and output shape stay in the prompt, while tool-specific usage belongs in tool descriptions. The runner appends a dynamic current-date/timezone line from `APP_TIMEZONE` and L1 skill metadata.
 
 `NasClawAgentRunner.run/approve/deny` are serialized per session within the current server process. This prevents concurrent approval decisions from executing the same download twice; multi-process coordination still requires a future transactional durable store.
+`current_agent_session_id` ContextVar in `app/agent/runner.py` is set at the start of each `runner.run()` so that download tools pass the correct `source_session_id` to the coordinator for task-event-to-session matching.
+`NasClawAgentRunner.run` also loads unacknowledged background task events before each turn via `get_events_for_session(session_id, uninjected_only=True)`, formats them into the system prompt, and marks them injected after saving the checkpoint.
 
 `ToolCallingLoop` applies `Filter` before sending tool schemas to the LLM and applies `Gate` before `tool.run()`. `DENY` produces a permission-denied observation without executing the tool. `ASK_USER` pauses the loop with `status="awaiting_approval"` and route-facing `pending_approvals`; it saves the assistant tool-call message but does not write a provider `tool` result before approval. NasClawBot persists `pending_approvals` for UI/lifecycle recovery and `metadata["paused_loop"]` for provider protocol resume.
 
@@ -179,13 +272,15 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 - "+ 新对话" button switches to a blank new-conversation state.
 - Hover reveals `⋯` menu button per session row: 重命名 (inline PATCH) + 删除 (confirm dialog, DELETE).
 
-`frontend/src/components/chat/ChatPanel.tsx` accepts `activeSessionId` from AppShell and delegates session behavior to `useAgentChatSession`. Assistant messages render as Markdown through `MarkdownContent` (react-markdown + remark-gfm). `ApprovalCard` renders batch torrent items and exposes "本会话内允许" only when the backend marks the approval as policy-eligible. The composer context bar shows last-request context pressure plus both last-request and cumulative session cache hit rates.
+`frontend/src/components/chat/ChatPanel.tsx` accepts `activeSessionId` from AppShell and delegates session behavior to `useAgentChatSession`. Assistant messages render as Markdown through `MarkdownContent` (react-markdown + remark-gfm). `ApprovalCard` renders batch torrent items and exposes "本会话内允许" only when the backend marks the approval as policy-eligible. `TaskEventCard` (`frontend/src/components/chat/TaskEventCard.tsx`) renders background task events (download_completed, organize_completed) with severity-based styling (green/gray/yellow/red) and an acknowledge button. The composer context bar shows last-request context pressure plus both last-request and cumulative session cache hit rates.
 
-`frontend/src/components/settings/SettingsPanel.tsx` includes the TMDB network proxy editor plus the download authorization policy editor for categories, save path prefixes, per-batch limit, and per-session limit.
+`frontend/src/components/settings/SettingsPanel.tsx` includes the TMDB network proxy editor, the download authorization policy editor (save path prefixes, per-batch limit, per-session limit), and the organization automation section (enabled toggle, after_download mode selector, source path prefixes textarea, destination root input, safety lock display for permanently disabled delete/overwrite).
 
 `frontend/src/components/memory/MemoryPanel.tsx` renders the memory curation review UI with approve/reject per-card actions and visibility toggling.
 
 `frontend/src/state/agentSessionStorage.ts` extracts sessionStorage read/write for the active session id (tab-scoped persistence).
+`frontend/src/state/taskEventsState.ts` provides `useTaskEvents` hook — polls `GET /task-events` every 15s for unacknowledged events, exposes `acknowledge`/`acknowledgeAll`.
+`frontend/src/api/tasksApi.ts` provides `listTasks`, `getTaskDetail`, `cancelTask`, `listTaskEvents`, `acknowledgeEvent`.
 
 `frontend/src/app/theme.css` provides:
 - Fixed viewport layout: `.app-shell` locked to `100vh`, `.workspace-shell` with sticky topbar.
@@ -249,6 +344,7 @@ Generic MCP (Model Context Protocol) client bridge — JSON-RPC 2.0 over STDIO t
 POST /chat/agent
   -> NasClawAgentRunner
   -> load JSON checkpoint
+  -> inject background task events into system prompt
   -> ToolCallingAgent
   -> 20 base tools: current_time, memory_search, remember_this, mteam_search,
      tavily_search, tmdb_search, tmdb_details, tmdb_discover, tmdb_trending,
@@ -258,6 +354,7 @@ POST /chat/agent
   + 14 MCP filesystem tools (when MCP pool active)
   -> Filter selects allowed tools; Gate requires approval for action tools
   -> tool result back to LLM
+  -> mark task events as injected
   -> save JSON checkpoint
 ```
 
@@ -284,3 +381,7 @@ Continue evolving the gated Agent loop.
 - The memory system supports persistent Agent knowledge with automated curation and evolution.
 - Remaining frontend improvement: automatic title generation after the first meaningful Agent turn; do not overwrite manually renamed titles.
 - Keep future loop ideas in `docs/design/agent-loop-improvement-notes.md`; do not prematurely hard-code them into the framework.
+- The runtime task system enables post-download automation: download-watch polls qB for completion, organize-worker moves files into the media library. Extend with new task kinds and handlers as needed.
+- The organize worker agent is a constrained single-use ToolCallingAgent per run. Future improvements could include parallel file operations, dry-run mode, and V2 reconciliation via the OperationJournal.
+- Task events are injected into the Agent system prompt on each turn so the LLM is aware of background activity. Remaining: richer event rendering in the frontend (progress updates, retry status), and manual retrigger of failed organize tasks.
+- Organization automation policy is path-prefix based and conservative (delete/overwrite permanently disabled). The `allow_delete` and `allow_overwrite` safety locks should remain forced `False`.
