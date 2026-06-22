@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
+from app.adapters.qbittorrent import QBittorrentAdapter
 from app.api.chat_routes import build_router
 from app.api.memory_routes import build_memory_router
 from app.api.mteam_routes import build_mteam_router
@@ -19,7 +20,12 @@ from app.api.task_routes import build_task_router
 from app.config import get_settings
 from app.logging_config import configure_logging
 from app.mcp_pool import init_mcp_pool, shutdown_mcp_pool
-from app.task_runtime import create_task_runtime
+from app.runtime.handlers.download_watch import DownloadWatchConfig
+from app.task_runtime import (
+    create_task_runtime,
+    setup_download_watch_handler,
+    setup_organize_download_handler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +37,28 @@ def _frontend_dir() -> Path:
 @asynccontextmanager
 async def _app_lifespan(_app: FastAPI):
     """Manage MCP pool and task runtime lifecycle alongside the FastAPI application."""
+    settings = get_settings()
     await init_mcp_pool()
 
+    # -- Build task runtime --------------------------------------------------
     task_runtime = create_task_runtime(db_path="memory/runtime/tasks.db")
+
+    # qB adapter for the download-watch handler.
+    qb = QBittorrentAdapter(
+        base_url=settings.qb_base_url,
+        username=settings.qb_username,
+        password=settings.qb_password,
+    )
+    setup_download_watch_handler(
+        runtime=task_runtime,
+        qb_adapter=qb,
+        config=DownloadWatchConfig(
+            poll_seconds=settings.download_watch_poll_seconds,
+            error_backoff_max=settings.download_watch_error_backoff_max_seconds,
+        ),
+    )
+    setup_organize_download_handler(runtime=task_runtime)
+
     task_runtime.reconcile_stale_initializing()
     asyncio.create_task(task_runtime.start())
     _app.state.task_runtime = task_runtime
