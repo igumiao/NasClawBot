@@ -321,3 +321,106 @@ class CuratorApplyResponse(BaseModel):
     modified: int
     deleted: int
     remaining: int
+
+
+# ---------------------------------------------------------------------------
+# Runtime Task schemas (Task 10)
+# ---------------------------------------------------------------------------
+
+
+class TaskSummary(BaseModel):
+    """Compact task row for list views.
+
+    Secrets (payload, result, error details) and tokenized URLs are excluded.
+    """
+
+    task_id: str
+    kind: str
+    status: str
+    source_session_id: str | None = None
+    parent_task_id: str | None = None
+    attempts: int = 0
+    created_at: str
+    updated_at: str
+    started_at: str | None = None
+    completed_at: str | None = None
+
+
+class TaskListResponse(BaseModel):
+    """List of runtime tasks with total count."""
+
+    tasks: list[TaskSummary] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class WorkerRunSummary(BaseModel):
+    """Compact WorkerRun entry for task detail views."""
+
+    run_id: str
+    attempt: int
+    status: str
+    started_at: str
+    completed_at: str | None = None
+
+
+class TaskDetail(BaseModel):
+    """Detailed task view with parent/children and latest WorkerRun summary.
+
+    Secrets and tokenized URLs are excluded from this representation.
+    """
+
+    task_id: str
+    kind: str
+    status: str
+    source_session_id: str | None = None
+    parent_task_id: str | None = None
+    child_task_ids: list[str] = Field(default_factory=list)
+    attempts: int = 0
+    max_attempts: int = 20
+    created_at: str
+    updated_at: str
+    started_at: str | None = None
+    completed_at: str | None = None
+    latest_run: WorkerRunSummary | None = None
+
+
+class TaskDetailResponse(BaseModel):
+    """Wrapper for task detail responses."""
+
+    task: TaskDetail
+
+
+class TaskCancelResponse(BaseModel):
+    """Result of a task cancellation request."""
+
+    task_id: str
+    status: str
+    previous_status: str
+
+
+class TaskEventSummary(BaseModel):
+    """Compact event entry for event list views."""
+
+    event_id: str
+    task_id: str
+    source_session_id: str | None = None
+    kind: str
+    severity: str
+    title: str
+    summary: str
+    created_at: str
+    acknowledged_at: str | None = None
+
+
+class TaskEventListResponse(BaseModel):
+    """List response for task events."""
+
+    events: list[TaskEventSummary] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class TaskEventAcknowledgeResponse(BaseModel):
+    """Result of acknowledging a task event."""
+
+    event_id: str
+    status: str

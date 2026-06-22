@@ -113,8 +113,10 @@ def _uuid_hex() -> str:
     return uuid.uuid4().hex
 
 
-# Module-level database path for the runtime task store.
+# Module-level database paths.
 _DB_PATH = Path(__file__).resolve().parents[2] / "nas_media_agent.db"
+_TASK_DB_PATH = Path(__file__).resolve().parents[2] / "memory" / "runtime" / "tasks.db"
+"""Database path for the task runtime (shared with the lifespan worker loop)."""
 
 
 def _build_download_coordinator_factory(
@@ -162,16 +164,25 @@ def _build_download_coordinator_factory(
 
 
 def _build_agent_runner() -> NasClawAgentRunner:
-    """Build a NasClawAgentRunner wired with a DownloadCoordinator factory.
+    """Build a NasClawAgentRunner wired with a DownloadCoordinator factory
+    and the shared RuntimeTaskStore.
 
     The Agent tools use the default ``["mteam"]`` tag set, matching the
-    pre-existing behavior.
+    pre-existing behavior.  The RuntimeTaskStore enables background task
+    event injection into the Agent's system prompt.
     """
+    ensure_schema(_TASK_DB_PATH)
+    runtime_store = RuntimeTaskStore(
+        db_path=_TASK_DB_PATH,
+        clock=_utc_now,
+        id_factory=_uuid_hex,
+    )
     return NasClawAgentRunner(
         checkpoint_store=_agent_checkpoint_store(),
         download_coordinator_factory=_build_download_coordinator_factory(
             default_tags=["mteam"],
         ),
+        runtime_task_store=runtime_store,
     )
 
 

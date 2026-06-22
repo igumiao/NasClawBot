@@ -78,6 +78,8 @@ from app.domain.authorization import (
     granted_item_count,
 )
 from app.domain.models import ResourceCandidate
+from app.domain.runtime_tasks import TaskEvent
+from app.runtime.store import RuntimeTaskStore
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
 from app.services.download_coordinator import DownloadCoordinator
 from app.services.markdown_memory_store import MarkdownMemoryStore
@@ -248,6 +250,7 @@ class NasClawAgentRunner:
         approval_summary_enabled: bool = True,
         memory_root: Path | None = None,
         download_coordinator_factory: Callable[[], DownloadCoordinator] | None = None,
+        runtime_task_store: RuntimeTaskStore | None = None,
     ):
         self.checkpoint_store = checkpoint_store
         self.llm_factory = llm_factory or HelloAgentsLLM
@@ -289,6 +292,7 @@ class NasClawAgentRunner:
         self.approval_summary_enabled = approval_summary_enabled
         self.memory_root = memory_root or _MEMORY_DIR
         self._download_coordinator_factory = download_coordinator_factory
+        self._runtime_task_store = runtime_task_store
 
     @_serialize_session
     def run(self, session_id: str, message: str) -> AgentRunResult:
@@ -311,7 +315,17 @@ class NasClawAgentRunner:
                 session_usage=checkpoint.metadata.get("session_usage"),
             )
 
-        agent = self._build_agent()
+        # ── 加载未注入的后台任务事件，注入到 ephemeral system context ──
+        uninjected_events: list[TaskEvent] = []
+        extra_system_text = ""
+        if self._runtime_task_store is not None:
+            uninjected_events = self._runtime_task_store.get_events_for_session(
+                session_id, uninjected_only=True,
+            )
+            if uninjected_events:
+                extra_system_text = self._format_background_events(uninjected_events)
+
+        agent = self._build_agent(extra_system_text=extra_system_text)
         agent.trace_logger = _get_or_create_trace_logger(session_id)
         if checkpoint:
             self._restore_history(agent, checkpoint)
@@ -327,6 +341,13 @@ class NasClawAgentRunner:
             pending_approvals=pending_approvals,
         )
         self.checkpoint_store.save(saved_checkpoint)
+
+        # ── 标记事件已注入（仅在保存 checkpoint 成功后） ──
+        if uninjected_events and self._runtime_task_store is not None:
+            self._runtime_task_store.mark_events_injected(
+                [e.event_id for e in uninjected_events],
+                now=datetime.now(timezone.utc),
+            )
 
         # 为 API 响应注入默认存储路径（仅展示用，不修改 checkpoint）
         display_approvals = self._enrich_approvals_for_display(
@@ -377,7 +398,7 @@ class NasClawAgentRunner:
             return None
         return self._download_coordinator_factory()
 
-    def _build_agent(self) -> ToolCallingAgent:
+    def _build_agent(self, extra_system_text: str = "") -> ToolCallingAgent:
         settings = get_settings()
         llm = self.llm_factory(
             model=settings.llm_model,
@@ -463,6 +484,9 @@ class NasClawAgentRunner:
                     f"{descriptions}"
                 )
                 agent.system_prompt = (agent.system_prompt or "") + skill_block
+        # ── 注入后台任务事件通知（ephemeral system context，不属于 checkpoint） ──
+        if extra_system_text:
+            agent.system_prompt = (agent.system_prompt or "") + "\n\n" + extra_system_text
         return agent
 
     @_serialize_session
@@ -1252,3 +1276,32 @@ class NasClawAgentRunner:
             for row in observation.response.data.get("candidates", []):
                 results.append(ResourceCandidate.model_validate(row))
         return results
+
+    @staticmethod
+    def _format_background_events(events: list[TaskEvent]) -> str:
+        """Format uninjected task events as a compact system-context block.
+
+        The output is injected into the Agent's system prompt (not as a
+        role=user message) so the LLM is aware of background completions
+        without being confused by a fake user message.
+
+        Format per plan Section 15.3:
+        [BackgroundTaskEvent] task_id, kind, title, summary
+        "This action has already completed. Do not repeat it."
+        """
+        lines = [
+            "## 后台任务事件通知",
+            "",
+            "以下后台任务已在本次对话之前自动完成。",
+            "你可以直接使用其结果，不要重复执行已完成的操作。",
+            "",
+        ]
+        for event in events:
+            lines.append("[BackgroundTaskEvent]")
+            lines.append(f"  task_id: {event.task_id}")
+            lines.append(f"  kind: {event.kind}")
+            lines.append(f"  title: {event.title}")
+            lines.append(f"  summary: {event.summary}")
+            lines.append("  该操作已自动完成，请勿重复执行。")
+            lines.append("")
+        return "\n".join(lines)

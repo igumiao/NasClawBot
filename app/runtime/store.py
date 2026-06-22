@@ -605,6 +605,12 @@ class RuntimeTaskStore:
         if "source_session_id" in filters:
             query += " AND source_session_id = ?"
             params.append(filters["source_session_id"])
+        if "acknowledged" in filters:
+            ack = filters["acknowledged"]
+            if ack is True:
+                query += " AND acknowledged_at IS NOT NULL"
+            elif ack is False:
+                query += " AND acknowledged_at IS NULL"
 
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
@@ -995,6 +1001,7 @@ class RuntimeTaskStore:
         source_session_id: str | None = None,
         status: str | None = None,
         kind: str | None = None,
+        parent_task_id: str | None = None,
         limit: int = 50,
     ) -> list[RuntimeTask]:
         """List tasks with optional filters, newest first.
@@ -1007,6 +1014,8 @@ class RuntimeTaskStore:
             status: Filter by status value (database string, e.g.
                 ``"queued"``, ``"running"``).
             kind: Filter by task kind.
+            parent_task_id: Filter by parent task ID.  Pass ``"__none__"``
+                to find tasks with no parent.
             limit: Maximum number of tasks to return.
 
         Returns:
@@ -1024,6 +1033,12 @@ class RuntimeTaskStore:
         if kind is not None:
             query += " AND kind = ?"
             params.append(kind)
+        if parent_task_id is not None:
+            if parent_task_id == "__none__":
+                query += " AND parent_task_id IS NULL"
+            else:
+                query += " AND parent_task_id = ?"
+                params.append(parent_task_id)
 
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
