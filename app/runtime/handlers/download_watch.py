@@ -98,6 +98,7 @@ class DownloadWatchHandler:
         scheduler: TaskScheduler,
         store: RuntimeTaskStore,
         clock: Callable[[], datetime],
+        path_mapping: dict[str, str] | None = None,
     ) -> None:
         """Initialise the handler.
 
@@ -109,12 +110,29 @@ class DownloadWatchHandler:
             store: The ``RuntimeTaskStore`` for state transitions.
             clock: Callable returning the current ``datetime``, used for
                 all timestamp calculations.
+            path_mapping: Optional dict mapping qB-reported path prefixes
+                to local filesystem prefixes (e.g. ``{"D:\\": "/mnt/d/"}``).
+                Only needed when qB and MCP run on different OSes.
         """
         self._qb = qb_adapter
         self._config = config
         self._scheduler = scheduler
         self._store = store
         self._clock = clock
+        self._path_mapping = path_mapping or {}
+
+    def _translate_path(self, path: str) -> str:
+        """Apply configured path prefix translations to *path*.
+
+        Returns the translated path if any mapping prefix matches, otherwise
+        the original path unchanged.
+        """
+        if not self._path_mapping or not path:
+            return path
+        for qb_prefix, local_prefix in self._path_mapping.items():
+            if path.startswith(qb_prefix):
+                return local_prefix + path[len(qb_prefix):]
+        return path
 
     # ------------------------------------------------------------------
     # Handler protocol
@@ -224,7 +242,7 @@ class DownloadWatchHandler:
                 payload_patch={
                     "qb_hash": qb_hash,
                     "torrent_name": t.get("name", ""),
-                    "save_path": t.get("save_path", ""),
+                    "save_path": self._translate_path(t.get("save_path", "")),
                     "consecutive_misses": 0,
                     "consecutive_errors": 0,
                     "last_poll_at": now.isoformat(),
@@ -413,8 +431,8 @@ class DownloadWatchHandler:
         """
         qb_hash = torrent.get("hash", "")
         torrent_name = torrent.get("name", "")
-        content_path = torrent.get("content_path", "") or ""
-        save_path = torrent.get("save_path", "")
+        content_path = self._translate_path(torrent.get("content_path", "") or "")
+        save_path = self._translate_path(torrent.get("save_path", ""))
 
         # Update payload with final torrent metadata.
         payload_patch["torrent_name"] = torrent_name

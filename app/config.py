@@ -120,6 +120,15 @@ class Settings(BaseModel):
     organize_worker_concurrency: int = Field(
         default_factory=lambda: _get_int_env("ORGANIZE_WORKER_CONCURRENCY", 1),
     )
+    qb_path_mapping: str = Field(
+        default_factory=lambda: _get_env("QB_PATH_MAPPING", ""),
+        description=(
+            "Optional comma-separated path prefix translations for qB-reported "
+            "paths, e.g. 'D:\\->/mnt/d/'.  Only needed when qBittorrent runs "
+            "on a different OS from the MCP filesystem server (e.g. Windows "
+            "qB + WSL server).  Empty string disables translation."
+        ),
+    )
 
 
 @lru_cache(maxsize=1)

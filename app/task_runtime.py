@@ -345,10 +345,35 @@ def create_task_runtime(
 # ---------------------------------------------------------------------------
 
 
+def _parse_path_mapping(raw: str) -> dict[str, str]:
+    """Parse ``QB_PATH_MAPPING`` env var into a prefix translation dict.
+
+    Format: ``"D:\\->/mnt/d/"``  (comma-separated pairs with ``->`` separator).
+    Empty string returns an empty dict (translation disabled).
+    """
+    if not raw or not raw.strip():
+        return {}
+    mapping: dict[str, str] = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        if "->" not in pair:
+            logger.warning("Invalid QB_PATH_MAPPING entry (missing '->'): %r", pair)
+            continue
+        src, dst = pair.split("->", 1)
+        src = src.strip()
+        dst = dst.strip()
+        if src and dst:
+            mapping[src] = dst
+    return mapping
+
+
 def setup_download_watch_handler(
     runtime: TaskRuntime,
     qb_adapter: QBittorrentAdapter,
     config: DownloadWatchConfig,
+    path_mapping: dict[str, str] | None = None,
 ) -> None:
     """Create and register the ``download_watch`` handler on *runtime*.
 
@@ -362,23 +387,41 @@ def setup_download_watch_handler(
             polling torrent status.
         config: :class:`DownloadWatchConfig` with polling interval, error
             backoff, and related settings.
+        path_mapping: Optional dict mapping qB-reported path prefixes to
+            local filesystem prefixes (e.g. ``{"D:\\": "/mnt/d/"}``).
+            Read from ``QB_PATH_MAPPING`` env var if ``None``.
 
     Raises:
         ValueError: If ``download_watch`` is already registered on *runtime*.
     """
+    if path_mapping is None:
+        try:
+            from app.config import get_settings
+            path_mapping = _parse_path_mapping(get_settings().qb_path_mapping)
+        except Exception:
+            path_mapping = {}
+
     handler = DownloadWatchHandler(
         qb_adapter=qb_adapter,
         config=config,
         scheduler=runtime.scheduler,
         store=runtime.store,
         clock=runtime.clock,
+        path_mapping=path_mapping,
     )
     runtime.register_handler("download_watch", handler)
-    logger.info(
-        "download_watch handler registered (poll_seconds=%s, error_backoff_max=%s)",
-        config.poll_seconds,
-        config.error_backoff_max,
-    )
+    if path_mapping:
+        logger.info(
+            "download_watch handler registered (poll_seconds=%s, path_mapping=%s)",
+            config.poll_seconds,
+            path_mapping,
+        )
+    else:
+        logger.info(
+            "download_watch handler registered (poll_seconds=%s, error_backoff_max=%s)",
+            config.poll_seconds,
+            config.error_backoff_max,
+        )
 
 
 def setup_organize_download_handler(
