@@ -96,6 +96,31 @@ class Settings(BaseModel):
         default_factory=lambda: _get_env("MCP_FS_ALLOWED_DIRS", ""),
     )
 
+    # ------------------------------------------------------------------
+    # Runtime configuration (task orchestration, download watch, organize)
+    # ------------------------------------------------------------------
+    task_worker_tick_seconds: int = Field(
+        default_factory=lambda: _get_int_env("TASK_WORKER_TICK_SECONDS", 2),
+    )
+    download_watch_poll_seconds: int = Field(
+        default_factory=lambda: _get_int_env("DOWNLOAD_WATCH_POLL_SECONDS", 30),
+    )
+    download_watch_error_backoff_max_seconds: int = Field(
+        default_factory=lambda: _get_int_env("DOWNLOAD_WATCH_ERROR_BACKOFF_MAX_SECONDS", 600),
+    )
+    task_lease_seconds: int = Field(
+        default_factory=lambda: _get_int_env("TASK_LEASE_SECONDS", 120),
+    )
+    task_worker_concurrency: int = Field(
+        default_factory=lambda: _get_int_env("TASK_WORKER_CONCURRENCY", 4),
+    )
+    download_watch_concurrency: int = Field(
+        default_factory=lambda: _get_int_env("DOWNLOAD_WATCH_CONCURRENCY", 4),
+    )
+    organize_worker_concurrency: int = Field(
+        default_factory=lambda: _get_int_env("ORGANIZE_WORKER_CONCURRENCY", 1),
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -3,6 +3,7 @@
 This module wires routes and static frontend assets into a single app instance.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 import logging
 import time
@@ -17,6 +18,7 @@ from app.api.mteam_routes import build_mteam_router
 from app.config import get_settings
 from app.logging_config import configure_logging
 from app.mcp_pool import init_mcp_pool, shutdown_mcp_pool
+from app.task_runtime import create_task_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +29,18 @@ def _frontend_dir() -> Path:
 
 @asynccontextmanager
 async def _app_lifespan(_app: FastAPI):
-    """Manage MCP pool lifecycle alongside the FastAPI application."""
+    """Manage MCP pool and task runtime lifecycle alongside the FastAPI application."""
     await init_mcp_pool()
+
+    task_runtime = create_task_runtime(db_path="memory/runtime/tasks.db")
+    task_runtime.reconcile_stale_initializing()
+    asyncio.create_task(task_runtime.start())
+    _app.state.task_runtime = task_runtime
+
     try:
         yield
     finally:
+        await task_runtime.stop()
         await shutdown_mcp_pool()
 
 
