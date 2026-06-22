@@ -8,6 +8,7 @@ from typing import Any
 from hello_agents.tools.base import Tool, ToolParameter
 from hello_agents.tools.response import ToolResponse
 
+from app.agent.runner import current_agent_session_id
 from app.domain.downloads import DownloadSubmissionRequest
 from app.services.download_coordinator import DownloadCoordinator
 
@@ -74,7 +75,10 @@ class QBAddTorrentsTool(Tool):
                 after_download=None,
             ))
 
-        batch_result = self._coordinator.submit_many(requests)
+        batch_result = self._coordinator.submit_many(
+            requests,
+            source_session_id=current_agent_session_id.get(),
+        )
 
         results: list[dict[str, Any]] = []
         receipts: list[dict[str, Any]] = []

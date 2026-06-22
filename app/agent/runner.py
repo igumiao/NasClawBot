@@ -1,5 +1,6 @@
 """Application-level Agent runner for NasClawBot conversations."""
 
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -9,6 +10,12 @@ from pathlib import Path
 from threading import Lock, RLock
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+# Context variable for the current Agent session, read by download tools
+# to attach the correct source_session_id to background tasks and events.
+current_agent_session_id: ContextVar[str | None] = ContextVar(
+    "current_agent_session_id", default=None,
+)
 
 from hello_agents.observability import TraceLogger
 
@@ -296,6 +303,7 @@ class NasClawAgentRunner:
 
     @_serialize_session
     def run(self, session_id: str, message: str) -> AgentRunResult:
+        current_agent_session_id.set(session_id)
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint:
             checkpoint = self._expire_pending_approvals(checkpoint)

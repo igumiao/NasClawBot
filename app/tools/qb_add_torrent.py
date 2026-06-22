@@ -8,6 +8,7 @@ from typing import Any
 from hello_agents.tools.base import Tool, ToolParameter
 from hello_agents.tools.response import ToolResponse
 
+from app.agent.runner import current_agent_session_id
 from app.domain.downloads import DownloadSubmissionRequest
 from app.services.download_coordinator import DownloadCoordinator
 
@@ -75,7 +76,10 @@ class QBAddTorrentTool(Tool):
             after_download=None,
         )
 
-        result = self._coordinator.submit(request, source_session_id=None)
+        result = self._coordinator.submit(
+            request,
+            source_session_id=current_agent_session_id.get(),
+        )
 
         if result.status == "accepted":
             receipt = result.submission_receipt or {}

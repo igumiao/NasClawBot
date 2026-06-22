@@ -1047,6 +1047,70 @@ class RuntimeTaskStore:
             rows = conn.execute(query, params).fetchall()
             return [_parse_task(r) for r in rows]
 
+    def delete_task(self, task_id: str) -> bool:
+        """Delete a task and its runs + events (cascading cleanup).
+
+        Returns ``True`` if a row was deleted, ``False`` if the task did
+        not exist.
+        """
+        conn = connect(self._db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "DELETE FROM runtime_task_runs WHERE task_id = ?", (task_id,),
+            )
+            conn.execute(
+                "DELETE FROM runtime_task_events WHERE task_id = ?", (task_id,),
+            )
+            cursor = conn.execute(
+                "DELETE FROM runtime_tasks WHERE task_id = ?", (task_id,),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    def purge_terminal_tasks(
+        self,
+        now: datetime,
+        max_age_seconds: int = 300,
+    ) -> int:
+        """Delete all terminal tasks (FAILED, SUCCEEDED, CANCELLED) whose
+        ``updated_at`` is older than *max_age_seconds*.
+
+        Also deletes associated runs and events.  Returns the number of
+        tasks removed.
+        """
+        cutoff = (now - timedelta(seconds=max_age_seconds)).isoformat()
+        conn = connect(self._db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                "SELECT task_id FROM runtime_tasks "
+                "WHERE status IN ('failed', 'succeeded', 'cancelled') "
+                "AND updated_at < ?",
+                (cutoff,),
+            ).fetchall()
+            task_ids = [r["task_id"] for r in rows]
+            if task_ids:
+                placeholders = ",".join("?" for _ in task_ids)
+                conn.execute(
+                    f"DELETE FROM runtime_task_runs WHERE task_id IN ({placeholders})",
+                    task_ids,
+                )
+                conn.execute(
+                    f"DELETE FROM runtime_task_events WHERE task_id IN ({placeholders})",
+                    task_ids,
+                )
+                conn.execute(
+                    f"DELETE FROM runtime_tasks WHERE task_id IN ({placeholders})",
+                    task_ids,
+                )
+            conn.commit()
+            return len(task_ids)
+        finally:
+            conn.close()
+
     def get_task_with_runs(
         self,
         task_id: str,

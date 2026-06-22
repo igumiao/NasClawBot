@@ -21,6 +21,8 @@ from app.config import get_settings
 from app.logging_config import configure_logging
 from app.mcp_pool import init_mcp_pool, shutdown_mcp_pool
 from app.runtime.handlers.download_watch import DownloadWatchConfig
+from app.runtime.worker import TaskWorkerConfig
+from app.storage.db import ensure_schema
 from app.task_runtime import (
     create_task_runtime,
     setup_download_watch_handler,
@@ -41,7 +43,20 @@ async def _app_lifespan(_app: FastAPI):
     await init_mcp_pool()
 
     # -- Build task runtime --------------------------------------------------
-    task_runtime = create_task_runtime(db_path="memory/runtime/tasks.db")
+    _task_db_path = "memory/runtime/tasks.db"
+    ensure_schema(_task_db_path)
+    task_runtime = create_task_runtime(
+        db_path=_task_db_path,
+        config=TaskWorkerConfig(
+            per_kind_semaphores={
+                "download_watch": settings.download_watch_concurrency,
+                "organize_download": settings.organize_worker_concurrency,
+            },
+            tick_seconds=settings.task_worker_tick_seconds,
+            lease_seconds=settings.task_lease_seconds,
+            max_concurrency=settings.task_worker_concurrency,
+        ),
+    )
 
     # qB adapter for the download-watch handler.
     qb = QBittorrentAdapter(
@@ -81,10 +96,14 @@ def create_app() -> FastAPI:
         start = time.monotonic()
         response = await call_next(request)
         elapsed = time.monotonic() - start
+        # Skip logging for high-frequency polling endpoints.
+        path = request.url.path
+        if path in ("/health",) or path.startswith("/task-events"):
+            return response
         logger.info(
             "%s %s -> %d (%.0fms)",
             request.method,
-            request.url.path,
+            path,
             response.status_code,
             elapsed * 1000,
         )

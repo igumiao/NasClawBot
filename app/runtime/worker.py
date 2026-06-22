@@ -160,6 +160,17 @@ class TaskWorker:
         """One claim-and-dispatch cycle."""
         try:
             now = self._config.clock()
+
+            # Purge terminal tasks older than 60 seconds.
+            try:
+                purged = self._store.purge_terminal_tasks(
+                    now, max_age_seconds=60,
+                )
+                if purged:
+                    logger.info("Purged %d terminal task(s)", purged)
+            except Exception:
+                logger.warning("Failed to purge terminal tasks", exc_info=True)
+
             kinds = self._registry.list_kinds()
             if not kinds:
                 return

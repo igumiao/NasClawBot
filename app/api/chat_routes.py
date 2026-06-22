@@ -140,9 +140,9 @@ def _build_download_coordinator_factory(
             default_tags=default_tags,
         )
         # Ensure the task schema exists before the store is used.
-        ensure_schema(_DB_PATH)
+        ensure_schema(_TASK_DB_PATH)
         store = RuntimeTaskStore(
-            db_path=_DB_PATH,
+            db_path=_TASK_DB_PATH,
             clock=_utc_now,
             id_factory=_uuid_hex,
         )

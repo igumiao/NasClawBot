@@ -181,7 +181,7 @@ class RuntimeTask(BaseModel):
     attempts: int = 0
     """Number of execution attempts so far."""
 
-    max_attempts: int = 20
+    max_attempts: int = 8
     """Maximum execution attempts before permanent FAILED."""
 
     parent_task_id: str | None = None

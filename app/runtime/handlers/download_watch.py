@@ -53,6 +53,12 @@ idempotent child creation when the watch handler retries after the download
 has already completed.
 """
 
+# Dynamic polling bounds (seconds).
+_DYN_POLL_MIN: int = 30
+_DYN_POLL_MAX: int = 600
+_DYN_POLL_DEFAULT: int = 30  # First poll / no history.
+_DYN_POLL_STALL: int = 60   # Progress stalled (speed ≈ 0).
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -125,13 +131,16 @@ class DownloadWatchHandler:
         """Apply configured path prefix translations to *path*.
 
         Returns the translated path if any mapping prefix matches, otherwise
-        the original path unchanged.
+        the original path unchanged.  After translation, Windows backslash
+        separators are normalised to forward slashes for Linux filesystem
+        compatibility (MCP, WSL, Docker).
         """
         if not self._path_mapping or not path:
             return path
         for qb_prefix, local_prefix in self._path_mapping.items():
             if path.startswith(qb_prefix):
-                return local_prefix + path[len(qb_prefix):]
+                translated = local_prefix + path[len(qb_prefix):]
+                return translated.replace("\\", "/")
         return path
 
     # ------------------------------------------------------------------
@@ -246,6 +255,7 @@ class DownloadWatchHandler:
                     "consecutive_misses": 0,
                     "consecutive_errors": 0,
                     "last_poll_at": now.isoformat(),
+                    "last_progress": 0.0,
                 },
             )
 
@@ -272,6 +282,58 @@ class DownloadWatchHandler:
     # ------------------------------------------------------------------
     # Polling
     # ------------------------------------------------------------------
+
+    def _compute_next_poll(
+        self,
+        payload: dict[str, Any],
+        current_progress: float,
+        now: datetime,
+        default_seconds: int = _DYN_POLL_DEFAULT,
+    ) -> int:
+        """Compute the next poll delay from progress delta.
+
+        Uses the speed between the previous and current progress to
+        estimate the remaining time, then schedules the next poll at
+        roughly half of that ETA.  Bounded by ``_DYN_POLL_MIN`` /
+        ``_DYN_POLL_MAX``.
+
+        Args:
+            payload: Task payload containing ``last_progress`` and
+                ``last_poll_at`` from the previous poll cycle.
+            current_progress: The qB-reported progress at this poll.
+            now: Current timestamp from the injectable clock.
+            default_seconds: Fallback when no history is available.
+        """
+        last_progress = payload.get("last_progress")
+        last_poll_at = payload.get("last_poll_at")
+
+        if last_progress is None or last_poll_at is None:
+            return default_seconds
+
+        try:
+            last_time = datetime.fromisoformat(last_poll_at)
+        except (ValueError, TypeError):
+            return default_seconds
+
+        elapsed = (now - last_time).total_seconds()
+        if elapsed <= 0:
+            return default_seconds
+
+        delta = current_progress - float(last_progress)
+        if delta <= 0:
+            return _DYN_POLL_STALL
+
+        speed = delta / elapsed
+        if speed <= 0:
+            return _DYN_POLL_STALL
+
+        remaining = 1.0 - current_progress
+        if remaining <= 0:
+            return _DYN_POLL_MIN
+
+        eta = remaining / speed
+        next_poll = int(eta * 0.5)
+        return max(_DYN_POLL_MIN, min(_DYN_POLL_MAX, next_poll))
 
     def _poll_torrent(
         self,
@@ -308,25 +370,27 @@ class DownloadWatchHandler:
             return self._torrent_miss(qb_hash, consecutive_misses, now)
 
         # Reset error/miss counters on any successful fetch.
+        progress = torrent.get("progress", 0.0)
+        state = torrent.get("state", "")
         payload_patch: dict[str, Any] = {
             "consecutive_misses": 0,
             "consecutive_errors": 0,
             "last_poll_at": now.isoformat(),
+            "last_progress": progress,
         }
 
-        progress = torrent.get("progress", 0.0)
-        state = torrent.get("state", "")
-
         if progress < 1.0:
+            delay = self._compute_next_poll(payload, progress, now)
             logger.info(
-                "Torrent %s still in progress progress=%.4f state=%s",
+                "Torrent %s still in progress progress=%.4f state=%s next_poll=%ds",
                 qb_hash,
                 progress,
                 state,
+                delay,
             )
             return Reschedule(
                 run_after=(
-                    now + timedelta(seconds=self._config.poll_seconds)
+                    now + timedelta(seconds=delay)
                 ).isoformat(),
                 payload_patch=payload_patch,
                 reason=f"progress={progress:.4f} state={state}",

@@ -316,6 +316,7 @@ class OrganizeWorkerAgent:
             "trace_enabled": False,
             "session_enabled": False,
             "skills_enabled": True,
+            "skills_auto_register": False,  # We register _OrganizeSkillTool manually.
             "subagent_enabled": False,
             "todowrite_enabled": False,
             "devlog_enabled": False,
@@ -394,6 +395,19 @@ class OrganizeWorkerAgent:
         skill_loaded = False
 
         for obs in observations:
+            tool_name = obs.tool_name or "unknown"
+            resp_status = obs.response.status if obs.response else "none"
+            resp_text = (obs.response.text or "")[:200] if obs.response else ""
+
+            # Log every tool observation for debugging.
+            logger.info(
+                "organize tool: %s status=%s gate=%s text=%s",
+                tool_name,
+                resp_status,
+                obs.gate_result or "PASS",
+                resp_text,
+            )
+
             # Count successful move_file calls.
             if (
                 obs.tool_name == "mcp_filesystem_move_file"

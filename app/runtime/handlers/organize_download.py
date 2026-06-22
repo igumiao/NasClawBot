@@ -205,6 +205,15 @@ class OrganizeDownloadHandler:
                 details={"error": str(exc)},
             )
 
+        if result.status != "success":
+            logger.warning(
+                "OrganizeWorkerAgent failed for torrent %s: status=%s moved=%d issues=%s",
+                torrent_name or qb_hash or "?",
+                result.status,
+                result.moved_count,
+                result.issues,
+            )
+
         return self._outcome_from_result(result, torrent_name, qb_hash)
 
     # ------------------------------------------------------------------
