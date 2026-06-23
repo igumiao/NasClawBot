@@ -591,7 +591,8 @@ class TestRequiredFields:
         assert row["status"] == "pending"
         assert row["payload_json"] == '{"key": "val"}'
         assert row["attempts"] == 0, "attempts should default to 0"
-        assert row["max_attempts"] == 20, "max_attempts should default to 20"
+        assert row["max_attempts"] == 8, "max_attempts should default to 8"
+        assert row["failure_count"] == 0, "failure_count should default to 0"
         assert row["dedupe_key"] is None
         assert row["parent_task_id"] is None
         assert row["source_session_id"] is None
@@ -609,10 +610,10 @@ class TestRequiredFields:
         conn.execute(
             "INSERT INTO runtime_tasks ("
             "  task_id, kind, status, payload_json, result_json, error_json,"
-            "  run_after, attempts, max_attempts, parent_task_id,"
+            "  run_after, attempts, max_attempts, failure_count, parent_task_id,"
             "  source_session_id, dedupe_key, lease_owner, lease_expires_at,"
             "  created_at, updated_at, started_at, completed_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "t-full",
                 "download",
@@ -623,6 +624,7 @@ class TestRequiredFields:
                 "2026-06-01T00:00:00",
                 3,
                 5,
+                2,
                 None,
                 "session-abc",
                 "dedupe:torrent-xyz",
@@ -645,6 +647,7 @@ class TestRequiredFields:
         assert row["run_after"] == "2026-06-01T00:00:00"
         assert row["attempts"] == 3
         assert row["max_attempts"] == 5
+        assert row["failure_count"] == 2
         assert row["parent_task_id"] is None
         assert row["source_session_id"] == "session-abc"
         assert row["dedupe_key"] == "dedupe:torrent-xyz"

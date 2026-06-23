@@ -139,6 +139,7 @@ New subsystem under `app/runtime/` that manages durable background tasks for pos
 | `TASK_WORKER_CONCURRENCY` | 4 | Global handler concurrency |
 | `DOWNLOAD_WATCH_CONCURRENCY` | 4 | Per-kind download_watch concurrency |
 | `ORGANIZE_WORKER_CONCURRENCY` | 1 | Per-kind organize_download concurrency (serial) |
+| `TASK_PURGE_MAX_AGE_SECONDS` | 300 | Max age for terminal tasks before purge (5 min default) |
 | `QB_PATH_MAPPING` | `""` | Windows→WSL path prefix translation, e.g. `D:\->/mnt/d/` |
 
 **Design decisions:**

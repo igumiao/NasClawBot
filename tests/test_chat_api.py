@@ -41,6 +41,8 @@ class FakeSettings:
     tavily_api_key = ""
     download_default_save_path = "/tmp/test-downloads"
     context_window = 128000
+    # Use an isolated DB so tests don't pollute the production task DB.
+    task_db_path = "/tmp/test-nasclawbot-tasks.db"
 
 
 class FakeMTeamAdapter:

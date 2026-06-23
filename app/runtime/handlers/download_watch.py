@@ -61,6 +61,13 @@ _DYN_POLL_STALL: int = 60   # Progress stalled (speed ≈ 0).
 _DYN_WARMUP_POLLS: int = 2  # Fixed-interval polls before dynamic mode.
 _DYN_EMA_ALPHA: float = 0.3  # Smoothing factor for speed EMA.
 
+# qBittorrent states that indicate the torrent is actively downloading
+# (progress may increase).  Poll count and dynamic ETA only accumulate
+# during these states so warm-up is not wasted on paused / queued / seeding.
+_DOWNLOADING_STATES: frozenset[str] = frozenset(
+    {"downloading", "stalledDL", "forcedDL", "metaDL"},
+)
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -383,7 +390,10 @@ class DownloadWatchHandler:
         # Reset error/miss counters on any successful fetch.
         progress = torrent.get("progress", 0.0)
         state = torrent.get("state", "")
-        poll_count = int(payload.get("poll_count", 0)) + 1
+        # Only count polls during downloading states so that the dynamic
+        # ETA warm-up is not wasted on paused / queued / seeding states.
+        prev_poll_count = int(payload.get("poll_count", 0))
+        poll_count = prev_poll_count + 1 if state in _DOWNLOADING_STATES else prev_poll_count
         payload_patch: dict[str, Any] = {
             "consecutive_misses": 0,
             "consecutive_errors": 0,

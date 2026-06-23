@@ -129,6 +129,21 @@ class Settings(BaseModel):
             "qB + WSL server).  Empty string disables translation."
         ),
     )
+    task_db_path: str = Field(
+        default_factory=lambda: _get_env("TASK_DB_PATH", "memory/runtime/tasks.db"),
+        description=(
+            "Filesystem path to the runtime task SQLite database.  "
+            "Override in tests to isolate from the production database."
+        ),
+    )
+    task_purge_max_age_seconds: int = Field(
+        default_factory=lambda: _get_int_env("TASK_PURGE_MAX_AGE_SECONDS", 300),
+        description=(
+            "Maximum age (in seconds) for terminal tasks (SUCCEEDED, FAILED, "
+            "CANCELLED) before they are purged from the database along with "
+            "their events and run records.  Default 300 (5 minutes)."
+        ),
+    )
 
 
 @lru_cache(maxsize=1)

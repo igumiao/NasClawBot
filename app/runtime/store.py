@@ -201,6 +201,7 @@ class RuntimeTaskStore:
         run_after: str,
         payload_patch: dict[str, Any] | None,
         now: datetime,
+        failure_count: int | None = None,
     ) -> RuntimeTask:
         """Reschedule a ``RUNNING`` task back to ``WAITING``.
 
@@ -213,6 +214,8 @@ class RuntimeTaskStore:
             run_after: ISO-8601 datetime for the next claim eligibility.
             payload_patch: Optional partial dict merged into the task payload.
             now: Current timestamp.
+            failure_count: Optional explicit failure counter (updated when
+                the worker is processing a ``Fail`` outcome).
 
         Returns:
             The updated task in ``WAITING`` status.
@@ -247,16 +250,25 @@ class RuntimeTaskStore:
             if payload_patch:
                 new_payload.update(payload_patch)
 
+            set_clauses = [
+                "status = 'waiting'",
+                "run_after = ?",
+                "payload_json = ?",
+                "updated_at = ?",
+                "lease_owner = NULL",
+                "lease_expires_at = NULL",
+            ]
+            params = [run_after, _d(new_payload), now_iso]
+
+            if failure_count is not None:
+                set_clauses.append("failure_count = ?")
+                params.append(failure_count)
+
+            params.append(task_id)
             conn.execute(
-                "UPDATE runtime_tasks SET "
-                "status = 'waiting', "
-                "run_after = ?, "
-                "payload_json = ?, "
-                "updated_at = ?, "
-                "lease_owner = NULL, "
-                "lease_expires_at = NULL "
-                "WHERE task_id = ?",
-                (run_after, _d(new_payload), now_iso, task_id),
+                f"UPDATE runtime_tasks SET {', '.join(set_clauses)} "
+                f"WHERE task_id = ?",
+                params,
             )
 
             conn.commit()
@@ -276,6 +288,7 @@ class RuntimeTaskStore:
         result_json: dict[str, Any] | None,
         error_json: dict[str, Any] | None,
         now: datetime,
+        failure_count: int | None = None,
     ) -> RuntimeTask:
         """Transition a task to a terminal status (``SUCCEEDED`` or ``FAILED``).
 
@@ -288,6 +301,8 @@ class RuntimeTaskStore:
             result_json: Structured result (set on ``SUCCEEDED``).
             error_json: Structured error details (set on ``FAILED``).
             now: Current timestamp.
+            failure_count: Optional explicit failure counter (set on
+                ``FAILED`` when the worker processes a ``Fail`` outcome).
 
         Returns:
             The updated task in the terminal status.
@@ -318,24 +333,32 @@ class RuntimeTaskStore:
 
             validate_status_transition(current.status, status)
 
+            set_clauses = [
+                "status = ?",
+                "result_json = ?",
+                "error_json = ?",
+                "updated_at = ?",
+                "completed_at = ?",
+                "lease_owner = NULL",
+                "lease_expires_at = NULL",
+            ]
+            params = [
+                status.value,
+                _d(result_json),
+                _d(error_json),
+                now_iso,
+                now_iso,
+            ]
+
+            if failure_count is not None:
+                set_clauses.append("failure_count = ?")
+                params.append(failure_count)
+
+            params.append(task_id)
             conn.execute(
-                "UPDATE runtime_tasks SET "
-                "status = ?, "
-                "result_json = ?, "
-                "error_json = ?, "
-                "updated_at = ?, "
-                "completed_at = ?, "
-                "lease_owner = NULL, "
-                "lease_expires_at = NULL "
-                "WHERE task_id = ?",
-                (
-                    status.value,
-                    _d(result_json),
-                    _d(error_json),
-                    now_iso,
-                    now_iso,
-                    task_id,
-                ),
+                f"UPDATE runtime_tasks SET {', '.join(set_clauses)} "
+                f"WHERE task_id = ?",
+                params,
             )
 
             conn.commit()

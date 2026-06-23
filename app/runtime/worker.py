@@ -58,6 +58,8 @@ class TaskWorkerConfig:
         max_concurrency: Global limit on in-flight handler executions.
         per_kind_semaphores: Per-kind concurrency limits; unlisted kinds
             default to 1 (serial execution).
+        purge_max_age_seconds: Maximum age for terminal tasks before they
+            are purged from the database.
         clock: Callable returning the current ``datetime``.  Inject a
             deterministic implementation in tests.
         worker_id: Unique identifier for this worker instance, used as
@@ -68,6 +70,7 @@ class TaskWorkerConfig:
     lease_seconds: int = 120
     max_concurrency: int = 4
     per_kind_semaphores: dict[str, int] = field(default_factory=dict)
+    purge_max_age_seconds: int = 300
     clock: Callable[[], datetime] = datetime.now
     worker_id: str = "worker-1"
 
@@ -161,10 +164,10 @@ class TaskWorker:
         try:
             now = self._config.clock()
 
-            # Purge terminal tasks older than 60 seconds.
+            # Purge terminal tasks older than the configured max age.
             try:
                 purged = self._store.purge_terminal_tasks(
-                    now, max_age_seconds=60,
+                    now, max_age_seconds=self._config.purge_max_age_seconds,
                 )
                 if purged:
                     logger.info("Purged %d terminal task(s)", purged)
@@ -385,19 +388,22 @@ class TaskWorker:
             "details": outcome.details,
         }
 
-        if outcome.retryable and task.attempts < task.max_attempts:
+        failure_count = task.failure_count + 1
+
+        if outcome.retryable and failure_count < task.max_failure_attempts:
             # Exponential backoff: 30s, 60s, 120s, ... capped at 3600s.
-            delay = min(30 * (2 ** (task.attempts - 1)), 3600)
+            delay = min(30 * (2 ** (failure_count - 1)), 3600)
             run_after = (
                 now.replace(microsecond=0) + timedelta(seconds=delay)
             ).isoformat()
 
             logger.info(
-                "Rescheduling task %s after %ds (attempt %d/%d)",
+                "Rescheduling task %s after %ds (failure %d/%d, total attempts %d)",
                 task.task_id,
                 delay,
+                failure_count,
+                task.max_failure_attempts,
                 task.attempts,
-                task.max_attempts,
             )
 
             self._store.reschedule(
@@ -408,14 +414,16 @@ class TaskWorker:
                     "_last_retry_at": now.isoformat(),
                 },
                 now=now,
+                failure_count=failure_count,
             )
             return
 
         logger.info(
-            "Failing task %s (attempt %d/%d, retryable=%s)",
+            "Failing task %s permanently (failure %d/%d, total attempts %d, retryable=%s)",
             task.task_id,
+            failure_count,
+            task.max_failure_attempts,
             task.attempts,
-            task.max_attempts,
             outcome.retryable,
         )
 
@@ -439,6 +447,7 @@ class TaskWorker:
             result_json=None,
             error_json=error_json,
             now=now,
+            failure_count=failure_count,
         )
         self._update_run(run_id, TaskStatus.FAILED, now, error=error_json)
 

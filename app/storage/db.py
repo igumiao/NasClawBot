@@ -54,8 +54,9 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
         result_json      TEXT,
         error_json       TEXT,
         run_after        TEXT,
-        attempts         INTEGER NOT NULL DEFAULT 0,
-        max_attempts     INTEGER NOT NULL DEFAULT 20,
+        attempts             INTEGER NOT NULL DEFAULT 0,
+        max_attempts         INTEGER NOT NULL DEFAULT 8,
+        failure_count        INTEGER NOT NULL DEFAULT 0,
         parent_task_id   TEXT,
         source_session_id TEXT,
         dedupe_key       TEXT UNIQUE,
@@ -115,6 +116,31 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_runtime_task_events_session
         ON runtime_task_events (source_session_id, created_at);
     """)
+
+    # -- schema migrations (idempotent) -------------------------------
+    # Add ``failure_count`` column for existing databases created before
+    # the ``attempts`` / ``failure_count`` split (2026-06-23).
+    _ensure_column(conn, "runtime_tasks", "failure_count",
+                   "INTEGER NOT NULL DEFAULT 0")
+
+
+def _ensure_column(
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    definition: str,
+) -> None:
+    """Add *column* to *table* if it does not already exist.
+
+    Idempotent: catches ``OperationalError`` for duplicate columns.
+    """
+    try:
+        conn.execute(
+            f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+        )
+    except sqlite3.OperationalError:
+        # Column already exists — safe to ignore.
+        pass
 
 
 def ensure_schema(db_path: str | Path) -> None:

@@ -115,8 +115,16 @@ def _uuid_hex() -> str:
 
 # Module-level database paths.
 _DB_PATH = Path(__file__).resolve().parents[2] / "nas_media_agent.db"
-_TASK_DB_PATH = Path(__file__).resolve().parents[2] / "memory" / "runtime" / "tasks.db"
-"""Database path for the task runtime (shared with the lifespan worker loop)."""
+
+
+def _get_task_db_path() -> Path:
+    """Return the runtime task database path from settings.
+
+    Not a module-level constant so that tests can override
+    ``TASK_DB_PATH`` via env / ``FakeSettings`` and isolate
+    from the production database.
+    """
+    return Path(get_settings().task_db_path)
 
 
 def _build_download_coordinator_factory(
@@ -140,9 +148,10 @@ def _build_download_coordinator_factory(
             default_tags=default_tags,
         )
         # Ensure the task schema exists before the store is used.
-        ensure_schema(_TASK_DB_PATH)
+        task_db_path = _get_task_db_path()
+        ensure_schema(task_db_path)
         store = RuntimeTaskStore(
-            db_path=_TASK_DB_PATH,
+            db_path=task_db_path,
             clock=_utc_now,
             id_factory=_uuid_hex,
         )
@@ -171,9 +180,10 @@ def _build_agent_runner() -> NasClawAgentRunner:
     pre-existing behavior.  The RuntimeTaskStore enables background task
     event injection into the Agent's system prompt.
     """
-    ensure_schema(_TASK_DB_PATH)
+    task_db_path = _get_task_db_path()
+    ensure_schema(task_db_path)
     runtime_store = RuntimeTaskStore(
-        db_path=_TASK_DB_PATH,
+        db_path=task_db_path,
         clock=_utc_now,
         id_factory=_uuid_hex,
     )

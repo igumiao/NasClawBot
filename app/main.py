@@ -43,7 +43,7 @@ async def _app_lifespan(_app: FastAPI):
     await init_mcp_pool()
 
     # -- Build task runtime --------------------------------------------------
-    _task_db_path = "memory/runtime/tasks.db"
+    _task_db_path = settings.task_db_path
     ensure_schema(_task_db_path)
     task_runtime = create_task_runtime(
         db_path=_task_db_path,
@@ -55,6 +55,7 @@ async def _app_lifespan(_app: FastAPI):
             tick_seconds=settings.task_worker_tick_seconds,
             lease_seconds=settings.task_lease_seconds,
             max_concurrency=settings.task_worker_concurrency,
+            purge_max_age_seconds=settings.task_purge_max_age_seconds,
         ),
     )
 

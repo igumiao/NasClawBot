@@ -179,10 +179,25 @@ class RuntimeTask(BaseModel):
     """
 
     attempts: int = 0
-    """Number of execution attempts so far."""
+    """Total number of execution attempts (observability, always increments)."""
 
-    max_attempts: int = 8
-    """Maximum execution attempts before permanent FAILED."""
+    max_failure_attempts: int = Field(
+        default=8,
+        serialization_alias="max_attempts",
+    )
+    """Maximum consecutive :class:`Fail` outcomes before permanent FAILED.
+
+    Only incremented when the handler returns ``Fail`` (or an unhandled
+    exception is converted to ``Fail`` by the worker).  Normal
+    ``Reschedule`` cycles do not count toward this limit.
+    """
+
+    failure_count: int = 0
+    """Number of :class:`Fail` outcomes so far (retry counter).
+
+    Checked against ``max_failure_attempts`` in the worker.  Does NOT
+    increment on normal ``Reschedule`` outcomes.
+    """
 
     parent_task_id: str | None = None
     """Optional FK to the task that spawned this one."""
@@ -211,18 +226,18 @@ class RuntimeTask(BaseModel):
     completed_at: str | None = None
     """Timestamp when the task entered a terminal state."""
 
-    @field_validator("attempts")
+    @field_validator("attempts", "failure_count")
     @classmethod
-    def _non_negative_attempts(cls, value: int) -> int:
+    def _non_negative_counters(cls, value: int) -> int:
         if value < 0:
-            raise ValueError("attempts must be non-negative")
+            raise ValueError("counters must be non-negative")
         return value
 
-    @field_validator("max_attempts")
+    @field_validator("max_failure_attempts")
     @classmethod
-    def _positive_max_attempts(cls, value: int) -> int:
+    def _positive_max_failure_attempts(cls, value: int) -> int:
         if value < 1:
-            raise ValueError("max_attempts must be >= 1")
+            raise ValueError("max_failure_attempts must be >= 1")
         return value
 
     def model_dump_sql(self) -> dict[str, Any]:
@@ -407,7 +422,7 @@ class Fail(BaseModel):
     """Handler failed with a structured error.
 
     The worker decides whether to retry based on ``retryable`` and the
-    task's remaining attempts.
+    task's remaining ``failure_count`` vs ``max_failure_attempts``.
     """
 
     kind: Literal["fail"] = "fail"
@@ -418,7 +433,7 @@ class Fail(BaseModel):
     """Human-readable error description."""
 
     retryable: bool = False
-    """Whether the worker should retry up to ``max_attempts``."""
+    """Whether the worker should retry up to ``max_failure_attempts``."""
 
     details: dict[str, Any] = Field(default_factory=dict)
     """Optional structured error context."""

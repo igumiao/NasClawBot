@@ -376,7 +376,8 @@ class TaskDetail(BaseModel):
     parent_task_id: str | None = None
     child_task_ids: list[str] = Field(default_factory=list)
     attempts: int = 0
-    max_attempts: int = 20
+    failure_count: int = 0
+    max_failure_attempts: int = 8
     created_at: str
     updated_at: str
     started_at: str | None = None

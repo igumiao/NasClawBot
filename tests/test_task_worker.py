@@ -170,8 +170,8 @@ def inject_task(
             "(task_id, kind, status, payload_json, run_after, "
             "parent_task_id, source_session_id, dedupe_key, "
             "lease_owner, lease_expires_at, "
-            "attempts, max_attempts, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 20, ?, ?)",
+            "attempts, max_attempts, failure_count, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 8, 0, ?, ?)",
             (
                 task_id,
                 kind,
@@ -450,9 +450,9 @@ async def test_handler_exception_is_caught_and_mapped_to_fail(
     assert result is not None
 
     # The worker catches the exception and creates a retryable Fail.
-    # Because the task has remaining attempts (20), the worker schedules
-    # a retry by transitioning to WAITING and stores the error in the
-    # payload via `_last_error`.
+    # Because the task has remaining failure attempts (failure_count=0 < max_failure_attempts=8),
+    # the worker schedules a retry by transitioning to WAITING and stores
+    # the error in the payload via `_last_error`.
     assert result.status == TaskStatus.WAITING, (
         f"Expected WAITING (retry scheduled), got {result.status}"
     )
