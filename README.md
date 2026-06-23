@@ -108,7 +108,7 @@ NasClawBot 的核心工程边界在 `hello_agents/` 与 `app/agent/runner.py`：
 
 ## 工具集
 
-当前基础工具共 24 个，另有 14 个 filesystem MCP 工具在启用时动态注册。
+当前基础工具共 23 个，另有 14 个 filesystem MCP 工具在启用时动态注册。
 
 | 类型 | 工具 |
 | --- | --- |
