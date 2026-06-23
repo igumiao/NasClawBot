@@ -97,6 +97,9 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
 
     -- ------------------------------------------------------------------
     -- Task events (plan SS7.3)
+    --
+    -- NOTE: no FK on ``task_id`` — events outlive their parent task so
+    -- that users have time to see and acknowledge them before purge.
     -- ------------------------------------------------------------------
     CREATE TABLE IF NOT EXISTS runtime_task_events (
         event_id           TEXT PRIMARY KEY,
@@ -109,8 +112,7 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
         payload_json       TEXT,
         created_at         TEXT NOT NULL,
         acknowledged_at    TEXT,
-        injected_at        TEXT,
-        FOREIGN KEY (task_id) REFERENCES runtime_tasks (task_id)
+        injected_at        TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_runtime_task_events_session
@@ -122,6 +124,11 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
     # the ``attempts`` / ``failure_count`` split (2026-06-23).
     _ensure_column(conn, "runtime_tasks", "failure_count",
                    "INTEGER NOT NULL DEFAULT 0")
+
+    # Remove FK from runtime_task_events so events can outlive their
+    # parent task.  SQLite does not support ALTER TABLE DROP CONSTRAINT
+    # so we recreate the table (2026-06-23).
+    _migrate_events_no_fk(conn)
 
 
 def _ensure_column(
@@ -141,6 +148,54 @@ def _ensure_column(
     except sqlite3.OperationalError:
         # Column already exists — safe to ignore.
         pass
+
+
+def _migrate_events_no_fk(conn: sqlite3.Connection) -> None:
+    """Recreate ``runtime_task_events`` without the FK on ``task_id``.
+
+    SQLite does not support ``ALTER TABLE DROP CONSTRAINT``, so the table
+    must be recreated.  Idempotent: queries ``PRAGMA foreign_key_list``
+    first and returns immediately when no FK is present.
+    """
+    fk_list = conn.execute(
+        "PRAGMA foreign_key_list('runtime_task_events')"
+    ).fetchall()
+    if not fk_list:
+        return  # Already migrated
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE runtime_task_events_new (
+                event_id           TEXT PRIMARY KEY,
+                task_id            TEXT NOT NULL,
+                source_session_id  TEXT,
+                kind               TEXT NOT NULL,
+                severity           TEXT NOT NULL,
+                title              TEXT NOT NULL,
+                summary            TEXT NOT NULL,
+                payload_json       TEXT,
+                created_at         TEXT NOT NULL,
+                acknowledged_at    TEXT,
+                injected_at        TEXT
+            );
+
+            INSERT INTO runtime_task_events_new
+                SELECT * FROM runtime_task_events;
+
+            DROP TABLE runtime_task_events;
+
+            ALTER TABLE runtime_task_events_new RENAME TO runtime_task_events;
+
+            CREATE INDEX IF NOT EXISTS idx_runtime_task_events_session
+                ON runtime_task_events (source_session_id, created_at);
+            """
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def ensure_schema(db_path: str | Path) -> None:

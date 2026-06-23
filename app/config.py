@@ -141,7 +141,26 @@ class Settings(BaseModel):
         description=(
             "Maximum age (in seconds) for terminal tasks (SUCCEEDED, FAILED, "
             "CANCELLED) before they are purged from the database along with "
-            "their events and run records.  Default 300 (5 minutes)."
+            "their run records.  Event lifetime is managed independently via "
+            "EVENT_CONSUMED_PURGE_SECONDS and EVENT_MAX_AGE_SECONDS.  "
+            "Default 300 (5 minutes)."
+        ),
+    )
+    event_consumed_purge_seconds: int = Field(
+        default_factory=lambda: _get_int_env("EVENT_CONSUMED_PURGE_SECONDS", 3600),
+        description=(
+            "Maximum age (in seconds) for task events that have been BOTH "
+            "acknowledged AND injected before they are purged.  Ensures "
+            "events are visible for a short window after the user has seen "
+            "them and the Agent has been notified.  Default 3600 (1 hour)."
+        ),
+    )
+    event_max_age_seconds: int = Field(
+        default_factory=lambda: _get_int_env("EVENT_MAX_AGE_SECONDS", 604800),
+        description=(
+            "Absolute maximum age (in seconds) for any task event before "
+            "it is purged regardless of acknowledgement/injection status.  "
+            "Default 604800 (7 days)."
         ),
     )
 

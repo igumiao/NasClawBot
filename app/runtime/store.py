@@ -1101,8 +1101,9 @@ class RuntimeTaskStore:
         """Delete all terminal tasks (FAILED, SUCCEEDED, CANCELLED) whose
         ``updated_at`` is older than *max_age_seconds*.
 
-        Also deletes associated runs and events.  Returns the number of
-        tasks removed.
+        Also deletes associated runs.  Events are NOT deleted — they are
+        owned by :meth:`purge_expired_events` and can outlive the parent
+        task.  Returns the number of tasks removed.
         """
         cutoff = (now - timedelta(seconds=max_age_seconds)).isoformat()
         conn = connect(self._db_path)
@@ -1130,15 +1131,61 @@ class RuntimeTaskStore:
                     task_ids,
                 )
                 conn.execute(
-                    f"DELETE FROM runtime_task_events WHERE task_id IN ({placeholders})",
-                    task_ids,
-                )
-                conn.execute(
                     f"DELETE FROM runtime_tasks WHERE task_id IN ({placeholders})",
                     task_ids,
                 )
             conn.commit()
             return len(task_ids)
+        finally:
+            conn.close()
+
+    def purge_expired_events(
+        self,
+        now: datetime,
+        consumed_purge_seconds: int = 3600,
+        max_age_seconds: int = 604800,
+    ) -> int:
+        """Purge expired events using a two-tier policy.
+
+        **Tier 1 — consumed events:** events where both
+        ``acknowledged_at`` AND ``injected_at`` are set and both
+        timestamps are older than *consumed_purge_seconds*.  These
+        events have been seen by the user and injected into the Agent
+        prompt; a short retention window ensures the frontend can
+        re-fetch after a page reload.
+
+        **Tier 2 — absolute max age:** all events whose ``created_at``
+        is older than *max_age_seconds*, regardless of acknowledgement
+        or injection status.  This is the backstop that prevents the
+        table from growing unboundedly.
+
+        Returns the number of events deleted.
+        """
+        consumed_cutoff = (
+            now - timedelta(seconds=consumed_purge_seconds)
+        ).isoformat()
+        max_age_cutoff = (
+            now - timedelta(seconds=max_age_seconds)
+        ).isoformat()
+
+        conn = connect(self._db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                "DELETE FROM runtime_task_events WHERE "
+                # Tier 1: consumed (both acknowledged AND injected, and
+                # both old enough).
+                "(acknowledged_at IS NOT NULL "
+                " AND acknowledged_at < ? "
+                " AND injected_at IS NOT NULL "
+                " AND injected_at < ?) "
+                # Tier 2: absolute max age.
+                "OR created_at < ?",
+                (consumed_cutoff, consumed_cutoff, max_age_cutoff),
+            )
+            deleted = cursor.rowcount
+            conn.commit()
+            return deleted
         finally:
             conn.close()
 

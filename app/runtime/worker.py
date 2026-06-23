@@ -71,6 +71,8 @@ class TaskWorkerConfig:
     max_concurrency: int = 4
     per_kind_semaphores: dict[str, int] = field(default_factory=dict)
     purge_max_age_seconds: int = 300
+    event_consumed_purge_seconds: int = 3600
+    event_max_age_seconds: int = 604800
     clock: Callable[[], datetime] = datetime.now
     worker_id: str = "worker-1"
 
@@ -173,6 +175,18 @@ class TaskWorker:
                     logger.info("Purged %d terminal task(s)", purged)
             except Exception:
                 logger.warning("Failed to purge terminal tasks", exc_info=True)
+
+            # Purge expired events (independent from task lifecycle).
+            try:
+                purged_events = self._store.purge_expired_events(
+                    now,
+                    consumed_purge_seconds=self._config.event_consumed_purge_seconds,
+                    max_age_seconds=self._config.event_max_age_seconds,
+                )
+                if purged_events:
+                    logger.info("Purged %d expired event(s)", purged_events)
+            except Exception:
+                logger.warning("Failed to purge expired events", exc_info=True)
 
             kinds = self._registry.list_kinds()
             if not kinds:

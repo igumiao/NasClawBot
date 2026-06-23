@@ -131,7 +131,12 @@ class TestTableAndIndexExistence:
 
 
 class TestForeignKeyConstraints:
-    """task_runs and task_events enforce REFERENCES runtime_tasks(task_id)."""
+    """runtime_task_runs enforce REFERENCES runtime_tasks(task_id).
+
+    runtime_task_events intentionally has NO FK on task_id — events are
+    decoupled from task lifecycle so they persist after task purge for
+    the user and Agent to see.
+    """
 
     def test_task_run_rejects_bogus_task_id(
         self, conn: sqlite3.Connection
@@ -144,24 +149,30 @@ class TestForeignKeyConstraints:
                 ("r1", "no-such-task", 1, "running", "2026-06-01T00:00:00"),
             )
 
-    def test_task_event_rejects_bogus_task_id(
+    def test_task_event_allows_bogus_task_id(
         self, conn: sqlite3.Connection
     ) -> None:
-        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
-            conn.execute(
-                "INSERT INTO runtime_task_events "
-                "(event_id, task_id, kind, severity, title, summary, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    "e1",
-                    "no-such-task",
-                    "status_change",
-                    "info",
-                    "Test event",
-                    "desc",
-                    "2026-06-01T00:00:00",
-                ),
-            )
+        """Events should accept a non-existent task_id — no FK on the column."""
+        conn.execute(
+            "INSERT INTO runtime_task_events "
+            "(event_id, task_id, kind, severity, title, summary, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "e1",
+                "no-such-task",
+                "status_change",
+                "info",
+                "Test event",
+                "desc",
+                "2026-06-01T00:00:00",
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM runtime_task_events WHERE event_id = ?", ("e1",)
+        ).fetchone()
+        assert row is not None
+        assert row["task_id"] == "no-such-task"
 
     def test_task_run_allows_valid_task_id(
         self, conn: sqlite3.Connection

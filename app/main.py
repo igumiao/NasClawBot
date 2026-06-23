@@ -56,6 +56,8 @@ async def _app_lifespan(_app: FastAPI):
             lease_seconds=settings.task_lease_seconds,
             max_concurrency=settings.task_worker_concurrency,
             purge_max_age_seconds=settings.task_purge_max_age_seconds,
+            event_consumed_purge_seconds=settings.event_consumed_purge_seconds,
+            event_max_age_seconds=settings.event_max_age_seconds,
         ),
     )
 
