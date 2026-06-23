@@ -105,6 +105,10 @@ from app.tools import (
     QBControlTorrentTool,
     QBSetGlobalSpeedTool,
     QBSetTorrentSpeedTool,
+    ScheduleDownloadCheckTool,
+    TaskCancelTool,
+    TaskListTool,
+    TaskRescheduleTool,
     TavilySearchTool,
     TMDBSearchTool,
     TMDBDetailsTool,
@@ -177,6 +181,21 @@ AGENT_SESSION_PROMPT = f"""你是 NasClawBot 的媒体搜索和下载助手。
 
 回答要简洁，并优先列出标题、分辨率、做种数、大小、优惠状态和 M-Team torrent id。
 """
+
+
+def _tool_display_name(tool_name: str) -> str:
+    """Return a short Chinese display label for *tool_name*."""
+    _LABELS: dict[str, str] = {
+        "qb_add_torrent": "下载请求",
+        "qb_add_torrents": "批量下载请求",
+        "qb_control_torrent": "种子控制操作",
+        "qb_set_global_speed": "全局限速",
+        "qb_set_torrent_speed": "种子限速",
+        "schedule_download_check": "定时检查创建",
+        "task_cancel": "任务取消",
+        "task_reschedule": "任务改期",
+    }
+    return _LABELS.get(tool_name, f"操作（{tool_name}）")
 
 
 def _agent_session_prompt(settings: Any, profile_memory: str = "") -> str:
@@ -258,6 +277,7 @@ class NasClawAgentRunner:
         memory_root: Path | None = None,
         download_coordinator_factory: Callable[[], DownloadCoordinator] | None = None,
         runtime_task_store: RuntimeTaskStore | None = None,
+        task_management_service_factory: Callable[[], Any] | None = None,
     ):
         self.checkpoint_store = checkpoint_store
         self.llm_factory = llm_factory or HelloAgentsLLM
@@ -285,6 +305,10 @@ class NasClawAgentRunner:
             "tmdb_discover",
             "tmdb_trending",
             "skill_load",
+            "schedule_download_check",
+            "task_list",
+            "task_cancel",
+            "task_reschedule",
         ])
         self.tool_gate = tool_gate or Gate(confirm=[
             lambda call: call.tool_name == "qb_add_torrent",
@@ -292,6 +316,9 @@ class NasClawAgentRunner:
             lambda call: call.tool_name == "qb_control_torrent",
             lambda call: call.tool_name == "qb_set_global_speed",
             lambda call: call.tool_name == "qb_set_torrent_speed",
+            lambda call: call.tool_name == "schedule_download_check",
+            lambda call: call.tool_name == "task_cancel",
+            lambda call: call.tool_name == "task_reschedule",
             # MCP filesystem — gating destructive write/edit; move + mkdir are ALLOW
             lambda call: call.tool_name == "mcp_filesystem_write_file",
             lambda call: call.tool_name == "mcp_filesystem_edit_file",
@@ -300,6 +327,7 @@ class NasClawAgentRunner:
         self.memory_root = memory_root or _MEMORY_DIR
         self._download_coordinator_factory = download_coordinator_factory
         self._runtime_task_store = runtime_task_store
+        self._task_management_service_factory = task_management_service_factory
 
     @_serialize_session
     def run(self, session_id: str, message: str) -> AgentRunResult:
@@ -451,6 +479,13 @@ class NasClawAgentRunner:
         registry.register_tool(TMDBDetailsTool(tmdb_adapter))
         registry.register_tool(TMDBDiscoverTool(tmdb_adapter))
         registry.register_tool(TMDBTrendingTool(tmdb_adapter))
+        # ── Task management tools (when factory is available) ──
+        if self._task_management_service_factory is not None:
+            tms = self._task_management_service_factory()
+            registry.register_tool(ScheduleDownloadCheckTool(tms))
+            registry.register_tool(TaskListTool(tms))
+            registry.register_tool(TaskCancelTool(tms))
+            registry.register_tool(TaskRescheduleTool(tms))
         # ── MCP tools ──────────────────────────────────────────
         mcp_pool = get_mcp_pool()
         if mcp_pool is not None:
@@ -531,6 +566,9 @@ class NasClawAgentRunner:
             "qb_control_torrent",
             "qb_set_global_speed",
             "qb_set_torrent_speed",
+            "schedule_download_check",
+            "task_cancel",
+            "task_reschedule",
         }
         if approval.tool_name not in _EXECUTABLE_TOOLS:
             raise ValueError(f"Tool '{approval.tool_name}' cannot be executed via approval")
@@ -655,7 +693,8 @@ class NasClawAgentRunner:
             self._create_grant_from_approval(checkpoint, approval, response)
 
         if response.status.value == "error":
-            message = f"下载请求执行失败：{response.text}"
+            tool_label = _tool_display_name(approval.tool_name)
+            message = f"{tool_label}执行失败：{response.text}"
             mark_failed(approval, response)
             status = ApprovalStatus.FAILED.value
             error = response.text
@@ -698,7 +737,8 @@ class NasClawAgentRunner:
         approval: ApprovalRecord,
     ) -> AgentApprovalResult:
         mark_denied(approval)
-        message = "已取消这次下载请求。"
+        tool_label = _tool_display_name(approval.tool_name)
+        message = f"已取消这次{tool_label}。"
         saved_checkpoint = self._save_approval_decision(
             checkpoint=checkpoint,
             approval=approval,
@@ -867,6 +907,23 @@ class NasClawAgentRunner:
                 tool = QBAddTorrentTool(coordinator)
             else:
                 tool = QBAddTorrentsTool(coordinator)
+        elif tool_name in ("schedule_download_check", "task_cancel", "task_reschedule"):
+            if self._task_management_service_factory is None:
+                raise RuntimeError(
+                    "TaskManagementService factory not configured — "
+                    "cannot execute task management approvals."
+                )
+            tms = self._task_management_service_factory()
+            if tool_name == "schedule_download_check":
+                tool = ScheduleDownloadCheckTool(tms)
+                # Inject the approval id as the idempotency key so retries
+                # of the same approval don't create duplicate tasks.
+                if "idempotency_key" not in approval.arguments:
+                    approval.arguments["idempotency_key"] = approval.approval_id
+            elif tool_name == "task_cancel":
+                tool = TaskCancelTool(tms)
+            else:
+                tool = TaskRescheduleTool(tms)
         else:
             qb_adapter = self._get_qb_adapter()
             if tool_name == "qb_control_torrent":
@@ -936,10 +993,11 @@ class NasClawAgentRunner:
             for message in checkpoint.history
             if not cls._assistant_message_has_any_tool_call(message, tool_call_ids)
         ]
+        tool_label = _tool_display_name(approval.tool_name)
         return cls._save_approval_decision(
             checkpoint=checkpoint,
             approval=approval,
-            assistant_message="这次下载确认已过期，请重新发起下载请求。",
+            assistant_message=f"这次{tool_label}确认已过期，请重新发起请求。",
             last_status="approval_expired",
         )
 

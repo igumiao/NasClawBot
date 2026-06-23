@@ -88,6 +88,7 @@ class OrganizeDownloadHandler:
         store: RuntimeTaskStore,
         clock: Callable[[], datetime],
         worker_factory: Callable[[int], OrganizeWorkerAgent] | None = None,
+        organization_policy_store: Any | None = None,
     ) -> None:
         """Initialise the handler.
 
@@ -100,6 +101,10 @@ class OrganizeDownloadHandler:
             worker_factory: Callable that accepts ``max_steps`` and returns
                 an ``OrganizeWorkerAgent``.  Defaults to ``OrganizeWorkerAgent``
                 constructor.  Override in tests to inject a mock worker.
+            organization_policy_store: Optional store for reading the current
+                organisation automation policy at execution time.  When
+                provided, the handler re-validates the task's authorization
+                snapshot against the current policy before running the worker.
         """
         self._config = config
         self._scheduler = scheduler
@@ -108,6 +113,7 @@ class OrganizeDownloadHandler:
         self._worker_factory = worker_factory or (
             lambda ms: OrganizeWorkerAgent(max_steps=ms)
         )
+        self._org_policy_store = organization_policy_store
 
     # ------------------------------------------------------------------
     # Handler protocol
@@ -183,6 +189,20 @@ class OrganizeDownloadHandler:
             destination_root,
         )
 
+        # ── Policy revalidation (SS9.2) ──
+        # Before running any MCP/LLM calls, verify the authorization snapshot
+        # against the current policy.  This is especially important for
+        # future tasks that may have been created days ago.
+        auth_snapshot = payload.get("authorization_snapshot") or {}
+        if isinstance(auth_snapshot, dict) and auth_snapshot.get("enabled"):
+            policy_error = self._validate_against_current_policy(
+                content_path=content_path,
+                destination_root=destination_root,
+                auth_snapshot=auth_snapshot,
+            )
+            if policy_error is not None:
+                return policy_error
+
         # Run the worker agent in the default thread executor.
         loop = asyncio.get_event_loop()
         try:
@@ -215,6 +235,126 @@ class OrganizeDownloadHandler:
             )
 
         return self._outcome_from_result(result, torrent_name, qb_hash)
+
+    # ------------------------------------------------------------------
+    # Policy revalidation
+    # ------------------------------------------------------------------
+
+    def _validate_against_current_policy(
+        self,
+        content_path: str,
+        destination_root: str,
+        auth_snapshot: dict[str, Any],
+    ) -> TaskOutcome | None:
+        """Re-validate the authorization snapshot against the current policy.
+
+        Returns ``None`` when the task is still authorized.  Returns a
+        ``Fail`` outcome when the current policy has been disabled or
+        narrowed in a way that should block this organization run.
+
+        Rules:
+        - Current policy must be enabled.
+        - ``content_path`` must be under a prefix allowed by **both** the
+          snapshot and the current policy (intersection — current narrowing
+          wins).
+        - ``destination_root`` must match the snapshot.  Current policy
+          expansion does **not** grant extra permissions.
+        """
+        if self._org_policy_store is None:
+            # No policy store configured — allow execution (backward compat).
+            return None
+
+        try:
+            from app.domain.organization import OrganizationAutomationPolicy
+
+            current: OrganizationAutomationPolicy = self._org_policy_store.load()
+        except Exception as exc:
+            logger.warning(
+                "Failed to load current organization policy: %s — allowing execution",
+                exc,
+            )
+            return None
+
+        # 1. Policy must be enabled.
+        if not current.enabled:
+            return Fail(
+                code="ORGANIZE_POLICY_DISABLED",
+                message=(
+                    "Organization automation has been disabled since this "
+                    "task was created.  Enable it in Settings and retry, "
+                    "or cancel the task."
+                ),
+                retryable=False,
+                details={
+                    "content_path": content_path,
+                    "destination_root": destination_root,
+                },
+            )
+
+        # 2. Source path must be under a prefix allowed by BOTH snapshot
+        #    and current policy.
+        snapshot_prefixes: list[str] = auth_snapshot.get(
+            "allowed_source_path_prefixes", []
+        ) or []
+        current_prefixes: list[str] = current.allowed_source_path_prefixes or []
+
+        # Intersection: only prefixes present in both sets.
+        effective_prefixes = [
+            p for p in snapshot_prefixes
+            if p in current_prefixes
+        ]
+
+        if not effective_prefixes:
+            return Fail(
+                code="ORGANIZE_SOURCE_SCOPE_REVOKED",
+                message=(
+                    "The allowed source paths for organization have been "
+                    "narrowed or removed since this task was created.  "
+                    "The task can no longer access its source directory."
+                ),
+                retryable=False,
+                details={
+                    "content_path": content_path,
+                    "snapshot_prefixes": snapshot_prefixes,
+                    "current_prefixes": current_prefixes,
+                },
+            )
+
+        source_allowed = any(
+            content_path.startswith(prefix) for prefix in effective_prefixes
+        )
+        if not source_allowed:
+            return Fail(
+                code="ORGANIZE_SOURCE_NOT_IN_SCOPE",
+                message=(
+                    f"The source path {content_path!r} is no longer within "
+                    f"the allowed organization prefixes."
+                ),
+                retryable=False,
+                details={
+                    "content_path": content_path,
+                    "effective_prefixes": effective_prefixes,
+                },
+            )
+
+        # 3. Destination root must match snapshot.
+        snapshot_dest = auth_snapshot.get("destination_root", "")
+        if snapshot_dest and destination_root != snapshot_dest:
+            return Fail(
+                code="ORGANIZE_DESTINATION_MISMATCH",
+                message=(
+                    f"The destination root has changed since this task was "
+                    f"created (snapshot={snapshot_dest!r}, "
+                    f"current={destination_root!r})."
+                ),
+                retryable=False,
+                details={
+                    "snapshot_destination": snapshot_dest,
+                    "current_destination": destination_root,
+                },
+            )
+
+        return None
 
     # ------------------------------------------------------------------
     # Outcome builder

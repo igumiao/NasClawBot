@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
@@ -88,13 +89,20 @@ class TaskRuntime:
             db_path: Filesystem path to the SQLite database file.
             config: Worker configuration.  A default ``TaskWorkerConfig``
                 is created when ``None``.
-            clock: Callable returning the current ``datetime``.  Defaults to
-                ``datetime.now`` (local time).
+            clock: Authoritative datetime source for the store, scheduler,
+                handlers, and worker claim loop.  When omitted, uses the
+                clock from ``config`` (whose default is ``datetime.now``).
             id_factory: Callable returning a unique ``str``.  Defaults to
                 ``lambda: uuid.uuid4().hex``.
         """
-        self._config = config or TaskWorkerConfig()
-        self._clock = clock or datetime.now
+        base_config = config or TaskWorkerConfig()
+        self._clock = clock or base_config.clock
+        # One authoritative clock must drive every runtime participant.
+        # Otherwise canonical UTC ``run_after`` values can be compared by
+        # SQLite against local-naive worker timestamps as plain text, making
+        # future tasks appear due on every worker tick.  Copy the dataclass so
+        # a caller-owned config object is not mutated.
+        self._config = replace(base_config, clock=self._clock)
         self._id_factory = id_factory or (lambda: uuid.uuid4().hex)
 
         # Core instances.
@@ -427,6 +435,7 @@ def setup_download_watch_handler(
 def setup_organize_download_handler(
     runtime: TaskRuntime,
     config: OrganizeDownloadConfig | None = None,
+    organization_policy_store: Any | None = None,
 ) -> None:
     """Create and register the ``organize_download`` handler on *runtime*.
 
@@ -442,24 +451,36 @@ def setup_organize_download_handler(
         config: :class:`OrganizeDownloadConfig` with destination root,
             worker settings, and journal path.  A default config is used
             when ``None``.
+        organization_policy_store: Optional store for reading the current
+            organisation automation policy at execution time for policy
+            revalidation.  Required for scheduled-check security.
 
     Raises:
         ValueError: If ``organize_download`` is already registered.
     """
     cfg = config or OrganizeDownloadConfig()
 
-    # If no destination_root is provided in the config, try to read it
-    # from the organisation automation policy store.
-    if not cfg.destination_root:
+    # Resolve the policy store if not explicitly provided.
+    if organization_policy_store is None:
         try:
             from app.services.organization_policy_store import (
                 OrganizationAutomationPolicyStore,
             )
+            settings_dir = Path(__file__).resolve().parents[1] / "memory" / "settings"
+            organization_policy_store = OrganizationAutomationPolicyStore(settings_dir)
+        except Exception:
+            logger.warning(
+                "Could not create organization policy store; "
+                "policy revalidation will be skipped"
+            )
 
-            policy = OrganizationAutomationPolicyStore(
-                Path(__file__).resolve().parents[1] / "memory" / "settings"
-            ).load()
-            cfg.destination_root = policy.destination_root
+    # If no destination_root is provided in the config, try to read it
+    # from the organisation automation policy store.
+    if not cfg.destination_root:
+        try:
+            if organization_policy_store is not None:
+                policy = organization_policy_store.load()
+                cfg.destination_root = policy.destination_root
         except Exception:
             logger.warning(
                 "Could not read organization policy for destination_root; "
@@ -471,6 +492,7 @@ def setup_organize_download_handler(
         scheduler=runtime.scheduler,
         store=runtime.store,
         clock=runtime.clock,
+        organization_policy_store=organization_policy_store,
     )
     runtime.register_handler("organize_download", handler)
     logger.info(

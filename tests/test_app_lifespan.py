@@ -18,13 +18,14 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import ExitStack
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
 
-from app.domain.runtime_tasks import RuntimeTask, TaskStatus
+from app.domain.runtime_tasks import Complete, RuntimeTask, TaskStatus
 from app.runtime.worker import TaskWorkerConfig
 from app.storage.db import connect, ensure_schema, initialize_schema
 from app.task_runtime import TaskRuntime, create_task_runtime
@@ -72,6 +73,55 @@ def _patch_deps(runtime: TaskRuntime | None = None) -> ExitStack:
 # ===================================================================
 # 1. task_runtime is created and attached to app.state
 # ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_task_runtime_uses_one_authoritative_clock_for_due_checks(
+    tmp_path: Path,
+) -> None:
+    """An explicit runtime clock must also drive the worker claim loop.
+
+    Regression: the store/handler used UTC while ``TaskWorkerConfig`` kept its
+    default local clock.  Since SQLite compares ISO timestamps as text, a task
+    scheduled 30 seconds in the future at ``09:31+00:00`` was compared with a
+    local-naive ``17:31`` worker time and claimed on every worker tick.
+    """
+    utc_now = datetime(2026, 6, 23, 9, 31, 0, tzinfo=timezone.utc)
+    local_naive_now = datetime(2026, 6, 23, 17, 31, 1)
+
+    runtime = create_task_runtime(
+        db_path=tmp_path / "clock-regression.db",
+        config=TaskWorkerConfig(
+            tick_seconds=0.01,
+            clock=lambda: local_naive_now,
+        ),
+        clock=lambda: utc_now,
+    )
+    ensure_schema(runtime.store._db_path)
+
+    executed = asyncio.Event()
+
+    async def handler(*_args: object) -> Complete:
+        executed.set()
+        return Complete(result={})
+
+    runtime.register_handler("download_watch", handler)
+    task = runtime.scheduler.enqueue(
+        kind="download_watch",
+        payload={},
+        run_after=(utc_now + timedelta(seconds=30)).isoformat(),
+    )
+
+    await runtime.start()
+    try:
+        await asyncio.sleep(0.05)
+    finally:
+        await runtime.stop()
+
+    assert not executed.is_set()
+    persisted = runtime.scheduler.get(task.task_id)
+    assert persisted is not None
+    assert persisted.status == TaskStatus.QUEUED
 
 
 @pytest.mark.asyncio

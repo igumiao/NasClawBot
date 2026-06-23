@@ -22,6 +22,10 @@ from app.tools.tmdb_search import TMDBSearchTool
 from app.tools.tmdb_details import TMDBDetailsTool
 from app.tools.tmdb_discover import TMDBDiscoverTool
 from app.tools.tmdb_trending import TMDBTrendingTool
+from app.tools.schedule_download_check import ScheduleDownloadCheckTool
+from app.tools.task_list import TaskListTool
+from app.tools.task_cancel import TaskCancelTool
+from app.tools.task_reschedule import TaskRescheduleTool
 
 __all__ = [
     "CurrentTimeTool",
@@ -43,4 +47,8 @@ __all__ = [
     "TMDBDetailsTool",
     "TMDBDiscoverTool",
     "TMDBTrendingTool",
+    "ScheduleDownloadCheckTool",
+    "TaskListTool",
+    "TaskCancelTool",
+    "TaskRescheduleTool",
 ]

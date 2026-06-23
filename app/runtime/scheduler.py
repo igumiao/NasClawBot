@@ -243,3 +243,83 @@ class TaskScheduler:
             The ``RuntimeTask``, or ``None`` when not found.
         """
         return self._store.get(task_id=task_id)
+
+    def list_tasks(
+        self,
+        status: str | None = None,
+        kind: str | None = None,
+        source_session_id: str | None = None,
+        limit: int = 50,
+    ) -> list[RuntimeTask]:
+        """List tasks with optional filters, ordered by ``created_at`` descending.
+
+        This is the external-facing projection — it intentionally does not
+        expose internal columns like ``payload_json``, ``result_json``, or
+        ``error_json`` in a raw form.  Callers that need safe views should
+        further wrap the returned tasks through a view model.
+
+        Args:
+            status: Optional status filter (e.g. ``"queued"``).
+            kind: Optional task kind filter (e.g. ``"download_watch"``).
+            source_session_id: Optional source session filter.
+            limit: Maximum number of tasks to return (default 50, max 200).
+
+        Returns:
+            Matching ``RuntimeTask`` objects (with raw payload columns).
+        """
+        return self._store.list_tasks(
+            status=status,
+            kind=kind,
+            source_session_id=source_session_id,
+            limit=limit,
+        )
+
+    def cancel_pending(self, task_id: str) -> RuntimeTask:
+        """Atomically cancel a task that is ``QUEUED`` or ``WAITING``.
+
+        Rejects tasks that are ``RUNNING`` or already terminal with a
+        ``ValueError``.  Uses an atomic read-and-update to prevent races
+        with the worker claim loop.
+
+        Args:
+            task_id: The task to cancel.
+
+        Returns:
+            The updated task in ``CANCELLED`` status.
+
+        Raises:
+            ValueError: When the task does not exist, is ``RUNNING``, or
+                is already terminal.
+        """
+        return self._store.cancel_pending(
+            task_id=task_id,
+            now=self._clock(),
+        )
+
+    def reschedule_pending_once(
+        self,
+        task_id: str,
+        run_after: str,
+    ) -> RuntimeTask:
+        """Atomically update ``run_after`` for a pending once-mode task.
+
+        Only ``QUEUED`` / ``WAITING`` tasks with ``check_policy.mode=once``
+        are eligible.  Atomic read-check-update prevents races with the
+        worker claim loop.
+
+        Args:
+            task_id: The task to reschedule.
+            run_after: New canonical UTC ISO-8601 timestamp.
+
+        Returns:
+            The updated task.
+
+        Raises:
+            ValueError: When the task does not exist, is ineligible, or
+                the update would race with a claim.
+        """
+        return self._store.reschedule_pending_once(
+            task_id=task_id,
+            run_after=run_after,
+            now=self._clock(),
+        )

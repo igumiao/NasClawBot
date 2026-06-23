@@ -18,7 +18,11 @@ from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from app.adapters.qbittorrent import QBittorrentAdapter
-from app.domain.downloads import FOLLOW_UP_AUTO_ORGANIZE, FOLLOW_UP_NOTIFY_ONLY
+from app.domain.downloads import (
+    FOLLOW_UP_AUTO_ORGANIZE,
+    FOLLOW_UP_NOTIFY_ONLY,
+    DownloadCheckPolicy,
+)
 from app.domain.runtime_tasks import (
     ChildTaskSpec,
     Complete,
@@ -391,6 +395,24 @@ class DownloadWatchHandler:
         next_poll = int(eta * 0.5)
         return max(_DYN_POLL_MIN, min(_DYN_POLL_MAX, next_poll)), smooth_speed
 
+    @staticmethod
+    def _get_check_policy(payload: dict[str, Any]) -> DownloadCheckPolicy:
+        """Parse ``check_policy`` from *payload*, falling back to legacy defaults.
+
+        Missing or unparseable policies default to ``continuous/reschedule``
+        so existing tasks are unaffected.
+        """
+        raw = payload.get("check_policy")
+        if isinstance(raw, dict):
+            try:
+                return DownloadCheckPolicy.model_validate(raw)
+            except Exception:
+                logger.warning(
+                    "Invalid check_policy in payload, using legacy default: %s",
+                    raw,
+                )
+        return DownloadCheckPolicy(mode="continuous", on_incomplete="reschedule")
+
     def _poll_torrent(
         self,
         payload: dict[str, Any],
@@ -402,9 +424,15 @@ class DownloadWatchHandler:
         Dispatches to specialised helper methods based on the result of
         ``get_torrent``:
         - ``None`` returned -> miss tracking / fail path.
-        - Exception raised -> transient error / exponential backoff path.
+        - Exception raised -> transient error / exponential backoff path
+          (or ``Fail(retryable=True)`` for once-mode tasks).
         - Torrent found   -> progress check / completion path.
+
+        When ``check_policy.mode=once``, an incomplete download produces a
+        terminal ``Complete`` with a ``download_check_incomplete`` event
+        instead of scheduling further polls.
         """
+        check_policy = self._get_check_policy(payload)
         consecutive_misses = payload.get("consecutive_misses", 0)
         consecutive_errors = payload.get("consecutive_errors", 0)
 
@@ -416,6 +444,20 @@ class DownloadWatchHandler:
                 qb_hash,
                 exc,
             )
+            # Once-mode: technical errors become retryable failures so the
+            # worker's failure_count/max_failure_attempts handles bounding.
+            if check_policy.mode == "once":
+                consecutive_errors += 1
+                return Fail(
+                    code="QB_TRANSIENT_ERROR",
+                    message=f"qBittorrent request failed: {exc}",
+                    retryable=True,
+                    details={
+                        "qb_hash": qb_hash,
+                        "consecutive_errors": consecutive_errors,
+                        "error": str(exc),
+                    },
+                )
             return self._transient_error(
                 consecutive_errors,
                 now,
@@ -441,6 +483,45 @@ class DownloadWatchHandler:
         }
 
         if progress < 1.0:
+            # ── Once-mode: terminal notification, no reschedule ──
+            if check_policy.mode == "once":
+                torrent_name = payload.get("torrent_name", "") or qb_hash
+                logger.info(
+                    "Once-mode check for %s: download incomplete "
+                    "progress=%.4f state=%s — terminating with event",
+                    qb_hash,
+                    progress,
+                    state,
+                )
+                return Complete(
+                    result={
+                        "download_complete": False,
+                        "organized": False,
+                        "qb_hash": qb_hash,
+                        "torrent_name": torrent_name,
+                        "progress": progress,
+                        "state": state,
+                    },
+                    events=[
+                        {
+                            "kind": "download_check_incomplete",
+                            "severity": TaskEventSeverity.INFO,
+                            "title": "定时检查完成：下载尚未完成",
+                            "summary": (
+                                f"种子 {torrent_name} 当前进度 "
+                                f"{progress * 100:.1f}%，未启动整理"
+                            ),
+                            "payload": {
+                                "qb_hash": qb_hash,
+                                "torrent_name": torrent_name,
+                                "progress": progress,
+                                "state": state,
+                            },
+                        },
+                    ],
+                )
+
+            # ── Continuous mode: dynamic ETA reschedule ──
             delay, smooth_speed = self._compute_next_poll(
                 payload, progress, now,
             )

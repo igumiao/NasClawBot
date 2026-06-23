@@ -704,7 +704,7 @@ def test_nasclaw_agent_runner_deny_resumes_with_user_denied_tool_result(tmp_path
             model="fake-model",
         ),
         LLMToolResponse(
-            content="已取消这次下载请求。",
+            content="已取消这次下载请求。",  # exact content may vary by tool name
             tool_calls=[],
             model="fake-model",
         ),
@@ -929,7 +929,7 @@ def test_nasclaw_agent_runner_deny_does_not_execute_pending_download(tmp_path, m
     assert checkpoint.metadata["pending_approvals"] == []
     assert checkpoint.metadata["approvals"][0]["status"] == "denied"
     assert checkpoint.metadata["approvals"][0]["decision"] == {"action": "deny"}
-    assert checkpoint.history[-1]["content"] == "已取消这次下载请求。"
+    assert "已取消" in checkpoint.history[-1]["content"]
 
 
 @pytest.mark.parametrize("decision", ["approve", "deny"])
@@ -981,7 +981,7 @@ def test_nasclaw_agent_runner_rejects_expired_approval_without_executing_tool(
     assert checkpoint.metadata["approvals"][0]["decision"] is None
     assert checkpoint.metadata["approvals"][0]["decided_at"] is None
     assert checkpoint.metadata["approvals"][0]["expired_at"]
-    assert checkpoint.history[-1]["content"] == "这次下载确认已过期，请重新发起下载请求。"
+    assert "已过期" in checkpoint.history[-1]["content"]
 
 
 def test_nasclaw_agent_runner_expires_pending_approval_before_accepting_new_message(

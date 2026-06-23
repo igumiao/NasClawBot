@@ -172,9 +172,53 @@ def _build_download_coordinator_factory(
     return factory
 
 
+def _build_task_management_service_factory() -> Callable[[], Any]:
+    """Build a factory that creates a fresh TaskManagementService on each call.
+
+    The service uses the same TASK_DB_PATH as the TaskRuntime so task
+    management operations (create scheduled check, list, cancel, reschedule)
+    work against the same SQLite database.
+
+    Each call creates short-lived RuntimeTaskStore/TaskScheduler adapters;
+    connections are opened and closed per method, so there is no connection
+    leak.
+    """
+    from app.runtime.scheduler import TaskScheduler
+    from app.runtime.store import RuntimeTaskStore
+    from app.services.organization_policy_store import (
+        OrganizationAutomationPolicyStore,
+    )
+    from app.services.task_management import TaskManagementService
+
+    task_db_path = _get_task_db_path()
+    settings_dir = Path(__file__).resolve().parents[2] / "memory" / "settings"
+
+    def factory() -> TaskManagementService:
+        store = RuntimeTaskStore(
+            db_path=task_db_path,
+            clock=_utc_now,
+            id_factory=_uuid_hex,
+        )
+        scheduler = TaskScheduler(
+            store=store,
+            clock=_utc_now,
+            id_factory=_uuid_hex,
+        )
+        qb = _build_qb_adapter()
+        org_policy_store = OrganizationAutomationPolicyStore(settings_dir)
+        return TaskManagementService(
+            scheduler=scheduler,
+            qb_adapter=qb,
+            organization_policy_store=org_policy_store,
+            clock=_utc_now,
+        )
+
+    return factory
+
+
 def _build_agent_runner() -> NasClawAgentRunner:
-    """Build a NasClawAgentRunner wired with a DownloadCoordinator factory
-    and the shared RuntimeTaskStore.
+    """Build a NasClawAgentRunner wired with a DownloadCoordinator factory,
+    the shared RuntimeTaskStore, and the TaskManagementService factory.
 
     The Agent tools use the default ``["mteam"]`` tag set, matching the
     pre-existing behavior.  The RuntimeTaskStore enables background task
@@ -193,6 +237,7 @@ def _build_agent_runner() -> NasClawAgentRunner:
             default_tags=["mteam"],
         ),
         runtime_task_store=runtime_store,
+        task_management_service_factory=_build_task_management_service_factory(),
     )
 
 

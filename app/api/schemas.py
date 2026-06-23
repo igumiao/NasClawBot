@@ -337,6 +337,7 @@ class TaskSummary(BaseModel):
     task_id: str
     kind: str
     status: str
+    run_after: str | None = None
     source_session_id: str | None = None
     parent_task_id: str | None = None
     attempts: int = 0
@@ -372,6 +373,7 @@ class TaskDetail(BaseModel):
     task_id: str
     kind: str
     status: str
+    run_after: str | None = None
     source_session_id: str | None = None
     parent_task_id: str | None = None
     child_task_ids: list[str] = Field(default_factory=list)

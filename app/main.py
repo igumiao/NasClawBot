@@ -5,6 +5,7 @@ This module wires routes and static frontend assets into a single app instance.
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import logging
 import time
 from pathlib import Path
@@ -59,6 +60,7 @@ async def _app_lifespan(_app: FastAPI):
             event_consumed_purge_seconds=settings.event_consumed_purge_seconds,
             event_max_age_seconds=settings.event_max_age_seconds,
         ),
+        clock=lambda: datetime.now(timezone.utc),
     )
 
     # qB adapter for the download-watch handler.
@@ -80,6 +82,21 @@ async def _app_lifespan(_app: FastAPI):
     task_runtime.reconcile_stale_initializing()
     asyncio.create_task(task_runtime.start())
     _app.state.task_runtime = task_runtime
+
+    # ── Build shared TaskManagementService for task routes ──
+    from app.services.organization_policy_store import (
+        OrganizationAutomationPolicyStore,
+    )
+    from app.services.task_management import TaskManagementService
+
+    _settings_dir = Path(__file__).resolve().parent / "memory" / "settings"
+    task_mgmt = TaskManagementService(
+        scheduler=task_runtime.scheduler,
+        qb_adapter=qb,
+        organization_policy_store=OrganizationAutomationPolicyStore(_settings_dir),
+        clock=lambda: datetime.now(timezone.utc),
+    )
+    _app.state.task_management_service = task_mgmt
 
     try:
         yield

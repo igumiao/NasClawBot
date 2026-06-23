@@ -228,6 +228,21 @@ def risk_for_tool(tool_name: str, arguments: dict[str, Any] | None = None) -> Ap
             level=ApprovalRiskLevel.SIDE_EFFECT,
             summary="Modify per-torrent speed limits",
         )
+    if tool_name == "schedule_download_check":
+        return ApprovalRisk(
+            level=ApprovalRiskLevel.SIDE_EFFECT,
+            summary="Create a scheduled future download completion check",
+        )
+    if tool_name == "task_cancel":
+        return ApprovalRisk(
+            level=ApprovalRiskLevel.SIDE_EFFECT,
+            summary="Cancel a pending background task",
+        )
+    if tool_name == "task_reschedule":
+        return ApprovalRisk(
+            level=ApprovalRiskLevel.SIDE_EFFECT,
+            summary="Reschedule a pending download check task",
+        )
     return ApprovalRisk(
         level=ApprovalRiskLevel.SIDE_EFFECT,
         summary="Execute a side-effect tool",

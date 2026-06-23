@@ -1003,6 +1003,172 @@ class RuntimeTaskStore:
         finally:
             conn.close()
 
+    def cancel_pending(
+        self,
+        task_id: str,
+        now: datetime,
+    ) -> RuntimeTask:
+        """Atomically cancel a task that is ``QUEUED`` or ``WAITING``.
+
+        Uses ``BEGIN IMMEDIATE`` to prevent races with the worker claim
+        loop.  Rejects ``RUNNING`` and already-terminal tasks.
+
+        Args:
+            task_id: The task to cancel.
+            now: Current timestamp.
+
+        Returns:
+            The updated task in ``CANCELLED`` status.
+
+        Raises:
+            ValueError: When the task does not exist, is ``RUNNING``, or
+                is already terminal.
+        """
+        now_iso = now.isoformat()
+
+        conn = connect(self._db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+
+            row = conn.execute(
+                "SELECT * FROM runtime_tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Task {task_id!r} not found")
+
+            current = _parse_task(row)
+
+            if is_terminal(current.status):
+                raise ValueError(
+                    f"Task {task_id!r} is already terminal ({current.status.value})"
+                )
+
+            if current.status == TaskStatus.RUNNING:
+                raise ValueError(
+                    f"Task {task_id!r} is currently RUNNING and cannot be cancelled"
+                )
+
+            if current.status not in (TaskStatus.QUEUED, TaskStatus.WAITING):
+                raise ValueError(
+                    f"Task {task_id!r} is {current.status.value} — "
+                    f"only QUEUED/WAITING tasks can be cancelled"
+                )
+
+            conn.execute(
+                "UPDATE runtime_tasks SET "
+                "status = 'cancelled', "
+                "updated_at = ?, "
+                "completed_at = ? "
+                "WHERE task_id = ?",
+                (now_iso, now_iso, task_id),
+            )
+
+            conn.commit()
+
+            row = conn.execute(
+                "SELECT * FROM runtime_tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            return _parse_task(row)
+        finally:
+            conn.close()
+
+    def reschedule_pending_once(
+        self,
+        task_id: str,
+        run_after: str,
+        now: datetime,
+    ) -> RuntimeTask:
+        """Atomically update ``run_after`` for a pending once-mode task.
+
+        1. Reads the current row inside ``BEGIN IMMEDIATE``.
+        2. Validates status is ``QUEUED`` or ``WAITING`` (not claimed).
+        3. Validates ``check_policy.mode`` is ``"once"`` (not a continuous watch).
+        4. Updates ``run_after`` and ``updated_at``.
+
+        Args:
+            task_id: The task to reschedule.
+            run_after: New canonical UTC ISO-8601 timestamp.
+            now: Current timestamp.
+
+        Returns:
+            The updated task.
+
+        Raises:
+            ValueError: When the task does not exist, is ineligible, or the
+                check policy does not permit rescheduling.
+        """
+        now_iso = now.isoformat()
+
+        conn = connect(self._db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+
+            row = conn.execute(
+                "SELECT * FROM runtime_tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Task {task_id!r} not found")
+
+            current = _parse_task(row)
+
+            if is_terminal(current.status):
+                raise ValueError(
+                    f"Task {task_id!r} is already terminal ({current.status.value})"
+                )
+
+            if current.status == TaskStatus.RUNNING:
+                raise ValueError(
+                    f"Task {task_id!r} is currently RUNNING and cannot be rescheduled"
+                )
+
+            if current.status not in (TaskStatus.QUEUED, TaskStatus.WAITING):
+                raise ValueError(
+                    f"Task {task_id!r} is {current.status.value} — "
+                    f"only QUEUED/WAITING tasks can be rescheduled"
+                )
+
+            # Validate check_policy.mode == "once".
+            payload = current.payload or {}
+            check_policy = payload.get("check_policy") or {}
+            if isinstance(check_policy, dict):
+                mode = check_policy.get("mode", "continuous")
+            else:
+                mode = "continuous"
+
+            if mode != "once":
+                raise ValueError(
+                    f"Task {task_id!r} has check_policy.mode={mode!r} — "
+                    f"only once-mode tasks can be rescheduled"
+                )
+
+            # Update run_after and also update scheduled_for in payload for
+            # consistency (the handler reads from payload, not the column).
+            new_payload = dict(payload)
+            new_payload["scheduled_for"] = run_after
+            payload_json = json.dumps(new_payload, ensure_ascii=False)
+
+            conn.execute(
+                "UPDATE runtime_tasks SET "
+                "run_after = ?, "
+                "payload_json = ?, "
+                "updated_at = ? "
+                "WHERE task_id = ?",
+                (run_after, payload_json, now_iso, task_id),
+            )
+
+            conn.commit()
+
+            row = conn.execute(
+                "SELECT * FROM runtime_tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            return _parse_task(row)
+        finally:
+            conn.close()
+
     def get(self, task_id: str) -> RuntimeTask | None:
         """Fetch a single task by its ID.
 
