@@ -21,7 +21,7 @@ NOW = datetime(2026, 6, 23, 12, 0, tzinfo=timezone.utc)
 
 class FakeWorker:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, str]] = []
         self.result = OrganizeWorkerResult(
             status="success",
             summary="organized",
@@ -29,8 +29,8 @@ class FakeWorker:
             destination="/media/Test",
         )
 
-    def run(self, source_path: str, destination_root: str) -> OrganizeWorkerResult:
-        self.calls.append((source_path, destination_root))
+    def run(self, source_path: str, destination_root: str, qb_hash: str = "") -> OrganizeWorkerResult:
+        self.calls.append((source_path, destination_root, qb_hash))
         return self.result
 
 
@@ -116,7 +116,7 @@ async def test_authorized_snapshot_runs_worker() -> None:
         task(snapshot=snapshot()), None, None  # type: ignore[arg-type]
     )
     assert isinstance(outcome, Complete)
-    assert worker.calls == [("/downloads/Test.mkv", "/media")]
+    assert worker.calls == [("/downloads/Test.mkv", "/media", "abc")]
 
 
 @pytest.mark.asyncio

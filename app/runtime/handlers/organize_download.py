@@ -227,6 +227,7 @@ class OrganizeDownloadHandler:
                 lambda: worker.run(
                     source_path=content_path,
                     destination_root=destination_root,
+                    qb_hash=qb_hash,
                 ),
             )
         except Exception as exc:

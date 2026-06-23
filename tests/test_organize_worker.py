@@ -236,6 +236,9 @@ class TestAgentBuilder:
         assert "skill_load" in tool_names
         assert "tmdb_search" in tool_names
         assert "tmdb_details" in tool_names
+        assert "tavily_search" in tool_names
+        assert "qb_get_torrent" in tool_names
+        assert "qb_control_torrent" in tool_names
 
         # Must have at least the read-only MCP tools when MCP pool is active.
         # (MCP pool may be None in test, so these may be absent)
@@ -247,7 +250,6 @@ class TestAgentBuilder:
         # Must NOT include unrelated tools.
         assert "mteam_search" not in tool_names
         assert "qb_add_torrent" not in tool_names
-        assert "tavily_search" not in tool_names
 
     def test_filter_allows_only_organize_tools(self) -> None:
         worker = OrganizeWorkerAgent()
@@ -258,13 +260,15 @@ class TestAgentBuilder:
             "skill_load",
             "tmdb_search",
             "tmdb_details",
+            "tavily_search",
+            "qb_get_torrent",
+            "qb_control_torrent",
             "mcp_filesystem_list_directory",
             "mcp_filesystem_create_directory",
         ]
         denied = [
             "mteam_search",
             "qb_add_torrent",
-            "tavily_search",
             "current_time",
         ]
 

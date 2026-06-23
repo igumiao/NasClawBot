@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.adapters.qbittorrent import QBittorrentAdapter
+from app.adapters.tavily import TavilyAdapter
 from app.adapters.tmdb import TMDBAdapter
 from app.config import get_settings
 from app.mcp_pool import get_mcp_pool
@@ -56,6 +58,9 @@ _ORGANIZE_TOOL_NAMES: list[str] = [
     "skill_load",
     "tmdb_search",
     "tmdb_details",
+    "tavily_search",
+    "qb_get_torrent",
+    "qb_control_torrent",
     "mcp_filesystem_list_directory",
     "mcp_filesystem_directory_tree",
     "mcp_filesystem_read_text_file",
@@ -112,19 +117,29 @@ _ORGANIZE_SYSTEM_PROMPT = """你是 NasClawBot 的下载整理助手。
 
 2. **扫描** — 使用 `list_directory` 或 `directory_tree` 查看源目录的内容。
 
-3. **识别** — 从文件名提取信息。必要时使用 `tmdb_search` / `tmdb_details` 获取准确名称。
+3. **识别** — 从文件名提取信息。按以下优先级获取准确名称：
+   - 优先使用 `tmdb_search` / `tmdb_details` 查询 TMDB 数据库
+   - TMDB 查不到时，使用 `tavily_search` 进行网络搜索（可分别用中英文关键词搜索）
+   - 网络也查不到时，可依赖你自己的训练知识判断该影视作品的中文名、英文名、年份和分类
 
 4. **创建目录** — 根据技能规范在目标根目录下创建对应的分类目录和 Season 目录。
 
-5. **移动文件** — 使用 `move_file` 将文件移动到目标位置并重命名。
+5. **移动前检查上传状态** — 在移动文件之前：
+   - 如果任务提供了 qb_hash，用 `qb_get_torrent` 查询该种子的状态
+   - 如果种子状态为 `uploading` 或 `seeding`（正在做种上传），先用 `qb_control_torrent` 执行 `pause` 暂停种子
+   - 仅允许 `pause` 操作，禁止 `delete`、`resume` 等其他操作
+   - qBittorrent 在上传时会锁住文件，必须先暂停才能移动
 
-6. **验证** — 用 `get_file_info` 确认文件已到达目标位置。
+6. **移动文件** — 使用 `move_file` 将文件移动到目标位置并重命名。
+
+7. **验证** — 用 `get_file_info` 确认文件已到达目标位置。
 
 ## 重要原则
 
 - 只处理源目录中的文件，不碰已整理好的目录。
 - 移动前用 `get_file_info` 确认源文件存在。
-- TMDB 和网络搜索都查不到的资源 = 存疑，放入 `其他/` 目录。
+- **移动前必须检查种子上传状态**：如果种子在 uploading/seeding，先用 `qb_control_torrent` pause 暂停。
+- TMDB → Tavily → LLM 知识 三级查找，都查不到的资源 = 存疑，放入 `其他/` 目录。
 - 执行完成后，总结你做了哪些操作：移动了多少文件，目标位置在哪里。
 """
 
@@ -221,6 +236,7 @@ class OrganizeWorkerAgent:
         self,
         source_path: str,
         destination_root: str,
+        qb_hash: str = "",
     ) -> OrganizeWorkerResult:
         """Run the organization agent for a single download.
 
@@ -229,16 +245,27 @@ class OrganizeWorkerAgent:
             destination_root: Root directory for organized media (e.g.
                 ``/影视``).  The agent will create category subdirectories
                 under this root per the renaming rules.
+            qb_hash: Optional qBittorrent info hash for the torrent.  When
+                provided, the agent will check the torrent's upload state
+                and pause it before moving files to avoid file-lock errors.
 
         Returns:
             An ``OrganizeWorkerResult`` with the outcome of the operation.
         """
         agent = self._build_agent()
 
+        qb_hash_line = (
+            f"种子 Hash: {qb_hash}\n"
+            f"（移动文件前请先用 qb_get_torrent 检查该种子状态，"
+            f"如在 uploading/seeding 则先 pause 再移动）\n"
+            if qb_hash
+            else ""
+        )
         task_prompt = (
             f"请整理以下已下载的影视文件：\n\n"
             f"源路径: {source_path}\n"
-            f"目标根目录: {destination_root}\n\n"
+            f"目标根目录: {destination_root}\n"
+            f"{qb_hash_line}\n"
             f"请按照整理规范执行操作。"
         )
 
@@ -289,6 +316,24 @@ class OrganizeWorkerAgent:
 
         registry.register_tool(TMDBSearchTool(tmdb_adapter))
         registry.register_tool(TMDBDetailsTool(tmdb_adapter))
+
+        # -- Tavily search tool ------------------------------------------
+        tavily_adapter = TavilyAdapter(api_key=settings.tavily_api_key)
+        from app.tools.tavily_search import TavilySearchTool
+
+        registry.register_tool(TavilySearchTool(tavily_adapter))
+
+        # -- qBittorrent tools (for upload check before move) ------------
+        qb_adapter = QBittorrentAdapter(
+            base_url=settings.qb_base_url,
+            username=settings.qb_username,
+            password=settings.qb_password,
+        )
+        from app.tools.qb_get_torrent import QBGetTorrentTool
+        from app.tools.qb_control_torrent import QBControlTorrentTool
+
+        registry.register_tool(QBGetTorrentTool(qb_adapter))
+        registry.register_tool(QBControlTorrentTool(qb_adapter))
 
         # -- MCP filesystem tools (subset) --------------------------------
         mcp_pool = get_mcp_pool()
