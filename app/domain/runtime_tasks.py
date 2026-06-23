@@ -208,6 +208,9 @@ class RuntimeTask(BaseModel):
     dedupe_key: str | None = None
     """Optional unique key for idempotent creation (UNIQUE in SQLite)."""
 
+    exclusive_key: str | None = None
+    """Optional key unique only while a task remains active."""
+
     lease_owner: str | None = None
     """Worker instance that currently holds the execution lease."""
 

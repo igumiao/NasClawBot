@@ -19,7 +19,8 @@ from typing import Any, Callable
 
 import pytest
 
-from app.domain.downloads import FOLLOW_UP_AUTO_ORGANIZE, FOLLOW_UP_NOTIFY_ONLY
+FOLLOW_UP_AUTO_ORGANIZE = "auto_organize"
+FOLLOW_UP_NOTIFY_ONLY = "notify_only"
 from app.domain.runtime_tasks import (
     Complete,
     Fail,
@@ -529,7 +530,6 @@ class TestConsecutiveMisses:
         assert outcome.code == "QB_TORRENT_MISSING"
         assert outcome.retryable is False
         assert outcome.details["qb_hash"] == "hash-miss"
-        assert outcome.details["consecutive_misses"] >= CONSECUTIVE_MISSES_THRESHOLD
 
     async def test_reschedules_below_threshold(
         self,
@@ -539,7 +539,7 @@ class TestConsecutiveMisses:
         fixed_clock: Callable[[], datetime],
         sequential_id_factory: Callable[[], str],
     ) -> None:
-        """Below the threshold, missing torrent returns Reschedule."""
+        """A known hash missing from qB is a terminal domain failure."""
         payload: dict[str, Any] = {
             "qb_hash": "hash-miss2",
             "consecutive_misses": 0,
@@ -548,9 +548,9 @@ class TestConsecutiveMisses:
             store, fixed_clock, sequential_id_factory, task_id="task-miss2-1", payload=payload,
         )
         outcome = await handler(task, store, scheduler=None)  # type: ignore[arg-type]
-        assert isinstance(outcome, Reschedule)
-        assert outcome.payload_patch is not None
-        assert outcome.payload_patch["consecutive_misses"] == 1
+        assert isinstance(outcome, Fail)
+        assert outcome.code == "QB_TORRENT_MISSING"
+        assert outcome.retryable is False
 
 
 # ===================================================================
@@ -570,7 +570,7 @@ class TestTransientErrors:
         fixed_clock: Callable[[], datetime],
         sequential_id_factory: Callable[[], str],
     ) -> None:
-        """Transient errors return Reschedule with exponential backoff."""
+        """Technical failures use the worker's bounded retry mechanism."""
         qb_adapter.fail_get_torrent = RuntimeError("timeout")
 
         payload: dict[str, Any] = {
@@ -581,12 +581,10 @@ class TestTransientErrors:
             store, fixed_clock, sequential_id_factory, task_id="task-err-1", payload=payload,
         )
         outcome = await handler(task, store, scheduler=None)  # type: ignore[arg-type]
-        assert isinstance(outcome, Reschedule)
-        assert "backoff" in (outcome.reason or "")
-        expected = fixed_clock() + timedelta(seconds=30)
-        assert outcome.run_after == expected.isoformat()
-        assert outcome.payload_patch is not None
-        assert outcome.payload_patch["consecutive_errors"] == 1
+        assert isinstance(outcome, Fail)
+        assert outcome.retryable is True
+        assert outcome.code == "QB_TRANSIENT_ERROR"
+        assert outcome.details["consecutive_errors"] == 1
 
     async def test_backoff_caps_at_max(
         self,
@@ -596,7 +594,7 @@ class TestTransientErrors:
         fixed_clock: Callable[[], datetime],
         sequential_id_factory: Callable[[], str],
     ) -> None:
-        """Backoff should be capped at error_backoff_max."""
+        """Repeated technical failures remain bounded worker retries."""
         qb_adapter.fail_get_torrent = RuntimeError("still failing")
 
         # consecutive_errors=6 -> 30 * 2^5 = 960, capped at 600
@@ -608,9 +606,9 @@ class TestTransientErrors:
             store, fixed_clock, sequential_id_factory, task_id="task-cap-1", payload=payload,
         )
         outcome = await handler(task, store, scheduler=None)  # type: ignore[arg-type]
-        assert isinstance(outcome, Reschedule)
-        expected = fixed_clock() + timedelta(seconds=600)
-        assert outcome.run_after == expected.isoformat()
+        assert isinstance(outcome, Fail)
+        assert outcome.retryable is True
+        assert outcome.details["consecutive_errors"] == 7
 
     async def test_errors_reset_after_successful_fetch(
         self,
@@ -757,3 +755,116 @@ class TestIdempotentCompletion:
         assert isinstance(outcome1, Spawn)
         assert isinstance(outcome2, Spawn)
         assert outcome1.children[0].dedupe_key == outcome2.children[0].dedupe_key
+
+
+@pytest.mark.asyncio
+class TestCanonicalMonitorMatrix:
+    @pytest.mark.parametrize(
+        ("mode", "action", "expected_type"),
+        [
+            ("once", "notify", Complete),
+            ("once", "organize", Complete),
+            ("until_complete", "notify", Reschedule),
+            ("until_complete", "organize", Reschedule),
+        ],
+    )
+    async def test_incomplete_matrix(
+        self,
+        mode: str,
+        action: str,
+        expected_type: type[TaskOutcome],
+        qb_adapter: FakeQBAdapter,
+        handler: DownloadWatchHandler,
+        store: RuntimeTaskStore,
+        fixed_clock: Callable[[], datetime],
+        sequential_id_factory: Callable[[], str],
+    ) -> None:
+        qb_hash = f"incomplete-{mode}-{action}"
+        qb_adapter.torrents_by_hash[qb_hash] = make_torrent(
+            qb_hash, progress=0.5, state="downloading"
+        )
+        payload: dict[str, Any] = {
+            "qb_hash": qb_hash,
+            "monitor": {"mode": mode, "on_completed": action},
+        }
+        if action == "organize":
+            payload["authorization_snapshot"] = {
+                "background_organization_allowed": True,
+                "allowed_source_path_prefixes": ["/downloads"],
+                "destination_root": "/media",
+            }
+        task = enqueue_watch_task(
+            store, fixed_clock, sequential_id_factory, payload=payload
+        )
+        outcome = await handler(task, store, scheduler=None)  # type: ignore[arg-type]
+        assert isinstance(outcome, expected_type)
+        if mode == "once":
+            assert outcome.events[0]["kind"] == "download_check_incomplete"
+
+    @pytest.mark.parametrize(
+        ("mode", "action", "expected_type"),
+        [
+            ("once", "notify", Complete),
+            ("once", "organize", Spawn),
+            ("until_complete", "notify", Complete),
+            ("until_complete", "organize", Spawn),
+        ],
+    )
+    async def test_completed_matrix(
+        self,
+        mode: str,
+        action: str,
+        expected_type: type[TaskOutcome],
+        qb_adapter: FakeQBAdapter,
+        handler: DownloadWatchHandler,
+        store: RuntimeTaskStore,
+        fixed_clock: Callable[[], datetime],
+        sequential_id_factory: Callable[[], str],
+    ) -> None:
+        qb_hash = f"complete-{mode}-{action}"
+        qb_adapter.torrents_by_hash[qb_hash] = make_torrent(
+            qb_hash, progress=1.0, state="completed"
+        )
+        payload: dict[str, Any] = {
+            "qb_hash": qb_hash,
+            "monitor": {"mode": mode, "on_completed": action},
+        }
+        if action == "organize":
+            payload["authorization_snapshot"] = {
+                "background_organization_allowed": True,
+                "allowed_source_path_prefixes": ["/downloads"],
+                "destination_root": "/media",
+            }
+        task = enqueue_watch_task(
+            store, fixed_clock, sequential_id_factory, payload=payload
+        )
+        outcome = await handler(task, store, scheduler=None)  # type: ignore[arg-type]
+        assert isinstance(outcome, expected_type)
+        if isinstance(outcome, Spawn):
+            snapshot = outcome.children[0].payload["authorization_snapshot"]
+            assert snapshot["background_organization_allowed"] is True
+
+    async def test_legacy_none_completes_silently(
+        self,
+        qb_adapter: FakeQBAdapter,
+        handler: DownloadWatchHandler,
+        store: RuntimeTaskStore,
+        fixed_clock: Callable[[], datetime],
+        sequential_id_factory: Callable[[], str],
+    ) -> None:
+        qb_adapter.torrents_by_hash["legacy-none"] = make_torrent(
+            "legacy-none", progress=1.0, state="completed"
+        )
+        task = enqueue_watch_task(
+            store,
+            fixed_clock,
+            sequential_id_factory,
+            payload={
+                "qb_hash": "legacy-none",
+                "check_policy": {"mode": "continuous"},
+                "resolved_follow_up": {"mode": "none"},
+            },
+        )
+        outcome = await handler(task, store, scheduler=None)  # type: ignore[arg-type]
+        assert isinstance(outcome, Complete)
+        assert outcome.events == []

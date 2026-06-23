@@ -19,9 +19,8 @@ from typing import Any, Callable
 
 from app.adapters.qbittorrent import QBittorrentAdapter
 from app.domain.downloads import (
-    FOLLOW_UP_AUTO_ORGANIZE,
-    FOLLOW_UP_NOTIFY_ONLY,
-    DownloadCheckPolicy,
+    ParsedDownloadMonitor,
+    parse_download_monitor,
 )
 from app.domain.runtime_tasks import (
     ChildTaskSpec,
@@ -206,10 +205,20 @@ class DownloadWatchHandler:
         qb_hash = payload.get("qb_hash")
         now = self._clock()
 
+        try:
+            monitor = parse_download_monitor(payload)
+        except Exception as exc:
+            return Fail(
+                code="INVALID_DOWNLOAD_MONITOR",
+                message=f"Download monitor payload is invalid: {exc}",
+                retryable=False,
+                details={"task_id": task.task_id},
+            )
+
         if not qb_hash:
             return self._resolve_qb_hash(task, now)
 
-        return self._poll_torrent(payload, qb_hash, now)
+        return self._poll_torrent(payload, qb_hash, monitor, now)
 
     # ------------------------------------------------------------------
     # Hash resolution (first call only)
@@ -223,7 +232,7 @@ class DownloadWatchHandler:
         """Correlate the task to a qB torrent via ``nasclaw-task-{id}`` tag.
 
         Uses ``list_torrents`` with the correlation tag that was attached
-        during the qB submission in ``DownloadCoordinator``.
+        during the qB submission in ``DownloadAutomation``.
 
         Results:
             0 torrents -> ``Reschedule`` (qB may not have indexed the tag yet).
@@ -395,28 +404,11 @@ class DownloadWatchHandler:
         next_poll = int(eta * 0.5)
         return max(_DYN_POLL_MIN, min(_DYN_POLL_MAX, next_poll)), smooth_speed
 
-    @staticmethod
-    def _get_check_policy(payload: dict[str, Any]) -> DownloadCheckPolicy:
-        """Parse ``check_policy`` from *payload*, falling back to legacy defaults.
-
-        Missing or unparseable policies default to ``continuous/reschedule``
-        so existing tasks are unaffected.
-        """
-        raw = payload.get("check_policy")
-        if isinstance(raw, dict):
-            try:
-                return DownloadCheckPolicy.model_validate(raw)
-            except Exception:
-                logger.warning(
-                    "Invalid check_policy in payload, using legacy default: %s",
-                    raw,
-                )
-        return DownloadCheckPolicy(mode="continuous", on_incomplete="reschedule")
-
     def _poll_torrent(
         self,
         payload: dict[str, Any],
         qb_hash: str,
+        monitor: ParsedDownloadMonitor,
         now: datetime,
     ) -> TaskOutcome:
         """Fetch torrent state from qB and return the appropriate outcome.
@@ -432,7 +424,6 @@ class DownloadWatchHandler:
         terminal ``Complete`` with a ``download_check_incomplete`` event
         instead of scheduling further polls.
         """
-        check_policy = self._get_check_policy(payload)
         consecutive_misses = payload.get("consecutive_misses", 0)
         consecutive_errors = payload.get("consecutive_errors", 0)
 
@@ -444,28 +435,33 @@ class DownloadWatchHandler:
                 qb_hash,
                 exc,
             )
-            # Once-mode: technical errors become retryable failures so the
-            # worker's failure_count/max_failure_attempts handles bounding.
-            if check_policy.mode == "once":
-                consecutive_errors += 1
-                return Fail(
-                    code="QB_TRANSIENT_ERROR",
-                    message=f"qBittorrent request failed: {exc}",
-                    retryable=True,
-                    details={
-                        "qb_hash": qb_hash,
-                        "consecutive_errors": consecutive_errors,
-                        "error": str(exc),
-                    },
-                )
-            return self._transient_error(
-                consecutive_errors,
-                now,
-                error=str(exc),
+            consecutive_errors += 1
+            return Fail(
+                code="QB_TRANSIENT_ERROR",
+                message=f"qBittorrent request failed: {exc}",
+                retryable=True,
+                details={
+                    "qb_hash": qb_hash,
+                    "consecutive_errors": consecutive_errors,
+                    "error": str(exc),
+                },
             )
 
         if torrent is None:
-            return self._torrent_miss(qb_hash, consecutive_misses, now)
+            return Fail(
+                code="QB_TORRENT_MISSING",
+                message=f"Torrent {qb_hash} was not found in qBittorrent",
+                retryable=False,
+                details={"qb_hash": qb_hash},
+            )
+
+        if not isinstance(torrent, dict):
+            return Fail(
+                code="QB_BAD_RESPONSE",
+                message="qBittorrent returned an invalid torrent response",
+                retryable=True,
+                details={"qb_hash": qb_hash},
+            )
 
         # Reset error/miss counters on any successful fetch.
         progress = torrent.get("progress", 0.0)
@@ -484,7 +480,7 @@ class DownloadWatchHandler:
 
         if progress < 1.0:
             # ── Once-mode: terminal notification, no reschedule ──
-            if check_policy.mode == "once":
+            if monitor.mode == "once":
                 torrent_name = payload.get("torrent_name", "") or qb_hash
                 logger.info(
                     "Once-mode check for %s: download incomplete "
@@ -545,7 +541,7 @@ class DownloadWatchHandler:
             )
 
         return self._handle_completed(
-            payload, torrent, payload_patch, now,
+            payload, torrent, payload_patch, monitor, now,
         )
 
     def _torrent_miss(
@@ -629,6 +625,7 @@ class DownloadWatchHandler:
         payload: dict[str, Any],
         torrent: dict[str, Any],
         payload_patch: dict[str, Any],
+        monitor: ParsedDownloadMonitor,
         now: datetime,
     ) -> TaskOutcome:
         """Dispatch completion follow-up based on resolved mode.
@@ -679,12 +676,15 @@ class DownloadWatchHandler:
                 ],
             )
 
-        # Resolve follow-up mode from the payload's resolved_follow_up dict.
-        resolved = payload.get("resolved_follow_up", {}) or {}
-        mode = resolved.get("mode", "")
-
-        if mode == FOLLOW_UP_AUTO_ORGANIZE:
-            auth_snapshot = resolved.get("authorization_snapshot") or {}
+        if monitor.on_completed == "organize":
+            auth_snapshot = payload.get("authorization_snapshot")
+            if auth_snapshot is None and monitor.is_legacy:
+                legacy_follow_up = payload.get("resolved_follow_up")
+                if isinstance(legacy_follow_up, dict):
+                    auth_snapshot = legacy_follow_up.get("authorization_snapshot")
+            if not isinstance(auth_snapshot, dict):
+                auth_snapshot = {}
+            auth_snapshot = self._normalize_authorization_snapshot(auth_snapshot)
             return self._spawn_organize(
                 qb_hash=qb_hash,
                 torrent_name=torrent_name,
@@ -694,7 +694,7 @@ class DownloadWatchHandler:
                 now=now,
             )
 
-        if mode == FOLLOW_UP_NOTIFY_ONLY:
+        if monitor.on_completed == "notify":
             return Complete(
                 result={
                     "qb_hash": qb_hash,
@@ -718,12 +718,12 @@ class DownloadWatchHandler:
                 ],
             )
 
-        # Fallback: FOLLOW_UP_NONE or unknown mode — complete silently.
+        # Legacy ``resolved_follow_up=none`` completes silently.
         logger.info(
             "Download %s (%s) completed with mode=%r — no follow-up action",
             qb_hash,
             torrent_name,
-            mode,
+            monitor.on_completed,
         )
         return Complete(
             result={
@@ -733,6 +733,21 @@ class DownloadWatchHandler:
                 "save_path": save_path,
             },
         )
+
+    @staticmethod
+    def _normalize_authorization_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+        """Normalize deployed legacy snapshot keys for the organize child."""
+        normalized = dict(snapshot)
+        if "background_organization_allowed" not in normalized and "enabled" in normalized:
+            normalized["background_organization_allowed"] = bool(normalized["enabled"])
+        if "allowed_source_path_prefixes" not in normalized:
+            legacy_prefixes = normalized.get("allowed_source_prefixes")
+            if isinstance(legacy_prefixes, list):
+                normalized["allowed_source_path_prefixes"] = legacy_prefixes
+        normalized.pop("enabled", None)
+        normalized.pop("allowed_source_prefixes", None)
+        normalized.pop("default_after_download", None)
+        return normalized
 
     def _spawn_organize(
         self,

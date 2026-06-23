@@ -60,6 +60,7 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
         parent_task_id   TEXT,
         source_session_id TEXT,
         dedupe_key       TEXT UNIQUE,
+        exclusive_key    TEXT,
         lease_owner      TEXT,
         lease_expires_at TEXT,
         created_at       TEXT NOT NULL,
@@ -124,6 +125,13 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
     # the ``attempts`` / ``failure_count`` split (2026-06-23).
     _ensure_column(conn, "runtime_tasks", "failure_count",
                    "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "runtime_tasks", "exclusive_key", "TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_tasks_active_exclusive "
+        "ON runtime_tasks (exclusive_key) "
+        "WHERE exclusive_key IS NOT NULL "
+        "AND status IN ('initializing', 'queued', 'running', 'waiting')"
+    )
 
     # Remove FK from runtime_task_events so events can outlive their
     # parent task.  SQLite does not support ALTER TABLE DROP CONSTRAINT

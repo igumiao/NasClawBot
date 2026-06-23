@@ -21,7 +21,6 @@ from typing import Any, Callable
 
 import pytest
 
-from app.domain.downloads import FOLLOW_UP_AUTO_ORGANIZE, FOLLOW_UP_NOTIFY_ONLY
 from app.domain.runtime_tasks import (
     Complete,
     Fail,
@@ -42,6 +41,9 @@ from app.runtime.scheduler import TaskScheduler
 from app.runtime.store import RuntimeTaskStore
 from app.runtime.worker import TaskWorker, TaskWorkerConfig
 from app.storage.db import connect, initialize_schema
+
+
+LEGACY_FOLLOW_UP_NOTIFY_ONLY = "notify_only"
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +231,7 @@ class TestFullPathNotifyOnly:
             payload_json={
                 "torrent_id": "mteam-123",
                 "resolved_follow_up": {
-                    "mode": FOLLOW_UP_NOTIFY_ONLY,
+                    "mode": LEGACY_FOLLOW_UP_NOTIFY_ONLY,
                 },
             },
             source_session_id="session-int-1",
@@ -329,7 +331,7 @@ class TestRestartRecovery:
                 "consecutive_errors": 0,
                 "last_poll_at": clock().isoformat(),
                 "resolved_follow_up": {
-                    "mode": FOLLOW_UP_NOTIFY_ONLY,
+                    "mode": LEGACY_FOLLOW_UP_NOTIFY_ONLY,
                 },
             },
             source_session_id="session-recover-1",
@@ -439,7 +441,7 @@ class TestTerminalIdempotency:
         # Must go through claim_due -> finish since finish only accepts RUNNING.
         task = store.enqueue(
             kind="download_watch",
-            payload_json={"qb_hash": "hash-done", "resolved_follow_up": {"mode": FOLLOW_UP_NOTIFY_ONLY}},
+            payload_json={"qb_hash": "hash-done", "resolved_follow_up": {"mode": LEGACY_FOLLOW_UP_NOTIFY_ONLY}},
             source_session_id="session-term-1",
             parent_task_id=None,
             dedupe_key=None,

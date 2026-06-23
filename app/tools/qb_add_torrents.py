@@ -1,4 +1,4 @@
-"""QBAddTorrentsTool — batch torrent submission via DownloadCoordinator."""
+"""QBAddTorrentsTool — batch torrent submission via DownloadAutomation."""
 
 from __future__ import annotations
 
@@ -8,16 +8,15 @@ from typing import Any
 from hello_agents.tools.base import Tool, ToolParameter
 from hello_agents.tools.response import ToolResponse
 
-from app.agent.runner import current_agent_session_id
 from app.domain.downloads import DownloadSubmissionRequest
-from app.services.download_coordinator import DownloadCoordinator
+from app.services.download_automation import DownloadAutomation, DownloadAutomationError
 
 
 MAX_BATCH_ITEMS = 10
 
 
 class QBAddTorrentsTool(Tool):
-    """Batch equivalent of QBAddTorrentTool via DownloadCoordinator.
+    """Batch equivalent of QBAddTorrentTool via DownloadAutomation.
 
     Thin adapter: builds a list of DownloadSubmissionRequest from the Agent
     tool parameters and delegates to the coordinator's submit_many(),
@@ -27,7 +26,7 @@ class QBAddTorrentsTool(Tool):
 
     def __init__(
         self,
-        download_coordinator: DownloadCoordinator,
+        download_automation: DownloadAutomation,
     ) -> None:
         super().__init__(
             name="qb_add_torrents",
@@ -37,7 +36,7 @@ class QBAddTorrentsTool(Tool):
                 f"单批最多 {MAX_BATCH_ITEMS} 个。"
             ),
         )
-        self._coordinator = download_coordinator
+        self._automation = download_automation
 
     def get_parameters(self) -> list[ToolParameter]:
         return [
@@ -48,6 +47,12 @@ class QBAddTorrentsTool(Tool):
                     "要添加的 torrent 列表。每项是对象："
                     '{"torrent_id":"M-Team torrent ID","save_path":"可选保存路径","tag":"可选标签 如 电影"}'
                 ),
+                required=True,
+            ),
+            ToolParameter(
+                name="completion_action",
+                type="string",
+                description="整批完成动作，必填：none、notify 或 organize；不同动作请拆分调用",
                 required=True,
             ),
         ]
@@ -63,6 +68,12 @@ class QBAddTorrentsTool(Tool):
                 code="BATCH_TOO_LARGE",
                 message=f"qb_add_torrents supports at most {MAX_BATCH_ITEMS} items per batch.",
             )
+        completion_action = str(parameters.get("completion_action") or "").strip()
+        if completion_action not in {"none", "notify", "organize"}:
+            return ToolResponse.error(
+                code="INVALID_COMPLETION_ACTION",
+                message="completion_action must be none, notify, or organize.",
+            )
 
         # Build per-item requests from tool parameters.
         requests: list[DownloadSubmissionRequest] = []
@@ -72,13 +83,18 @@ class QBAddTorrentsTool(Tool):
                 qb_category=str(item.get("qb_category") or item.get("category") or "").strip(),
                 save_path=str(item.get("save_path") or "").strip() or None,
                 tag=str(item.get("tag") or "").strip() or None,
-                after_download=None,
             ))
+        try:
+            from app.agent.runner import current_agent_session_id
 
-        batch_result = self._coordinator.submit_many(
-            requests,
-            source_session_id=current_agent_session_id.get(),
-        )
+            batch_result = self._automation.submit_downloads(
+                requests,
+                completion_action=completion_action,  # type: ignore[arg-type]
+                source_session_id=current_agent_session_id.get(),
+                idempotency_key=str(parameters.get("idempotency_key") or ""),
+            )
+        except DownloadAutomationError as exc:
+            return ToolResponse.error(code=exc.code, message=exc.message)
 
         results: list[dict[str, Any]] = []
         receipts: list[dict[str, Any]] = []
@@ -98,6 +114,7 @@ class QBAddTorrentsTool(Tool):
                 receipt = dict(item_result.submission_receipt or {})
                 receipts.append(receipt)
                 row["receipt"] = receipt
+                row["watch_task_id"] = item_result.watch_task_id
             else:
                 failed += 1
                 error_code = "CONFLICT" if item_result.status == "duplicate" else "SUBMIT_FAILED"
@@ -118,7 +135,9 @@ class QBAddTorrentsTool(Tool):
                 "status": "submitted_paused" if failed == 0 else "partial",
                 "summary": summary,
                 "receipts": receipts,
+                "completion_action": completion_action,
             },
+            "completion_action": completion_action,
         }
 
         if succeeded == len(items):

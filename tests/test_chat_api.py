@@ -696,7 +696,10 @@ def test_approve_agent_approval_executes_download_and_updates_checkpoint(tmp_pat
                         "approval_id": "approval-1",
                         "tool_call_id": "call-download",
                         "tool_name": "qb_add_torrent",
-                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                            "arguments": {
+                                "torrent_id": "123", "qb_category": "movie",
+                                "completion_action": "none",
+                            },
                         "status": "pending",
                     }
                 ],
@@ -741,12 +744,13 @@ def test_approve_agent_batch_approval_executes_downloads(tmp_path, monkeypatch: 
                         "approval_id": "approval-1",
                         "tool_call_id": "call-download",
                         "tool_name": "qb_add_torrents",
-                        "arguments": {
-                            "items": [
-                                {"torrent_id": "101", "qb_category": "电视剧"},
-                                {"torrent_id": "102", "qb_category": "电视剧"},
-                            ]
-                        },
+                            "arguments": {
+                                "items": [
+                                    {"torrent_id": "101", "qb_category": "电视剧"},
+                                    {"torrent_id": "102", "qb_category": "电视剧"},
+                                ],
+                                "completion_action": "none",
+                            },
                         "status": "pending",
                     }
                 ],
@@ -788,7 +792,7 @@ def test_approve_agent_batch_approval_can_create_session_grant(tmp_path, monkeyp
     store = JSONConversationCheckpointStore(session_dir)
     store.save(
         ConversationCheckpoint(
-            session_id="agent-batch-grant",
+                session_id="agent-batch-grant",
             created_at="2026-06-04T10:00:00",
             saved_at="2026-06-04T10:01:00",
             history=[],
@@ -799,12 +803,13 @@ def test_approve_agent_batch_approval_can_create_session_grant(tmp_path, monkeyp
                         "approval_id": "approval-1",
                         "tool_call_id": "call-download",
                         "tool_name": "qb_add_torrents",
-                        "arguments": {
-                            "items": [
-                                {"torrent_id": "101", "qb_category": "电视剧", "save_path": "/downloads/tv/show"},
-                                {"torrent_id": "102", "qb_category": "电视剧", "save_path": "/downloads/tv/show"},
-                            ]
-                        },
+                            "arguments": {
+                                "items": [
+                                    {"torrent_id": "101", "qb_category": "电视剧", "save_path": "/downloads/tv/show"},
+                                    {"torrent_id": "102", "qb_category": "电视剧", "save_path": "/downloads/tv/show"},
+                                ],
+                                "completion_action": "none",
+                            },
                         "status": "pending",
                     }
                 ],

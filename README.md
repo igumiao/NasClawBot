@@ -16,12 +16,14 @@
 - **结构化候选结果**：M-Team 候选会显示标题、体积、分辨率、做种/下载人数、优惠状态、中文字幕信号等关键判断信息。
 - **人在回路下载审批**：qB 下载、批量下载、限速和控制类动作必须审批；所有下载提交到 qBittorrent 时默认暂停。
 - **会话级下载授权**：符合 Settings 策略的下载审批可以选择“本会话内允许”，后续同会话、同约束内的下载无需重复确认。
+- **Agent 驱动的下载监督**：Agent 可明确创建一次检查或持续监督，并在审批卡中声明完成后通知或整理；任务意图持久化到 SQLite，服务重启后继续执行。
+- **自动下载后整理**：完成动作选择整理时，系统捕获不可扩张的授权快照，下载完成后再由受限 WorkerAgent 加载命名规则并执行整理。
 - **多会话工作区**：支持会话列表、刷新恢复、重命名、删除、新建对话；每个会话都有独立 checkpoint。
 - **长对话上下文管理**：128K 默认上下文窗口，70% 压力触发智能压缩，保留最近 4 轮活跃消息并归档被压缩原文。
 - **上下文与缓存可视化**：聊天输入区展示当前上下文压力，并区分“上次”和“累计”的缓存命中率。
 - **长期记忆**：Agent 可记录用户偏好与项目知识，记忆进入 inbox 后由 Memory 面板审阅、整理、应用到 markdown 存储。
 - **按需加载 Skills**：项目支持把领域规范写成 `skills/*/SKILL.md`，Agent 先看到技能摘要，需要执行具体任务时再用 `skill_load` 加载完整指导。
-- **Settings 面板**：支持下载授权策略、TMDB 专用代理、TMDB 独立连通性测试等运行时配置。
+- **Settings 面板**：支持下载授权策略、后台整理授权、TMDB 专用代理和 TMDB 独立连通性测试；Settings 只授予整理权限，不隐式创建任务或决定完成动作。
 - **刷流辅助**：`/mteam/free-topped` 提供置顶免费资源浏览，用于 ratio boosting。
 - **文件系统 MCP**：可选接入 `@modelcontextprotocol/server-filesystem`，让 Agent 在受限目录内辅助媒体文件整理。
 
@@ -33,7 +35,8 @@
 /download         显式用户动作，提交到 qBittorrent 且默认暂停
 /mteam/free-topped 置顶免费资源浏览
 /memory/*         记忆 inbox、curation、apply
-/settings/*       下载授权与 TMDB 网络设置
+/tasks/*          后台下载监督任务与事件
+/settings/*       下载授权、后台整理授权与 TMDB 网络设置
 ```
 
 常见工作流：
@@ -42,7 +45,7 @@
 2. Agent 先用 Tavily/TMDB 澄清作品，再用 M-Team 搜索资源候选。
 3. 你从候选里选择，或让 Agent 按体积、做种、字幕继续筛选。
 4. 下载前弹出审批卡；批准后 qB 任务以暂停状态加入下载器。
-5. 后续可以在下载面板、qB 工具或文件系统 MCP 辅助整理媒体文件。
+5. Agent 可按本次明确意图持续监督、未来检查、通知或整理；修改监控性质和取消任务仍需审批。
 
 ## 架构概览
 
@@ -71,7 +74,7 @@ ToolCallingAgent
   paused_loop approval resume
         │
         ├─ Read tools: time, memory_search, M-Team, Tavily, TMDB, qB list/detail
-        ├─ Write/action tools: remember_this, qB add/control/speed
+        ├─ Write/action tools: remember_this, qB add/control/speed, monitor/update/cancel
         ├─ Skill tool: skill_load
         └─ MCP tools: filesystem read/write/list/move/search...
         │
@@ -105,7 +108,7 @@ NasClawBot 的核心工程边界在 `hello_agents/` 与 `app/agent/runner.py`：
 
 ## 工具集
 
-当前基础工具共 20 个，另有 14 个 filesystem MCP 工具在启用时动态注册。
+当前基础工具共 24 个，另有 14 个 filesystem MCP 工具在启用时动态注册。
 
 | 类型 | 工具 |
 | --- | --- |
@@ -114,6 +117,7 @@ NasClawBot 的核心工程边界在 `hello_agents/` 与 `app/agent/runner.py`：
 | PT/站点信息 | `member_profile` |
 | qB 只读 | `qb_list_torrents`, `qb_get_torrent`, `qb_list_tags` |
 | qB 动作 | `qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed` |
+| 后台任务 | `monitor_download`, `update_download_monitor`, `task_list`, `task_cancel` |
 | 技能 | `skill_load` |
 | MCP filesystem | `mcp_filesystem_read_file`, `write_file`, `edit_file`, `list_directory`, `move_file`, `search_files`, `get_file_info` 等 |
 
@@ -201,7 +205,7 @@ description: 影视文件重命名与目录结构规范。
 | LLM | DeepSeek 或任意 OpenAI-compatible API |
 | 外部集成 | M-Team, TMDB, Tavily, qBittorrent |
 | MCP | `@modelcontextprotocol/server-filesystem` via `npx` |
-| 持久化 | JSON checkpoint, markdown memory, Settings JSON |
+| 持久化 | JSON checkpoint, markdown memory, Settings JSON, SQLite runtime tasks/events |
 | 部署 | Docker / docker compose |
 
 ## 快速开始
@@ -273,7 +277,7 @@ docker compose up -d --build
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `DATABASE_PATH` | 预留 SQLite 路径 | `nas_media_agent.db` |
 
-Settings 面板中的下载授权策略会写入 `memory/settings/download-authorization.json`；TMDB 代理设置会写入 `memory/settings/tmdb-network.json`。TMDB 代理只影响 TMDB 请求，不会影响 qB、M-Team、Tavily、LLM 或本地服务。
+Settings 面板中的下载授权策略写入 `memory/settings/download-authorization.json`，后台整理授权写入 `memory/settings/organization-authorization.json`；TMDB 代理设置写入 `memory/settings/tmdb-network.json`。后台整理授权不包含默认完成动作；TMDB 代理只影响 TMDB 请求，不会影响 qB、M-Team、Tavily、LLM 或本地服务。
 
 ## API 概览
 
@@ -288,6 +292,10 @@ Settings 面板中的下载授权策略会写入 `memory/settings/download-autho
 | `POST` | `/chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` | 批准待审批工具调用 |
 | `POST` | `/chat/agent/sessions/{session_id}/approvals/{approval_id}/deny` | 拒绝待审批工具调用 |
 | `POST` | `/download` | 显式提交下载到 qB，默认暂停 |
+| `GET` | `/tasks` | 列出安全的后台任务视图 |
+| `GET` | `/tasks/{task_id}` | 获取后台任务安全详情 |
+| `POST` | `/tasks/{task_id}/cancel` | 取消尚未运行的任务 |
+| `PATCH` | `/tasks/{task_id}/download-monitor` | 原子修改下载监控 |
 | `GET` | `/qb/torrents` | 列出 qB 任务 |
 | `GET` | `/qb/torrents/{hash}` | 获取 qB 任务详情 |
 | `POST` | `/qb/torrents/{hash}/actions` | 控制 qB 任务 |
@@ -297,6 +305,8 @@ Settings 面板中的下载授权策略会写入 `memory/settings/download-autho
 | `PATCH` | `/memory/curate/apply` | 应用记忆整理结果 |
 | `GET` | `/settings/download-authorization` | 读取下载授权策略 |
 | `PUT` | `/settings/download-authorization` | 更新下载授权策略 |
+| `GET` | `/settings/organization-authorization` | 读取后台整理授权 |
+| `PUT` | `/settings/organization-authorization` | 更新后台整理授权 |
 | `GET` | `/settings/tmdb-network` | 读取 TMDB 网络设置 |
 | `PUT` | `/settings/tmdb-network` | 更新 TMDB 网络设置 |
 | `GET` | `/health` | 基础健康检查 |
@@ -381,10 +391,11 @@ npm run dev
 - [x] markdown 长期记忆、inbox、curation 面板
 - [x] filesystem MCP 集成
 - [x] 刷流资源浏览
+- [x] SQLite 持久化下载监督、任务事件与自动下载后整理
 
 ### 后续方向
 
-- [ ] 媒体库整理：命名规则、自动归档、字幕/刮削状态检查
+- [ ] 媒体库整理增强：字幕/刮削状态检查与幂等重试对账
 - [ ] 缺集与重复版本检测
 - [ ] 订阅与追更提醒
 - [ ] 基于长期记忆的推荐

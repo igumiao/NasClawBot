@@ -1,9 +1,9 @@
-import type { DownloadAuthorizationPolicy, OrganizationAutomationPolicy, TMDBNetworkSettings } from "../types/api";
+import type { DownloadAuthorizationPolicy, OrganizationAuthorizationPolicy, TMDBNetworkSettings } from "../types/api";
 import { putJson, readJson } from "./http";
 
 const DOWNLOAD_AUTHORIZATION_URL = "/settings/download-authorization";
 const TMDB_NETWORK_URL = "/settings/tmdb-network";
-const ORGANIZATION_AUTOMATION_URL = "/settings/organization-automation";
+const ORGANIZATION_AUTHORIZATION_URL = "/settings/organization-authorization";
 
 export const settingsApi = {
   async getDownloadAuthorization(signal?: AbortSignal): Promise<DownloadAuthorizationPolicy> {
@@ -30,15 +30,15 @@ export const settingsApi = {
     return putJson<TMDBNetworkSettings>(TMDB_NETWORK_URL, settings, signal);
   },
 
-  async getOrganizationPolicy(signal?: AbortSignal): Promise<OrganizationAutomationPolicy> {
-    const response = await fetch(ORGANIZATION_AUTOMATION_URL, { signal });
-    return readJson<OrganizationAutomationPolicy>(response);
+  async getOrganizationAuthorizationPolicy(signal?: AbortSignal): Promise<OrganizationAuthorizationPolicy> {
+    const response = await fetch(ORGANIZATION_AUTHORIZATION_URL, { signal });
+    return readJson<OrganizationAuthorizationPolicy>(response);
   },
 
-  updateOrganizationPolicy(
-    policy: OrganizationAutomationPolicy,
+  updateOrganizationAuthorizationPolicy(
+    policy: OrganizationAuthorizationPolicy,
     signal?: AbortSignal,
-  ): Promise<OrganizationAutomationPolicy> {
-    return putJson<OrganizationAutomationPolicy>(ORGANIZATION_AUTOMATION_URL, policy, signal);
+  ): Promise<OrganizationAuthorizationPolicy> {
+    return putJson<OrganizationAuthorizationPolicy>(ORGANIZATION_AUTHORIZATION_URL, policy, signal);
   },
 };

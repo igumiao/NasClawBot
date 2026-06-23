@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, computed_field
 
 from app.domain.authorization import DownloadAuthorizationPolicy
 from app.domain.models import ResourceCandidate
-from app.domain.organization import OrganizationAutomationPolicy
+from app.domain.organization import OrganizationAuthorizationPolicy
 from app.domain.tmdb_network import TMDBNetworkSettings
 
 
@@ -161,11 +161,7 @@ class DownloadResponse(BaseModel):
     status: str
     receipt: dict[str, Any] | None = None
     error: str | None = None
-    watch_task_id: str = ""
-    """Runtime task ID for the watch task spawned to track this download."""
-
-    resolved_follow_up: dict[str, Any] | None = None
-    """How the after-download follow-up mode was resolved for this item."""
+    watch_task_id: str | None = None
 
 
 class QBTorrentSummary(BaseModel):
@@ -262,8 +258,8 @@ class DownloadAuthorizationPolicyResponse(DownloadAuthorizationPolicy):
     """Settings response for download authorization policy."""
 
 
-class OrganizationAutomationPolicyResponse(OrganizationAutomationPolicy):
-    """Settings response for organization automation policy."""
+class OrganizationAuthorizationPolicyResponse(OrganizationAuthorizationPolicy):
+    """Settings response for background organization authorization."""
 
 
 class MemoryInboxEntry(BaseModel):
@@ -338,9 +334,13 @@ class TaskSummary(BaseModel):
     kind: str
     status: str
     run_after: str | None = None
+    description: str = ""
+    torrent_hash: str | None = None
+    torrent_name: str | None = None
+    mode: str | None = None
+    on_completed: str | None = None
     source_session_id: str | None = None
     parent_task_id: str | None = None
-    attempts: int = 0
     created_at: str
     updated_at: str
     started_at: str | None = None
@@ -374,17 +374,18 @@ class TaskDetail(BaseModel):
     kind: str
     status: str
     run_after: str | None = None
+    description: str = ""
+    torrent_hash: str | None = None
+    torrent_name: str | None = None
+    mode: str | None = None
+    on_completed: str | None = None
     source_session_id: str | None = None
     parent_task_id: str | None = None
     child_task_ids: list[str] = Field(default_factory=list)
-    attempts: int = 0
-    failure_count: int = 0
-    max_failure_attempts: int = 8
     created_at: str
     updated_at: str
     started_at: str | None = None
     completed_at: str | None = None
-    latest_run: WorkerRunSummary | None = None
 
 
 class TaskDetailResponse(BaseModel):

@@ -31,6 +31,14 @@ const MOCK_TMDB_NETWORK_RESPONSE = {
   proxy_url: ""
 };
 
+const MOCK_ORGANIZATION_AUTHORIZATION_RESPONSE = {
+  background_organization_allowed: false,
+  allowed_source_path_prefixes: ["/downloads"],
+  destination_root: "/media",
+  allow_delete: false,
+  allow_overwrite: false
+};
+
 function mockSettingsFetch() {
   return vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const url = String(input);
@@ -55,6 +63,13 @@ function mockSettingsFetch() {
     }
     if (url === "/settings/tmdb-network") {
       const body = init?.method === "PUT" ? init.body : JSON.stringify(MOCK_TMDB_NETWORK_RESPONSE);
+      return Promise.resolve(new Response(String(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    }
+    if (url === "/settings/organization-authorization") {
+      const body = init?.method === "PUT" ? init.body : JSON.stringify(MOCK_ORGANIZATION_AUTHORIZATION_RESPONSE);
       return Promise.resolve(new Response(String(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -145,6 +160,12 @@ describe("SettingsPanel", () => {
           headers: { "Content-Type": "application/json" },
         }));
       }
+      if (url === "/settings/organization-authorization") {
+        return Promise.resolve(new Response(JSON.stringify(MOCK_ORGANIZATION_AUTHORIZATION_RESPONSE), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
       return Promise.resolve(new Response("{}", { status: 404 }));
     });
 
@@ -220,5 +241,39 @@ describe("SettingsPanel", () => {
     expect(screen.getAllByText("未测试")).toHaveLength(3);
 
     expect(screen.getByText(/123\.4 ms/)).toBeInTheDocument();
+  });
+
+  it("saves background organization authorization without a default action", async () => {
+    const fetchSpy = mockSettingsFetch();
+
+    render(
+      <SettingsPanel
+        id="workspace-panel-settings"
+        labelledBy="workspace-tab-settings"
+        sessionId="session-org"
+      />,
+    );
+
+    expect(await screen.findByLabelText("后台整理授权")).toBeInTheDocument();
+    expect(screen.queryByLabelText("下载完成后")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("允许经审批的后台任务执行整理"));
+    await userEvent.clear(screen.getByLabelText("允许的来源路径前缀"));
+    await userEvent.type(screen.getByLabelText("允许的来源路径前缀"), "/downloads/tv\n/downloads/movies");
+    await userEvent.clear(screen.getByLabelText("目标根路径"));
+    await userEvent.type(screen.getByLabelText("目标根路径"), "/media/library");
+    await userEvent.click(screen.getByRole("button", { name: "保存后台整理授权" }));
+
+    expect(await screen.findByText("已保存后台整理授权。")).toBeInTheDocument();
+    const putCall = fetchSpy.mock.calls.find(
+      ([url, init]) => String(url) === "/settings/organization-authorization" && init?.method === "PUT",
+    );
+    expect(putCall).toBeTruthy();
+    expect(JSON.parse(String(putCall?.[1]?.body))).toEqual({
+      background_organization_allowed: true,
+      allowed_source_path_prefixes: ["/downloads/tv", "/downloads/movies"],
+      destination_root: "/media/library",
+      allow_delete: false,
+      allow_overwrite: false
+    });
   });
 });

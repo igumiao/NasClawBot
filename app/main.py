@@ -77,26 +77,31 @@ async def _app_lifespan(_app: FastAPI):
             error_backoff_max=settings.download_watch_error_backoff_max_seconds,
         ),
     )
-    setup_organize_download_handler(runtime=task_runtime)
+    from app.services.organization_policy_store import (
+        OrganizationAuthorizationPolicyStore,
+    )
+
+    settings_dir = Path(__file__).resolve().parents[1] / "memory" / "settings"
+    organization_authorization_store = OrganizationAuthorizationPolicyStore(
+        settings_dir
+    )
+    setup_organize_download_handler(
+        runtime=task_runtime,
+        organization_policy_store=organization_authorization_store,
+    )
 
     task_runtime.reconcile_stale_initializing()
     asyncio.create_task(task_runtime.start())
     _app.state.task_runtime = task_runtime
 
     # ── Build shared TaskManagementService for task routes ──
-    from app.services.organization_policy_store import (
-        OrganizationAutomationPolicyStore,
-    )
     from app.services.task_management import TaskManagementService
 
-    _settings_dir = Path(__file__).resolve().parent / "memory" / "settings"
     task_mgmt = TaskManagementService(
         scheduler=task_runtime.scheduler,
-        qb_adapter=qb,
-        organization_policy_store=OrganizationAutomationPolicyStore(_settings_dir),
-        clock=lambda: datetime.now(timezone.utc),
     )
     _app.state.task_management_service = task_mgmt
+    _app.state.organization_authorization_store = organization_authorization_store
 
     try:
         yield

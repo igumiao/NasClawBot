@@ -16,7 +16,6 @@ from typing import Any
 
 import pytest
 
-from app.domain.downloads import FOLLOW_UP_AUTO_ORGANIZE, FOLLOW_UP_NOTIFY_ONLY
 from app.domain.runtime_tasks import (
     Complete,
     Fail,
@@ -32,6 +31,10 @@ from app.runtime.handlers.download_watch import (
 from app.runtime.scheduler import TaskScheduler
 from app.runtime.store import RuntimeTaskStore
 from app.storage.db import connect, initialize_schema
+
+
+COMPLETION_ORGANIZE = "organize"
+COMPLETION_NOTIFY = "notify"
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +107,7 @@ def _next_id(prefix: str = "id-") -> str:
 
 
 def _watch_payload(
-    mode: str = FOLLOW_UP_NOTIFY_ONLY,
+    mode: str = COMPLETION_NOTIFY,
     qb_hash: str | None = None,
     torrent_name: str = "",
     save_path: str = "/downloads",
@@ -112,7 +115,7 @@ def _watch_payload(
     source_prefixes: list[str] | None = None,
     destination_root: str = "/media",
 ) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "qb_hash": qb_hash,
         "torrent_name": torrent_name,
         "save_path": save_path,
@@ -120,22 +123,20 @@ def _watch_payload(
         "consecutive_misses": 0,
         "consecutive_errors": 0,
         "last_poll_at": None,
-        "resolved_follow_up": {
-            "mode": mode,
-            "source": "test",
-            "reason": None,
-            "authorization_snapshot": {
-                "policy_id": "test-policy",
-                "policy_version": 1,
-                "authorized_at": datetime.now(timezone.utc).isoformat(),
-                "mode": mode,
-                "allowed_source_prefixes": source_prefixes or ["/downloads"],
-                "destination_root": destination_root,
-                "allow_delete": False,
-                "allow_overwrite": False,
-            },
+        "monitor": {
+            "mode": "until_complete",
+            "on_completed": mode,
         },
     }
+    if mode == COMPLETION_ORGANIZE:
+        payload["authorization_snapshot"] = {
+            "background_organization_allowed": True,
+            "allowed_source_path_prefixes": source_prefixes or ["/downloads"],
+            "destination_root": destination_root,
+            "allow_delete": False,
+            "allow_overwrite": False,
+        }
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +202,7 @@ class TestTagBasedHashResolution:
     ) -> None:
         task = scheduler.enqueue(
             "download_watch",
-            _watch_payload(mode=FOLLOW_UP_NOTIFY_ONLY, qb_hash=None),
+            _watch_payload(mode=COMPLETION_NOTIFY, qb_hash=None),
             source_session_id="session-1",
         )
         tag = f"nasclaw-task-{task.task_id}"
@@ -238,7 +239,7 @@ class TestFullPipeline:
     ) -> None:
         task = scheduler.enqueue(
             "download_watch",
-            _watch_payload(mode=FOLLOW_UP_NOTIFY_ONLY, qb_hash="hash-n1"),
+            _watch_payload(mode=COMPLETION_NOTIFY, qb_hash="hash-n1"),
             source_session_id="session-1",
         )
         fake_qb.torrents_by_hash["hash-n1"] = make_torrent(
@@ -256,7 +257,7 @@ class TestFullPipeline:
     ) -> None:
         task = scheduler.enqueue(
             "download_watch",
-            _watch_payload(mode=FOLLOW_UP_AUTO_ORGANIZE, qb_hash="hash-ao"),
+            _watch_payload(mode=COMPLETION_ORGANIZE, qb_hash="hash-ao"),
             source_session_id="session-1",
         )
         fake_qb.torrents_by_hash["hash-ao"] = make_torrent(
@@ -276,7 +277,7 @@ class TestFullPipeline:
     ) -> None:
         task = scheduler.enqueue(
             "download_watch",
-            _watch_payload(mode=FOLLOW_UP_NOTIFY_ONLY, qb_hash="hash-no-spawn"),
+            _watch_payload(mode=COMPLETION_NOTIFY, qb_hash="hash-no-spawn"),
             source_session_id="session-1",
         )
         fake_qb.torrents_by_hash["hash-no-spawn"] = make_torrent(
@@ -323,7 +324,7 @@ class TestQBResilience:
     """Transient errors, torrent disappearance, paused handling."""
 
     @pytest.mark.asyncio
-    async def test_transient_error_backs_off(
+    async def test_transient_error_uses_bounded_runtime_retry(
         self, scheduler: TaskScheduler, store: RuntimeTaskStore,
         handler: DownloadWatchHandler, fake_qb: FakeQBAdapter,
     ) -> None:
@@ -336,8 +337,9 @@ class TestQBResilience:
         )
         fake_qb.fail_get_torrent = ConnectionError("unavailable")
         outcome1 = await handler(task, store, scheduler)
-        assert isinstance(outcome1, Reschedule)
-        assert outcome1.run_after is not None  # Backoff timestamp.
+        assert isinstance(outcome1, Fail)
+        assert outcome1.retryable is True
+        assert outcome1.code == "QB_TRANSIENT_ERROR"
 
         # Recover and poll again.
         fake_qb.fail_get_torrent = None
@@ -346,7 +348,7 @@ class TestQBResilience:
         assert isinstance(outcome2, Reschedule)  # Incomplete.
 
     @pytest.mark.asyncio
-    async def test_missing_torrent_reschedules_with_miss_count(
+    async def test_missing_torrent_is_terminal_failure(
         self, scheduler: TaskScheduler, store: RuntimeTaskStore,
         handler: DownloadWatchHandler, fake_qb: FakeQBAdapter,
     ) -> None:
@@ -356,10 +358,10 @@ class TestQBResilience:
         )
         fake_qb.torrents_by_hash.pop("hash-gone", None)
 
-        # Handler reschedules with miss count in payload_patch.
         outcome = await handler(task, store, scheduler)
-        assert isinstance(outcome, Reschedule)
-        assert "consecutive_misses" in outcome.payload_patch
+        assert isinstance(outcome, Fail)
+        assert outcome.retryable is False
+        assert outcome.code == "QB_TORRENT_MISSING"
 
     @pytest.mark.asyncio
     async def test_paused_torrent_reschedules_not_fails(
@@ -464,7 +466,7 @@ class TestAmbiguousCorrelation:
     ) -> None:
         task = scheduler.enqueue(
             "download_watch",
-            _watch_payload(mode=FOLLOW_UP_NOTIFY_ONLY, qb_hash=None),
+            _watch_payload(mode=COMPLETION_NOTIFY, qb_hash=None),
             source_session_id="session-1",
         )
         tag = f"nasclaw-task-{task.task_id}"

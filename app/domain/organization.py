@@ -1,26 +1,31 @@
-"""Organization automation policy models."""
+"""Authorization contracts for deterministic background organization."""
 
 from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class OrganizationAutomationPolicy(BaseModel):
-    """User-configured policy for automating media file organization.
+class OrganizationAuthorizationPolicy(BaseModel):
+    """Settings-backed authority boundary; never a behavior default."""
 
-    After a torrent download completes and is seeded, the organization
-    automation system can move/rename media files according to this policy.
-    Deletion and overwrite are permanently disabled for safety.
-    """
+    model_config = {"validate_assignment": True}
 
-    enabled: bool = False
-    default_after_download: Literal["auto_organize", "notify_only"] = "notify_only"
+    background_organization_allowed: bool = False
     allowed_source_path_prefixes: list[str] = Field(default_factory=list)
     destination_root: str = ""
-    allow_delete: bool = Field(default=False, frozen=True)
-    allow_overwrite: bool = Field(default=False, frozen=True)
+    allow_delete: Literal[False] = False
+    allow_overwrite: Literal[False] = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _force_safety_locks(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            value = dict(value)
+            value["allow_delete"] = False
+            value["allow_overwrite"] = False
+        return value
 
     @field_validator("allowed_source_path_prefixes", mode="before")
     @classmethod
@@ -28,7 +33,7 @@ class OrganizationAutomationPolicy(BaseModel):
         if value is None:
             return []
         if isinstance(value, str):
-            value = [line for line in value.splitlines()]
+            value = value.splitlines()
         if not isinstance(value, list):
             return []
         normalized: list[str] = []
@@ -38,16 +43,23 @@ class OrganizationAutomationPolicy(BaseModel):
                 normalized.append(text)
         return normalized
 
-    @field_validator("allow_delete")
+    @field_validator("destination_root", mode="before")
     @classmethod
-    def _force_allow_delete(cls, value: bool) -> bool:
-        return False
-
-    @field_validator("allow_overwrite")
-    @classmethod
-    def _force_allow_overwrite(cls, value: bool) -> bool:
-        return False
+    def _normalize_destination(cls, value: Any) -> str:
+        return str(value or "").strip()
 
 
-def default_organization_automation_policy() -> OrganizationAutomationPolicy:
-    return OrganizationAutomationPolicy()
+class OrganizationAuthorizationSnapshot(BaseModel):
+    """Immutable authority captured when an organize intent is created."""
+
+    background_organization_allowed: Literal[True] = True
+    allowed_source_path_prefixes: list[str]
+    destination_root: str
+    allow_delete: Literal[False] = False
+    allow_overwrite: Literal[False] = False
+
+    model_config = {"frozen": True}
+
+
+def default_organization_authorization_policy() -> OrganizationAuthorizationPolicy:
+    return OrganizationAuthorizationPolicy()

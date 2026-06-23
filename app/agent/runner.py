@@ -88,7 +88,7 @@ from app.domain.models import ResourceCandidate
 from app.domain.runtime_tasks import TaskEvent
 from app.runtime.store import RuntimeTaskStore
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
-from app.services.download_coordinator import DownloadCoordinator
+from app.services.download_automation import DownloadAutomation
 from app.services.markdown_memory_store import MarkdownMemoryStore
 from app.services.tmdb_network_store import TMDBNetworkSettingsStore
 from app.tools import (
@@ -105,10 +105,10 @@ from app.tools import (
     QBControlTorrentTool,
     QBSetGlobalSpeedTool,
     QBSetTorrentSpeedTool,
-    ScheduleDownloadCheckTool,
+    MonitorDownloadTool,
     TaskCancelTool,
     TaskListTool,
-    TaskRescheduleTool,
+    UpdateDownloadMonitorTool,
     TavilySearchTool,
     TMDBSearchTool,
     TMDBDetailsTool,
@@ -191,11 +191,22 @@ def _tool_display_name(tool_name: str) -> str:
         "qb_control_torrent": "种子控制操作",
         "qb_set_global_speed": "全局限速",
         "qb_set_torrent_speed": "种子限速",
-        "schedule_download_check": "定时检查创建",
+        "monitor_download": "下载监控创建",
         "task_cancel": "任务取消",
-        "task_reschedule": "任务改期",
+        "update_download_monitor": "下载监控修改",
     }
     return _LABELS.get(tool_name, f"操作（{tool_name}）")
+
+
+def _requests_background_organization(
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> bool:
+    """Return whether a download add includes background organization."""
+    return (
+        tool_name in {"qb_add_torrent", "qb_add_torrents"}
+        and str(arguments.get("completion_action") or "") == "organize"
+    )
 
 
 def _agent_session_prompt(settings: Any, profile_memory: str = "") -> str:
@@ -275,7 +286,7 @@ class NasClawAgentRunner:
         tool_gate: Gate | None = None,
         approval_summary_enabled: bool = True,
         memory_root: Path | None = None,
-        download_coordinator_factory: Callable[[], DownloadCoordinator] | None = None,
+        download_automation_factory: Callable[[], DownloadAutomation] | None = None,
         runtime_task_store: RuntimeTaskStore | None = None,
         task_management_service_factory: Callable[[], Any] | None = None,
     ):
@@ -305,10 +316,10 @@ class NasClawAgentRunner:
             "tmdb_discover",
             "tmdb_trending",
             "skill_load",
-            "schedule_download_check",
+            "monitor_download",
             "task_list",
             "task_cancel",
-            "task_reschedule",
+            "update_download_monitor",
         ])
         self.tool_gate = tool_gate or Gate(confirm=[
             lambda call: call.tool_name == "qb_add_torrent",
@@ -316,16 +327,16 @@ class NasClawAgentRunner:
             lambda call: call.tool_name == "qb_control_torrent",
             lambda call: call.tool_name == "qb_set_global_speed",
             lambda call: call.tool_name == "qb_set_torrent_speed",
-            lambda call: call.tool_name == "schedule_download_check",
+            lambda call: call.tool_name == "monitor_download",
             lambda call: call.tool_name == "task_cancel",
-            lambda call: call.tool_name == "task_reschedule",
+            lambda call: call.tool_name == "update_download_monitor",
             # MCP filesystem — gating destructive write/edit; move + mkdir are ALLOW
             lambda call: call.tool_name == "mcp_filesystem_write_file",
             lambda call: call.tool_name == "mcp_filesystem_edit_file",
         ])
         self.approval_summary_enabled = approval_summary_enabled
         self.memory_root = memory_root or _MEMORY_DIR
-        self._download_coordinator_factory = download_coordinator_factory
+        self._download_automation_factory = download_automation_factory
         self._runtime_task_store = runtime_task_store
         self._task_management_service_factory = task_management_service_factory
 
@@ -424,15 +435,15 @@ class NasClawAgentRunner:
             )
             return _qb_adapter
 
-    def _build_coordinator(self) -> DownloadCoordinator | None:
-        """Create a DownloadCoordinator via the injected factory.
+    def _build_download_automation(self) -> DownloadAutomation | None:
+        """Create DownloadAutomation via the injected factory.
 
         Returns ``None`` when no factory was provided (e.g. in tests that
         do not exercise the download path).
         """
-        if self._download_coordinator_factory is None:
+        if self._download_automation_factory is None:
             return None
-        return self._download_coordinator_factory()
+        return self._download_automation_factory()
 
     def _build_agent(self, extra_system_text: str = "") -> ToolCallingAgent:
         settings = get_settings()
@@ -458,10 +469,12 @@ class NasClawAgentRunner:
 
         default_save_path = settings.download_default_save_path
 
-        coordinator = self._build_coordinator()
-        if coordinator is not None:
-            registry.register_tool(QBAddTorrentTool(coordinator))
-            registry.register_tool(QBAddTorrentsTool(coordinator))
+        automation = self._build_download_automation()
+        if automation is not None:
+            registry.register_tool(QBAddTorrentTool(automation))
+            registry.register_tool(QBAddTorrentsTool(automation))
+            registry.register_tool(MonitorDownloadTool(automation))
+            registry.register_tool(UpdateDownloadMonitorTool(automation))
         registry.register_tool(QBListTorrentsTool(qb_adapter))
         registry.register_tool(QBGetTorrentTool(qb_adapter))
         registry.register_tool(QBListTagsTool(qb_adapter))
@@ -482,10 +495,8 @@ class NasClawAgentRunner:
         # ── Task management tools (when factory is available) ──
         if self._task_management_service_factory is not None:
             tms = self._task_management_service_factory()
-            registry.register_tool(ScheduleDownloadCheckTool(tms))
             registry.register_tool(TaskListTool(tms))
             registry.register_tool(TaskCancelTool(tms))
-            registry.register_tool(TaskRescheduleTool(tms))
         # ── MCP tools ──────────────────────────────────────────
         mcp_pool = get_mcp_pool()
         if mcp_pool is not None:
@@ -566,9 +577,9 @@ class NasClawAgentRunner:
             "qb_control_torrent",
             "qb_set_global_speed",
             "qb_set_torrent_speed",
-            "schedule_download_check",
+            "monitor_download",
             "task_cancel",
-            "task_reschedule",
+            "update_download_monitor",
         }
         if approval.tool_name not in _EXECUTABLE_TOOLS:
             raise ValueError(f"Tool '{approval.tool_name}' cannot be executed via approval")
@@ -846,6 +857,8 @@ class NasClawAgentRunner:
         default_save_path = get_settings().download_default_save_path
 
         def authorize_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+            if _requests_background_organization(tool_name, arguments):
+                return None
             session_metadata = getattr(agent, "_session_metadata", metadata)
             return authorize_with_session_grant(session_metadata, policy, tool_name, arguments, default_save_path)
 
@@ -856,6 +869,8 @@ class NasClawAgentRunner:
         return DownloadAuthorizationPolicyStore(_SETTINGS_DIR).load()
 
     def _validate_grant_decision(self, approval: ApprovalRecord) -> None:
+        if _requests_background_organization(approval.tool_name, approval.arguments):
+            raise ValueError("Downloads that organize on completion require one-time approval")
         default_save_path = get_settings().download_default_save_path
         info = approval_authorization_info(
             self._load_download_authorization_policy(),
@@ -896,34 +911,35 @@ class NasClawAgentRunner:
 
     def _execute_approved_tool(self, approval: ApprovalRecord) -> ToolResponse:
         tool_name = approval.tool_name
-        if tool_name in ("qb_add_torrent", "qb_add_torrents"):
-            coordinator = self._build_coordinator()
-            if coordinator is None:
+        if tool_name in (
+            "qb_add_torrent",
+            "qb_add_torrents",
+            "monitor_download",
+            "update_download_monitor",
+        ):
+            automation = self._build_download_automation()
+            if automation is None:
                 raise RuntimeError(
-                    "DownloadCoordinator factory not configured — "
-                    "cannot execute download-add approvals."
+                    "DownloadAutomation factory not configured — cannot execute download approvals."
                 )
             if tool_name == "qb_add_torrent":
-                tool = QBAddTorrentTool(coordinator)
+                tool = QBAddTorrentTool(automation)
+            elif tool_name == "qb_add_torrents":
+                tool = QBAddTorrentsTool(automation)
+            elif tool_name == "monitor_download":
+                tool = MonitorDownloadTool(automation)
             else:
-                tool = QBAddTorrentsTool(coordinator)
-        elif tool_name in ("schedule_download_check", "task_cancel", "task_reschedule"):
+                tool = UpdateDownloadMonitorTool(automation)
+            if tool_name != "update_download_monitor" and "idempotency_key" not in approval.arguments:
+                approval.arguments["idempotency_key"] = approval.approval_id
+        elif tool_name == "task_cancel":
             if self._task_management_service_factory is None:
                 raise RuntimeError(
                     "TaskManagementService factory not configured — "
                     "cannot execute task management approvals."
                 )
             tms = self._task_management_service_factory()
-            if tool_name == "schedule_download_check":
-                tool = ScheduleDownloadCheckTool(tms)
-                # Inject the approval id as the idempotency key so retries
-                # of the same approval don't create duplicate tasks.
-                if "idempotency_key" not in approval.arguments:
-                    approval.arguments["idempotency_key"] = approval.approval_id
-            elif tool_name == "task_cancel":
-                tool = TaskCancelTool(tms)
-            else:
-                tool = TaskRescheduleTool(tms)
+            tool = TaskCancelTool(tms)
         else:
             qb_adapter = self._get_qb_adapter()
             if tool_name == "qb_control_torrent":
@@ -1293,9 +1309,15 @@ class NasClawAgentRunner:
         approvals: list[dict[str, Any]] = []
         for raw in deepcopy(agent.last_result.pending_approvals):
             record = create_pending_approval(raw, session_id=session_id)
-            record.authorization = approval_authorization_info(
-                policy, record.tool_name, record.arguments, default_save_path=default_save_path,
-            )
+            if _requests_background_organization(record.tool_name, record.arguments):
+                record.authorization = {
+                    "eligible": False,
+                    "reason": "Downloads that organize on completion require one-time approval",
+                }
+            else:
+                record.authorization = approval_authorization_info(
+                    policy, record.tool_name, record.arguments, default_save_path=default_save_path,
+                )
             approvals.append(record.to_dict())
         return approvals
 

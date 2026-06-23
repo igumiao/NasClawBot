@@ -77,6 +77,7 @@ class TestTableAndIndexExistence:
     INDEX_NAMES = (
         "idx_runtime_tasks_due",
         "idx_runtime_tasks_session",
+        "idx_runtime_tasks_active_exclusive",
         "idx_runtime_task_runs_task",
         "idx_runtime_task_events_session",
     )
@@ -103,6 +104,7 @@ class TestTableAndIndexExistence:
             "status",
             "payload_json",
             "dedupe_key",
+            "exclusive_key",
             "parent_task_id",
             "created_at",
             "updated_at",

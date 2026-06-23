@@ -1,4 +1,4 @@
-"""HTTP routes for organization automation settings and runtime task management."""
+"""HTTP routes for organization authorization and safe task management."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.schemas import (
-    OrganizationAutomationPolicyResponse,
+    OrganizationAuthorizationPolicyResponse,
     TaskCancelResponse,
     TaskDetail,
     TaskDetailResponse,
@@ -17,18 +17,23 @@ from app.api.schemas import (
     TaskEventSummary,
     TaskListResponse,
     TaskSummary,
-    WorkerRunSummary,
 )
-from app.domain.organization import OrganizationAutomationPolicy
-from app.domain.runtime_tasks import TaskEvent, is_terminal
+from app.domain.organization import OrganizationAuthorizationPolicy
+from app.domain.runtime_tasks import TaskEvent
 from app.runtime.store import RuntimeTaskStore
-from app.services.organization_policy_store import OrganizationAutomationPolicyStore
+from app.services.organization_policy_store import OrganizationAuthorizationPolicyStore
+from app.services.task_management import (
+    TaskListQuery,
+    TaskManagementError,
+    TaskManagementService,
+    TaskView,
+)
 
 _SETTINGS_DIR = Path(__file__).resolve().parents[2] / "memory" / "settings"
 
 
-def _organization_policy_store() -> OrganizationAutomationPolicyStore:
-    return OrganizationAutomationPolicyStore(_SETTINGS_DIR)
+def _organization_policy_store() -> OrganizationAuthorizationPolicyStore:
+    return OrganizationAuthorizationPolicyStore(_SETTINGS_DIR)
 
 
 def _get_runtime_store(request: Request) -> RuntimeTaskStore:
@@ -44,12 +49,19 @@ def _get_runtime_store(request: Request) -> RuntimeTaskStore:
     return runtime.store
 
 
+def _get_task_management(request: Request) -> TaskManagementService:
+    service = getattr(request.app.state, "task_management_service", None)
+    if service is None:
+        raise HTTPException(status_code=503, detail="Task management not available")
+    return service
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
 
-def _task_to_summary(task: Any) -> TaskSummary:
+def _task_to_summary(task: TaskView) -> TaskSummary:
     """Convert a ``RuntimeTask`` (or compatible dict) to ``TaskSummary``.
 
     Secrets (payload, result, error) are intentionally excluded.
@@ -57,11 +69,15 @@ def _task_to_summary(task: Any) -> TaskSummary:
     return TaskSummary(
         task_id=task.task_id,
         kind=task.kind,
-        status=task.status.value if hasattr(task.status, "value") else str(task.status),
+        status=task.status,
         run_after=task.run_after,
+        description=task.description,
+        torrent_hash=task.torrent_hash,
+        torrent_name=task.torrent_name,
+        mode=task.mode,
+        on_completed=task.on_completed,
         source_session_id=task.source_session_id,
         parent_task_id=task.parent_task_id,
-        attempts=task.attempts,
         created_at=task.created_at,
         updated_at=task.updated_at,
         started_at=task.started_at,
@@ -69,11 +85,7 @@ def _task_to_summary(task: Any) -> TaskSummary:
     )
 
 
-def _task_to_detail(
-    task: Any,
-    child_ids: list[str],
-    latest_run: Any | None,
-) -> TaskDetail:
+def _task_to_detail(task: TaskView, child_ids: list[str]) -> TaskDetail:
     """Convert a ``RuntimeTask`` to ``TaskDetail`` with relations.
 
     Secrets (payload, result, error) are intentionally excluded.
@@ -81,27 +93,21 @@ def _task_to_detail(
     detail = TaskDetail(
         task_id=task.task_id,
         kind=task.kind,
-        status=task.status.value if hasattr(task.status, "value") else str(task.status),
+        status=task.status,
         run_after=task.run_after,
+        description=task.description,
+        torrent_hash=task.torrent_hash,
+        torrent_name=task.torrent_name,
+        mode=task.mode,
+        on_completed=task.on_completed,
         source_session_id=task.source_session_id,
         parent_task_id=task.parent_task_id,
         child_task_ids=child_ids,
-        attempts=task.attempts,
-        failure_count=task.failure_count,
-        max_failure_attempts=task.max_failure_attempts,
         created_at=task.created_at,
         updated_at=task.updated_at,
         started_at=task.started_at,
         completed_at=task.completed_at,
     )
-    if latest_run is not None:
-        detail.latest_run = WorkerRunSummary(
-            run_id=latest_run.run_id,
-            attempt=latest_run.attempt,
-            status=latest_run.status.value if hasattr(latest_run.status, "value") else str(latest_run.status),
-            started_at=latest_run.started_at,
-            completed_at=latest_run.completed_at,
-        )
     return detail
 
 
@@ -134,25 +140,25 @@ def build_task_router() -> APIRouter:
     # ======================================================================
 
     @router.get(
-        "/settings/organization-automation",
-        response_model=OrganizationAutomationPolicyResponse,
+        "/settings/organization-authorization",
+        response_model=OrganizationAuthorizationPolicyResponse,
     )
-    def get_organization_automation_policy() -> OrganizationAutomationPolicyResponse:
+    def get_organization_authorization_policy() -> OrganizationAuthorizationPolicyResponse:
         """Return the user-configured organization automation policy.
 
         This policy controls whether and how media files are automatically
         organized after torrent downloads complete.
         """
         policy = _organization_policy_store().load()
-        return OrganizationAutomationPolicyResponse.model_validate(policy.model_dump())
+        return OrganizationAuthorizationPolicyResponse.model_validate(policy.model_dump())
 
     @router.put(
-        "/settings/organization-automation",
-        response_model=OrganizationAutomationPolicyResponse,
+        "/settings/organization-authorization",
+        response_model=OrganizationAuthorizationPolicyResponse,
     )
-    def update_organization_automation_policy(
-        body: OrganizationAutomationPolicy,
-    ) -> OrganizationAutomationPolicyResponse:
+    def update_organization_authorization_policy(
+        body: OrganizationAuthorizationPolicy,
+    ) -> OrganizationAuthorizationPolicyResponse:
         """Persist the user-configured organization automation policy.
 
         Accepts the policy fields; ``allow_delete`` and ``allow_overwrite``
@@ -160,7 +166,7 @@ def build_task_router() -> APIRouter:
         value.
         """
         policy = _organization_policy_store().save(body)
-        return OrganizationAutomationPolicyResponse.model_validate(policy.model_dump())
+        return OrganizationAuthorizationPolicyResponse.model_validate(policy.model_dump())
 
     # ======================================================================
     # Runtime Task endpoints (Task 10)
@@ -179,13 +185,12 @@ def build_task_router() -> APIRouter:
         Returns compact task summaries without payload, result, or error
         details to avoid leaking secrets or tokenized URLs.
         """
-        store = _get_runtime_store(request)
-        tasks = store.list_tasks(
+        tasks = _get_task_management(request).list_tasks(TaskListQuery(
             source_session_id=source_session_id,
             status=status,
             kind=kind,
             limit=limit,
-        )
+        ))
         return TaskListResponse(
             tasks=[_task_to_summary(t) for t in tasks],
             total_count=len(tasks),
@@ -202,18 +207,16 @@ def build_task_router() -> APIRouter:
         Payload, result, and error details are excluded to avoid leaking
         secrets or tokenized URLs.
         """
-        store = _get_runtime_store(request)
         try:
-            task, runs = store.get_task_with_runs(task_id)
-        except ValueError:
+            service = _get_task_management(request)
+            task = service.get_task(task_id)
+        except TaskManagementError:
             raise HTTPException(status_code=404, detail=f"Task {task_id!r} not found")
 
         # Find child tasks (tasks whose parent_task_id equals this task_id).
-        children = store.list_tasks(limit=500)
+        children = service.list_tasks(TaskListQuery(limit=200))
         child_ids = [c.task_id for c in children if c.parent_task_id == task_id]
-
-        latest_run = runs[0] if runs else None
-        detail = _task_to_detail(task, child_ids, latest_run)
+        detail = _task_to_detail(task, child_ids)
         return TaskDetailResponse(task=detail)
 
     @router.post("/tasks/{task_id}/cancel", response_model=TaskCancelResponse)
@@ -226,28 +229,17 @@ def build_task_router() -> APIRouter:
         Idempotent: cancelling an already-terminal task returns the existing
         state without changes.
         """
-        store = _get_runtime_store(request)
-
-        # Load current state for previous_status reporting.
-        task = store.get(task_id)
-        if task is None:
-            raise HTTPException(status_code=404, detail=f"Task {task_id!r} not found")
-
-        previous_status = task.status.value if hasattr(task.status, "value") else str(task.status)
-
-        if is_terminal(task.status):
-            return TaskCancelResponse(
-                task_id=task_id,
-                status=task.status.value if hasattr(task.status, "value") else str(task.status),
-                previous_status=previous_status,
-            )
-
-        now = _utc_now()
-        updated = store.cancel(task_id, now=now)
+        service = _get_task_management(request)
+        try:
+            previous = service.get_task(task_id)
+            updated = service.cancel_task(task_id)
+        except TaskManagementError as exc:
+            status_code = 404 if exc.code == "TASK_NOT_FOUND" else 409
+            raise HTTPException(status_code=status_code, detail=exc.message)
         return TaskCancelResponse(
             task_id=task_id,
-            status=updated.status.value if hasattr(updated.status, "value") else str(updated.status),
-            previous_status=previous_status,
+            status=updated.status,
+            previous_status=previous.status,
         )
 
     @router.get("/task-events", response_model=TaskEventListResponse)

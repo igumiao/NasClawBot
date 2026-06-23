@@ -38,9 +38,9 @@ from app.config import get_settings
 from app.domain.authorization import DownloadAuthorizationPolicy
 from app.domain.downloads import DownloadSubmissionRequest
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
-from app.services.download_coordinator import DownloadCoordinator
+from app.services.download_automation import DownloadAutomation
 from app.services.download_submission import DownloadSubmission
-from app.services.organization_policy_store import OrganizationAutomationPolicyStore
+from app.services.organization_policy_store import OrganizationAuthorizationPolicyStore
 from app.services.tmdb_network_store import TMDBNetworkSettingsStore
 from app.runtime.scheduler import TaskScheduler
 from app.runtime.store import RuntimeTaskStore
@@ -127,18 +127,18 @@ def _get_task_db_path() -> Path:
     return Path(get_settings().task_db_path)
 
 
-def _build_download_coordinator_factory(
+def _build_download_automation_factory(
     default_tags: list[str] | None = None,
-) -> Callable[[], DownloadCoordinator]:
-    """Return a factory that creates a DownloadCoordinator on demand.
+) -> Callable[[], DownloadAutomation]:
+    """Return a factory that creates DownloadAutomation on demand.
 
     Each call to the factory builds a fresh coordinator wired with a new
     MTeam/QB adapter pair, the shared SQLite task store, and the
-    organization-automation policy store.  The coordinator itself is
-    stateless so a new instance per invocation is safe.
+    organization authorization store. The service is stateless, so a new
+    instance per invocation is safe.
     """
 
-    def factory() -> DownloadCoordinator:
+    def factory() -> DownloadAutomation:
         settings = get_settings()
         mteam = _build_mteam_adapter()
         qb = _build_qb_adapter()
@@ -160,13 +160,24 @@ def _build_download_coordinator_factory(
             clock=_utc_now,
             id_factory=_uuid_hex,
         )
-        policy_store = OrganizationAutomationPolicyStore(_SETTINGS_DIR)
-        return DownloadCoordinator(
+        policy_store = OrganizationAuthorizationPolicyStore(_SETTINGS_DIR)
+        allowed_dirs: list[str] = []
+        if bool(getattr(settings, "mcp_fs_enabled", True)):
+            allowed_dirs = [
+                item.strip()
+                for item in str(getattr(settings, "mcp_fs_allowed_dirs", "")).split(",")
+                if item.strip()
+            ]
+            if not allowed_dirs:
+                allowed_dirs = [str(Path(__file__).resolve().parents[2] / "test-media")]
+        return DownloadAutomation(
             submission=submission,
+            qb_adapter=qb,
             scheduler=scheduler,
             policy_store=policy_store,
             clock=_utc_now,
             id_factory=_uuid_hex,
+            mcp_allowed_dirs=allowed_dirs,
         )
 
     return factory
@@ -185,9 +196,6 @@ def _build_task_management_service_factory() -> Callable[[], Any]:
     """
     from app.runtime.scheduler import TaskScheduler
     from app.runtime.store import RuntimeTaskStore
-    from app.services.organization_policy_store import (
-        OrganizationAutomationPolicyStore,
-    )
     from app.services.task_management import TaskManagementService
 
     task_db_path = _get_task_db_path()
@@ -204,20 +212,13 @@ def _build_task_management_service_factory() -> Callable[[], Any]:
             clock=_utc_now,
             id_factory=_uuid_hex,
         )
-        qb = _build_qb_adapter()
-        org_policy_store = OrganizationAutomationPolicyStore(settings_dir)
-        return TaskManagementService(
-            scheduler=scheduler,
-            qb_adapter=qb,
-            organization_policy_store=org_policy_store,
-            clock=_utc_now,
-        )
+        return TaskManagementService(scheduler=scheduler)
 
     return factory
 
 
 def _build_agent_runner() -> NasClawAgentRunner:
-    """Build a NasClawAgentRunner wired with a DownloadCoordinator factory,
+    """Build a NasClawAgentRunner wired with a DownloadAutomation factory,
     the shared RuntimeTaskStore, and the TaskManagementService factory.
 
     The Agent tools use the default ``["mteam"]`` tag set, matching the
@@ -233,7 +234,7 @@ def _build_agent_runner() -> NasClawAgentRunner:
     )
     return NasClawAgentRunner(
         checkpoint_store=_agent_checkpoint_store(),
-        download_coordinator_factory=_build_download_coordinator_factory(
+        download_automation_factory=_build_download_automation_factory(
             default_tags=["mteam"],
         ),
         runtime_task_store=runtime_store,
@@ -546,37 +547,28 @@ def build_router() -> APIRouter:
     def download(request: DownloadRequest) -> DownloadResponse:
         """Explicitly add one M-Team torrent to qBittorrent in paused mode."""
 
-        coord = _build_download_coordinator_factory(default_tags=["刷流"])()
+        automation = _build_download_automation_factory(default_tags=["刷流"])()
         req = DownloadSubmissionRequest(
             torrent_id=request.torrent_id,
             qb_category=request.qb_category,
             save_path=request.save_path or None,
             tag=None,
-            after_download=None,
         )
-        result = coord.submit(req, source_session_id=None)
+        result = automation.submit_downloads(
+            [req], completion_action="none", source_session_id=None
+        ).items[0]
 
         if result.status == "accepted":
             return DownloadResponse(
                 status="completed",
                 receipt=result.submission_receipt,
                 watch_task_id=result.watch_task_id,
-                resolved_follow_up=(
-                    result.resolved_follow_up.model_dump()
-                    if result.resolved_follow_up
-                    else None
-                ),
             )
 
         return DownloadResponse(
             status="error",
             error=result.error or "Unknown submission error",
-            watch_task_id="",
-            resolved_follow_up=(
-                result.resolved_follow_up.model_dump()
-                if result.resolved_follow_up
-                else None
-            ),
+            watch_task_id=None,
         )
 
     @router.get("/favicon.png", response_class=FileResponse)

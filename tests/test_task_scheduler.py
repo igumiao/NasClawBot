@@ -258,6 +258,18 @@ class TestPayloadSerialization:
         activated = scheduler.activate(task.task_id, {"patch": "applied"})
         assert activated.payload == {"initial": True, "patch": "applied"}
 
+    def test_exclusive_key_and_monitor_update_wrappers(
+        self, scheduler: TaskScheduler
+    ) -> None:
+        task = scheduler.enqueue(
+            "download_watch",
+            {"qb_hash": "abc", "monitor": {"mode": "until_complete", "on_completed": "notify"}},
+            exclusive_key="download-monitor:abc",
+        )
+        assert task.exclusive_key == "download-monitor:abc"
+        updated = scheduler.update_download_monitor(task.task_id, mode="once")
+        assert updated.payload["monitor"]["mode"] == "once"
+
     def test_fail_initialization_error_round_trip(self, scheduler: TaskScheduler) -> None:
         task = scheduler.prepare("test")
         error = {"code": "TIMEOUT", "message": f"下载超时 {self.CHINESE_TITLE}"}

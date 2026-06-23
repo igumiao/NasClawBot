@@ -11,7 +11,6 @@ from app.agent.runner import NasClawAgentRunner, _reset_module_qb_adapter
 from app.domain.downloads import (
     BatchDownloadSubmissionResult,
     DownloadSubmissionResult,
-    ResolvedFollowUp,
 )
 from hello_agents.checkpoints import ConversationCheckpoint, JSONConversationCheckpointStore
 from hello_agents.core.llm_response import LLMResponse, LLMToolResponse, ToolCall
@@ -92,8 +91,8 @@ class FakeQBAdapter:
         return {"ok": True, "status": "submitted_paused", "qb_hash": "fake-hash"}
 
 
-class FakeDownloadCoordinator:
-    """Mock DownloadCoordinator that records submission requests.
+class FakeDownloadAutomation:
+    """Mock download automation that records submission requests.
 
     Records calls in FakeQBAdapter.calls so existing tests that verify
     ``paused=True`` continue to pass.
@@ -102,11 +101,17 @@ class FakeDownloadCoordinator:
     def __init__(self) -> None:
         pass
 
-    def submit(
+    def submit_downloads(
         self,
-        request: Any,
+        requests: list[Any],
+        completion_action: str,
         source_session_id: str | None = None,
-    ) -> DownloadSubmissionResult:
+        idempotency_key: str = "",
+    ) -> BatchDownloadSubmissionResult:
+        items = [self._submit(request) for request in requests]
+        return BatchDownloadSubmissionResult(items=items)
+
+    def _submit(self, request: Any) -> DownloadSubmissionResult:
         # Populate FakeQBAdapter.calls so existing assertions on paused=True pass.
         FakeQBAdapter.calls.append({
             "paused": True,
@@ -119,7 +124,6 @@ class FakeDownloadCoordinator:
             torrent_id=request.torrent_id,
             status="accepted",
             watch_task_id="fake-watch-task",
-            resolved_follow_up=ResolvedFollowUp(mode="none", source="fallback"),
             submission_receipt={
                 "resource_title": f"Detail for {request.torrent_id}",
                 "external_id": request.torrent_id,
@@ -130,13 +134,6 @@ class FakeDownloadCoordinator:
             },
         )
 
-    def submit_many(
-        self,
-        requests: list[Any],
-        source_session_id: str | None = None,
-    ) -> BatchDownloadSubmissionResult:
-        items = [self.submit(req, source_session_id=source_session_id) for req in requests]
-        return BatchDownloadSubmissionResult(items=items)
 
 
 class FakeLLM:
@@ -243,7 +240,7 @@ def test_nasclaw_agent_runner_persists_and_restores_checkpoint(tmp_path, monkeyp
         "member_profile",
         "memory_search",
         "mteam_search",
-        # qb_add_torrent and qb_add_torrents require a DownloadCoordinator
+        # Download-add tools are registered only when automation is configured.
         # factory which is not configured in this test.
         "qb_control_torrent",
         "qb_get_torrent",
@@ -448,7 +445,7 @@ def test_nasclaw_agent_runner_gates_download_tool_by_default(tmp_path, monkeypat
                 ToolCall(
                     id="call-download",
                     name="qb_add_torrent",
-                    arguments='{"torrent_id":"123","qb_category":"movie"}',
+                        arguments='{"torrent_id":"123","qb_category":"movie","completion_action":"notify"}',
                 )
             ],
             model="fake-model",
@@ -457,14 +454,17 @@ def test_nasclaw_agent_runner_gates_download_tool_by_default(tmp_path, monkeypat
     store = JSONConversationCheckpointStore(tmp_path)
     runner = NasClawAgentRunner(
         checkpoint_store=store,
-        download_coordinator_factory=lambda: FakeDownloadCoordinator(),
+        download_automation_factory=lambda: FakeDownloadAutomation(),
     )
 
     result = runner.run("session-download", "下载 123")
 
     assert result.status == "awaiting_approval"
     assert result.pending_approvals[0]["tool_name"] == "qb_add_torrent"
-    assert result.pending_approvals[0]["arguments"] == {"torrent_id": "123", "qb_category": "movie", "save_path": "/tmp/test-downloads"}
+    assert result.pending_approvals[0]["arguments"] == {
+        "torrent_id": "123", "qb_category": "movie",
+        "completion_action": "notify", "save_path": "/tmp/test-downloads",
+    }
     assert result.pending_approvals[0]["session_id"] == "session-download"
     assert result.pending_approvals[0]["expires_at"]
     assert result.pending_approvals[0]["decision"] is None
@@ -482,7 +482,10 @@ def test_nasclaw_agent_runner_gates_download_tool_by_default(tmp_path, monkeypat
     assert checkpoint.metadata["runtime_state"]["pending_action"] == {
         "approval_id": result.pending_approvals[0]["approval_id"],
         "tool_name": "qb_add_torrent",
-        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+            "arguments": {
+                "torrent_id": "123", "qb_category": "movie",
+                "completion_action": "notify",
+            },
     }
     assert [message["role"] for message in checkpoint.history] == ["user", "assistant"]
 
@@ -537,7 +540,7 @@ def test_nasclaw_agent_runner_approve_resumes_provider_tool_call_loop(tmp_path, 
                 ToolCall(
                     id="call-download",
                     name="qb_add_torrent",
-                    arguments='{"torrent_id":"123","qb_category":"movie"}',
+                        arguments='{"torrent_id":"123","qb_category":"movie","completion_action":"notify"}',
                 )
             ],
             model="fake-model",
@@ -551,7 +554,7 @@ def test_nasclaw_agent_runner_approve_resumes_provider_tool_call_loop(tmp_path, 
     store = JSONConversationCheckpointStore(tmp_path)
     runner = NasClawAgentRunner(
         checkpoint_store=store,
-        download_coordinator_factory=lambda: FakeDownloadCoordinator(),
+        download_automation_factory=lambda: FakeDownloadAutomation(),
         mteam_adapter_factory=FakeMTeamAdapter,
         qb_adapter_factory=FakeQBAdapter,
         llm_factory=FakeLLM,
@@ -593,7 +596,7 @@ def test_nasclaw_agent_runner_approve_can_pause_for_next_gated_tool(tmp_path, mo
                 ToolCall(
                     id="call-download",
                     name="qb_add_torrent",
-                    arguments='{"torrent_id":"123","qb_category":"movie"}',
+                        arguments='{"torrent_id":"123","qb_category":"movie","completion_action":"notify"}',
                 )
             ],
             model="fake-model",
@@ -613,7 +616,7 @@ def test_nasclaw_agent_runner_approve_can_pause_for_next_gated_tool(tmp_path, mo
     store = JSONConversationCheckpointStore(tmp_path)
     runner = NasClawAgentRunner(
         checkpoint_store=store,
-        download_coordinator_factory=lambda: FakeDownloadCoordinator(),
+        download_automation_factory=lambda: FakeDownloadAutomation(),
         mteam_adapter_factory=FakeMTeamAdapter,
         qb_adapter_factory=FakeQBAdapter,
         llm_factory=FakeLLM,
@@ -662,7 +665,7 @@ def test_nasclaw_agent_runner_approve_rejects_mismatched_paused_loop_without_qb_
     store = JSONConversationCheckpointStore(tmp_path)
     runner = NasClawAgentRunner(
         checkpoint_store=store,
-        download_coordinator_factory=lambda: FakeDownloadCoordinator(),
+        download_automation_factory=lambda: FakeDownloadAutomation(),
         mteam_adapter_factory=FakeMTeamAdapter,
         qb_adapter_factory=FakeQBAdapter,
         llm_factory=FakeLLM,
@@ -712,7 +715,7 @@ def test_nasclaw_agent_runner_deny_resumes_with_user_denied_tool_result(tmp_path
     store = JSONConversationCheckpointStore(tmp_path)
     runner = NasClawAgentRunner(
         checkpoint_store=store,
-        download_coordinator_factory=lambda: FakeDownloadCoordinator(),
+        download_automation_factory=lambda: FakeDownloadAutomation(),
         mteam_adapter_factory=FakeMTeamAdapter,
         qb_adapter_factory=FakeQBAdapter,
         llm_factory=FakeLLM,
@@ -758,7 +761,7 @@ def test_nasclaw_agent_runner_deny_rejects_mismatched_paused_loop_without_resume
     store = JSONConversationCheckpointStore(tmp_path)
     runner = NasClawAgentRunner(
         checkpoint_store=store,
-        download_coordinator_factory=lambda: FakeDownloadCoordinator(),
+        download_automation_factory=lambda: FakeDownloadAutomation(),
         mteam_adapter_factory=FakeMTeamAdapter,
         qb_adapter_factory=FakeQBAdapter,
         llm_factory=FakeLLM,
@@ -809,7 +812,7 @@ def test_nasclaw_agent_runner_approve_executes_pending_download(tmp_path, monkey
                         "approval_id": "approval-1",
                         "tool_call_id": "call-download",
                         "tool_name": "qb_add_torrent",
-                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                            "arguments": {"torrent_id": "123", "qb_category": "movie", "completion_action": "notify"},
                         "status": "pending",
                         "reason": "Tool call requires user approval.",
                         "created_at": "2026-06-04T10:01:00",
@@ -821,7 +824,7 @@ def test_nasclaw_agent_runner_approve_executes_pending_download(tmp_path, monkey
     )
     runner = NasClawAgentRunner(
         checkpoint_store=store,
-        download_coordinator_factory=lambda: FakeDownloadCoordinator(),
+        download_automation_factory=lambda: FakeDownloadAutomation(),
         mteam_adapter_factory=FakeMTeamAdapter,
         qb_adapter_factory=FakeQBAdapter,
         llm_factory=FakeLLM,
@@ -867,7 +870,7 @@ def test_nasclaw_agent_runner_approve_falls_back_when_summary_fails(tmp_path, mo
                         "approval_id": "approval-1",
                         "tool_call_id": "call-download",
                         "tool_name": "qb_add_torrent",
-                        "arguments": {"torrent_id": "123", "qb_category": "movie"},
+                            "arguments": {"torrent_id": "123", "qb_category": "movie", "completion_action": "notify"},
                         "status": "pending",
                     }
                 ],
@@ -876,7 +879,7 @@ def test_nasclaw_agent_runner_approve_falls_back_when_summary_fails(tmp_path, mo
     )
     runner = NasClawAgentRunner(
         checkpoint_store=store,
-        download_coordinator_factory=lambda: FakeDownloadCoordinator(),
+        download_automation_factory=lambda: FakeDownloadAutomation(),
         mteam_adapter_factory=FakeMTeamAdapter,
         qb_adapter_factory=FakeQBAdapter,
         llm_factory=FailingSummaryLLM,
@@ -1056,7 +1059,7 @@ def test_nasclaw_agent_runner_expires_pending_approval_before_accepting_new_mess
     )
     runner = NasClawAgentRunner(
         checkpoint_store=store,
-        download_coordinator_factory=lambda: FakeDownloadCoordinator(),
+        download_automation_factory=lambda: FakeDownloadAutomation(),
         mteam_adapter_factory=FakeMTeamAdapter,
         qb_adapter_factory=FakeQBAdapter,
         llm_factory=FakeLLM,

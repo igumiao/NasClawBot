@@ -63,15 +63,15 @@ function batchItems(argumentsValue: Record<string, unknown>): Record<string, unk
     : [];
 }
 
-function formatRunAt(runAt: string): string {
+function formatStartAt(startAt: string): string {
   try {
     return new Intl.DateTimeFormat("zh-CN", {
       dateStyle: "full",
       timeStyle: "short",
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    }).format(new Date(runAt));
+    }).format(new Date(startAt));
   } catch {
-    return runAt;
+    return startAt;
   }
 }
 
@@ -79,12 +79,31 @@ function isDownloadAddTool(toolName: string): boolean {
   return toolName === "qb_add_torrent" || toolName === "qb_add_torrents";
 }
 
-function isScheduledCheck(toolName: string): boolean {
-  return toolName === "schedule_download_check";
+function isMonitorCreate(toolName: string): boolean {
+  return toolName === "monitor_download";
 }
 
-function isTaskMutation(toolName: string): boolean {
-  return toolName === "task_cancel" || toolName === "task_reschedule";
+function isMonitorUpdate(toolName: string): boolean {
+  return toolName === "update_download_monitor";
+}
+
+function completionActionLabel(action: unknown, fallback = "未提供"): string {
+  if (action === "none") return "仅下载";
+  if (action === "notify") return "完成后通知";
+  if (action === "organize") return "完成后整理";
+  return fallback;
+}
+
+function monitorModeLabel(mode: unknown, fallback = "未提供"): string {
+  if (mode === "once") return "检查一次";
+  if (mode === "until_complete") return "持续监督至完成";
+  return fallback;
+}
+
+function incompleteBehaviorLabel(mode: unknown, fallback = "由当前模式决定"): string {
+  if (mode === "once") return "通知并结束";
+  if (mode === "until_complete") return "继续动态监督";
+  return fallback;
 }
 
 export function ApprovalCard({
@@ -106,20 +125,24 @@ export function ApprovalCard({
   const isPending = displayStatus === "pending";
   const isBatch = items.length > 0;
   const isDownload = isDownloadAddTool(toolName);
-  const canGrant = isDownload && approval.authorization?.eligible === true && typeof onApproveWithGrant === "function";
+  const completionAction = argumentsValue.completion_action;
+  const canGrant = isDownload
+    && (completionAction === "none" || completionAction === "notify")
+    && approval.authorization?.eligible === true
+    && typeof onApproveWithGrant === "function";
 
-  // Scheduled check specific fields
+  // Download monitor fields
   const torrentHash = String(argumentsValue.torrent_hash ?? "");
-  const runAt = String(argumentsValue.run_at ?? "");
-  const followUp = String(argumentsValue.follow_up ?? "");
-  const followUpLabel = followUp === "auto_organize" ? "自动整理" : followUp === "notify_only" ? "仅通知" : "默认";
+  const startAt = String(argumentsValue.start_at ?? "");
+  const monitorMode = argumentsValue.mode;
+  const onCompleted = argumentsValue.on_completed;
 
   // Task mutation fields
   const taskId = String(argumentsValue.task_id ?? "");
-  const newRunAt = String(argumentsValue.run_at ?? "");
 
-  const titleLabel = isScheduledCheck(toolName) ? "创建定时下载检查"
-    : isTaskMutation(toolName) ? (toolName === "task_cancel" ? "取消任务" : "改期任务")
+  const titleLabel = isMonitorCreate(toolName) ? "创建下载监督"
+    : isMonitorUpdate(toolName) ? "修改下载监督"
+    : toolName === "task_cancel" ? "取消任务"
     : approval.tool_name ?? "工具调用";
 
   return (
@@ -137,43 +160,64 @@ export function ApprovalCard({
       </header>
 
       <p className="approval-risk">{approval.risk?.summary ?? "该操作会产生外部副作用。"}</p>
+      {isMonitorUpdate(toolName) && (
+        <p className="approval-risk">此次修改可能改变任务性质，请确认时间、模式和完成动作。</p>
+      )}
 
       <dl className="approval-details">
-        {/* ── Scheduled download check fields ── */}
-        {isScheduledCheck(toolName) ? (
+        {isMonitorCreate(toolName) ? (
           <>
             <div>
-              <dt>种子</dt>
+              <dt>Torrent</dt>
               <dd><code>{torrentHash || "未提供"}</code></dd>
             </div>
             <div>
-              <dt>检查时间</dt>
+              <dt>首次检查时间</dt>
               <dd>
-                {runAt ? <time dateTime={runAt}>{formatRunAt(runAt)}</time> : "未提供"}
+                {startAt ? <time dateTime={startAt}>{formatStartAt(startAt)}</time> : "立即开始"}
               </dd>
             </div>
             <div>
+              <dt>监督模式</dt>
+              <dd>{monitorModeLabel(monitorMode)}</dd>
+            </div>
+            <div>
               <dt>完成后</dt>
-              <dd>{followUpLabel}</dd>
+              <dd>{completionActionLabel(onCompleted)}</dd>
             </div>
             <div>
               <dt>未完成</dt>
-              <dd>仅通知，不继续检查</dd>
+              <dd>{incompleteBehaviorLabel(monitorMode)}</dd>
             </div>
           </>
-        ) : isTaskMutation(toolName) ? (
+        ) : isMonitorUpdate(toolName) ? (
           <>
             <div>
               <dt>任务 ID</dt>
               <dd><code>{taskId || "未提供"}</code></dd>
             </div>
-            {toolName === "task_reschedule" && newRunAt && (
-              <div>
-                <dt>新检查时间</dt>
-                <dd><time dateTime={newRunAt}>{formatRunAt(newRunAt)}</time></dd>
-              </div>
-            )}
+            <div>
+              <dt>首次检查时间</dt>
+              <dd>{startAt ? <time dateTime={startAt}>{formatStartAt(startAt)}</time> : "未修改"}</dd>
+            </div>
+            <div>
+              <dt>监督模式</dt>
+              <dd>{monitorModeLabel(monitorMode, "未修改")}</dd>
+            </div>
+            <div>
+              <dt>完成后</dt>
+              <dd>{completionActionLabel(onCompleted, "未修改")}</dd>
+            </div>
+            <div>
+              <dt>未完成</dt>
+              <dd>{incompleteBehaviorLabel(monitorMode)}</dd>
+            </div>
           </>
+        ) : toolName === "task_cancel" ? (
+          <div>
+            <dt>任务 ID</dt>
+            <dd><code>{taskId || "未提供"}</code></dd>
+          </div>
         ) : isBatch ? (
           <div>
             <dt>批量项目</dt>
@@ -196,6 +240,12 @@ export function ApprovalCard({
               </div>
             )}
           </>
+        )}
+        {isDownload && (
+          <div>
+            <dt>完成动作</dt>
+            <dd>{completionActionLabel(completionAction)}</dd>
+          </div>
         )}
         <div>
           <dt>过期时间</dt>

@@ -154,6 +154,7 @@ export type DownloadResponse = {
   status: string;
   receipt: Record<string, unknown> | null;
   error: string | null;
+  watch_task_id?: string | null;
 };
 
 export type TorrentSummary = {
@@ -221,9 +222,8 @@ export type TMDBNetworkSettings = {
   proxy_url: string;
 };
 
-export type OrganizationAutomationPolicy = {
-  enabled: boolean;
-  default_after_download: "auto_organize" | "notify_only";
+export type OrganizationAuthorizationPolicy = {
+  background_organization_allowed: boolean;
   allowed_source_path_prefixes: string[];
   destination_root: string;
   allow_delete: boolean;

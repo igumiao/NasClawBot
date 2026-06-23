@@ -48,7 +48,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.adapters.qbittorrent import QBittorrentAdapter
-from pathlib import Path
 
 from app.domain.runtime_tasks import RuntimeTask, TaskStatus
 from app.runtime.handlers.download_watch import DownloadWatchConfig, DownloadWatchHandler
@@ -443,7 +442,7 @@ def setup_organize_download_handler(
     registered before the worker loop begins dispatching tasks.
 
     When ``config.destination_root`` is empty, the handler attempts to
-    derive it from the task payload or the organisation automation policy.
+    derive it from the task payload or the organization authorization policy.
 
     Args:
         runtime: A :class:`TaskRuntime` instance (created via
@@ -452,7 +451,7 @@ def setup_organize_download_handler(
             worker settings, and journal path.  A default config is used
             when ``None``.
         organization_policy_store: Optional store for reading the current
-            organisation automation policy at execution time for policy
+            organization authorization policy at execution time for policy
             revalidation.  Required for scheduled-check security.
 
     Raises:
@@ -464,18 +463,18 @@ def setup_organize_download_handler(
     if organization_policy_store is None:
         try:
             from app.services.organization_policy_store import (
-                OrganizationAutomationPolicyStore,
+                OrganizationAuthorizationPolicyStore,
             )
             settings_dir = Path(__file__).resolve().parents[1] / "memory" / "settings"
-            organization_policy_store = OrganizationAutomationPolicyStore(settings_dir)
+            organization_policy_store = OrganizationAuthorizationPolicyStore(settings_dir)
         except Exception:
             logger.warning(
                 "Could not create organization policy store; "
-                "policy revalidation will be skipped"
+                "organization tasks will fail closed"
             )
 
     # If no destination_root is provided in the config, try to read it
-    # from the organisation automation policy store.
+    # from the organization authorization policy store.
     if not cfg.destination_root:
         try:
             if organization_policy_store is not None:

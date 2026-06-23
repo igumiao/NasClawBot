@@ -3,7 +3,7 @@ import { healthApi } from "../../api/healthApi";
 import { settingsApi } from "../../api/settingsApi";
 import type {
   DownloadAuthorizationPolicy,
-  OrganizationAutomationPolicy,
+  OrganizationAuthorizationPolicy,
   ServiceHealth,
   ServiceHealthStatus,
   TMDBNetworkSettings
@@ -55,9 +55,8 @@ const DEFAULT_TMDB_NETWORK: TMDBNetworkSettings = {
   proxy_url: ""
 };
 
-const DEFAULT_ORGANIZATION_POLICY: OrganizationAutomationPolicy = {
-  enabled: false,
-  default_after_download: "notify_only",
+const DEFAULT_ORGANIZATION_POLICY: OrganizationAuthorizationPolicy = {
+  background_organization_allowed: false,
   allowed_source_path_prefixes: [],
   destination_root: "",
   allow_delete: false,
@@ -139,7 +138,7 @@ export function SettingsPanel({
   const [tmdbProxyText, setTMDBProxyText] = useState("");
   const [tmdbNetworkLoading, setTMDBNetworkLoading] = useState(false);
   const [tmdbNetworkStatus, setTMDBNetworkStatus] = useState<string | null>(null);
-  const [orgPolicy, setOrgPolicy] = useState<OrganizationAutomationPolicy>(DEFAULT_ORGANIZATION_POLICY);
+  const [orgPolicy, setOrgPolicy] = useState<OrganizationAuthorizationPolicy>(DEFAULT_ORGANIZATION_POLICY);
   const [orgSourcePrefixText, setOrgSourcePrefixText] = useState("");
   const [orgDestRoot, setOrgDestRoot] = useState("");
   const [orgPolicyLoading, setOrgPolicyLoading] = useState(false);
@@ -214,13 +213,13 @@ export function SettingsPanel({
     setOrgPolicyLoading(true);
     setOrgPolicyStatus(null);
     try {
-      const response = await settingsApi.getOrganizationPolicy(signal);
+      const response = await settingsApi.getOrganizationAuthorizationPolicy(signal);
       setOrgPolicy(response);
       setOrgSourcePrefixText(response.allowed_source_path_prefixes.join("\n"));
       setOrgDestRoot(response.destination_root);
     } catch (err) {
       if (signal?.aborted) return;
-      setOrgPolicyStatus(err instanceof Error ? err.message : "组织策略设置读取失败");
+      setOrgPolicyStatus(err instanceof Error ? err.message : "后台整理授权读取失败");
     } finally {
       setOrgPolicyLoading(false);
     }
@@ -279,9 +278,8 @@ export function SettingsPanel({
   async function saveOrgPolicy() {
     setOrgPolicyLoading(true);
     setOrgPolicyStatus(null);
-    const next: OrganizationAutomationPolicy = {
-      enabled: orgPolicy.enabled,
-      default_after_download: orgPolicy.default_after_download,
+    const next: OrganizationAuthorizationPolicy = {
+      background_organization_allowed: orgPolicy.background_organization_allowed,
       allowed_source_path_prefixes: orgSourcePrefixText
         .split("\n")
         .map((line) => line.trim())
@@ -291,13 +289,13 @@ export function SettingsPanel({
       allow_overwrite: false
     };
     try {
-      const saved = await settingsApi.updateOrganizationPolicy(next);
+      const saved = await settingsApi.updateOrganizationAuthorizationPolicy(next);
       setOrgPolicy(saved);
       setOrgSourcePrefixText(saved.allowed_source_path_prefixes.join("\n"));
       setOrgDestRoot(saved.destination_root);
-      setOrgPolicyStatus("已保存组织自动化设置。");
+      setOrgPolicyStatus("已保存后台整理授权。");
     } catch (err) {
-      setOrgPolicyStatus(err instanceof Error ? err.message : "组织自动化设置保存失败");
+      setOrgPolicyStatus(err instanceof Error ? err.message : "后台整理授权保存失败");
     } finally {
       setOrgPolicyLoading(false);
     }
@@ -431,33 +429,22 @@ export function SettingsPanel({
           {settingsStatus && <p className="settings-card-copy" role="status">{settingsStatus}</p>}
         </section>
 
-        <section className="settings-card settings-policy-card" aria-label="组织自动化">
-          <div className="settings-card-label">组织自动化</div>
+        <section className="settings-card settings-policy-card" aria-label="后台整理授权">
+          <div className="settings-card-label">后台整理授权</div>
           <p className="settings-card-copy">
-            下载完成后自动整理媒体文件。删除和覆写操作永久禁用以确保安全。
+            仅授权经审批的后台任务整理媒体文件，不会自动决定下载完成后的动作。删除和覆写操作永久禁用。
           </p>
 
           <label className="settings-toggle-row">
             <input
               type="checkbox"
-              checked={orgPolicy.enabled}
-              onChange={(event) => setOrgPolicy((current) => ({ ...current, enabled: event.target.checked }))}
-            />
-            <span>启用自动组织</span>
-          </label>
-
-          <label className="settings-field">
-            <span>下载完成后</span>
-            <select
-              value={orgPolicy.default_after_download}
+              checked={orgPolicy.background_organization_allowed}
               onChange={(event) => setOrgPolicy((current) => ({
                 ...current,
-                default_after_download: event.target.value as "auto_organize" | "notify_only"
+                background_organization_allowed: event.target.checked
               }))}
-            >
-              <option value="auto_organize">自动整理 (auto_organize)</option>
-              <option value="notify_only">仅通知 (notify_only)</option>
-            </select>
+            />
+            <span>允许经审批的后台任务执行整理</span>
           </label>
 
           <label className="settings-field">
@@ -495,7 +482,7 @@ export function SettingsPanel({
               onClick={() => void saveOrgPolicy()}
               disabled={orgPolicyLoading}
             >
-              {orgPolicyLoading ? "保存中..." : "保存组织自动化设置"}
+              {orgPolicyLoading ? "保存中..." : "保存后台整理授权"}
             </button>
           </div>
           {orgPolicyStatus && <p className="settings-card-copy" role="status">{orgPolicyStatus}</p>}

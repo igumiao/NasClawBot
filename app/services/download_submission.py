@@ -43,6 +43,10 @@ class DownloadSubmission:
     # Public API
     # ------------------------------------------------------------------
 
+    def resolve_save_path(self, request: DownloadSubmissionRequest) -> str:
+        """Return the effective qB save path without performing submission."""
+        return (request.save_path or "").strip() or self._default_save_path or ""
+
     def submit(
         self,
         request: DownloadSubmissionRequest,
@@ -132,9 +136,7 @@ class DownloadSubmission:
             "tags": tags,
             "paused": True,
         }
-        save_path = (request.save_path or "").strip()
-        if not save_path and self._default_save_path:
-            save_path = self._default_save_path
+        save_path = self.resolve_save_path(request)
         if save_path:
             add_kwargs["save_path"] = save_path
 

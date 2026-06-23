@@ -14,12 +14,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from app.agent.organize_worker import OrganizeWorkerAgent, OrganizeWorkerResult
+from app.domain.organization import (
+    OrganizationAuthorizationPolicy,
+    OrganizationAuthorizationSnapshot,
+)
 from app.domain.runtime_tasks import (
     Complete,
     Fail,
@@ -163,22 +168,34 @@ class OrganizeDownloadHandler:
                 details={"payload_keys": list(payload.keys())},
             )
 
-        # Resolve destination_root: config > payload > default.
-        destination_root = self._config.destination_root
-        if not destination_root:
-            destination_root = payload.get("destination_root", "")
-        if not destination_root:
-            destination_root = self._resolve_destination_root(content_path, save_path)
+        raw_snapshot = payload.get("authorization_snapshot")
+        if not isinstance(raw_snapshot, dict):
+            return self._authorization_failure(
+                "ORGANIZE_AUTHORIZATION_MISSING",
+                "Organization task has no authorization snapshot",
+                content_path,
+                "",
+            )
+        normalized_snapshot = self._normalize_authorization_snapshot(raw_snapshot)
+        try:
+            auth_snapshot = OrganizationAuthorizationSnapshot.model_validate(
+                normalized_snapshot
+            )
+        except Exception as exc:
+            return self._authorization_failure(
+                "ORGANIZE_AUTHORIZATION_INVALID",
+                f"Organization authorization snapshot is invalid: {exc}",
+                content_path,
+                str(normalized_snapshot.get("destination_root", "")),
+            )
 
+        destination_root = auth_snapshot.destination_root.strip()
         if not destination_root:
-            return Fail(
-                code="MISSING_DESTINATION_ROOT",
-                message=(
-                    "No destination_root configured and could not be derived "
-                    "from content_path or save_path"
-                ),
-                retryable=False,
-                details={"content_path": content_path, "save_path": save_path},
+            return self._authorization_failure(
+                "MISSING_DESTINATION_ROOT",
+                "Authorization snapshot has no destination root",
+                content_path,
+                destination_root,
             )
 
         logger.info(
@@ -193,15 +210,13 @@ class OrganizeDownloadHandler:
         # Before running any MCP/LLM calls, verify the authorization snapshot
         # against the current policy.  This is especially important for
         # future tasks that may have been created days ago.
-        auth_snapshot = payload.get("authorization_snapshot") or {}
-        if isinstance(auth_snapshot, dict) and auth_snapshot.get("enabled"):
-            policy_error = self._validate_against_current_policy(
-                content_path=content_path,
-                destination_root=destination_root,
-                auth_snapshot=auth_snapshot,
-            )
-            if policy_error is not None:
-                return policy_error
+        policy_error = self._validate_against_current_policy(
+            content_path=content_path,
+            destination_root=destination_root,
+            auth_snapshot=auth_snapshot,
+        )
+        if policy_error is not None:
+            return policy_error
 
         # Run the worker agent in the default thread executor.
         loop = asyncio.get_event_loop()
@@ -244,7 +259,7 @@ class OrganizeDownloadHandler:
         self,
         content_path: str,
         destination_root: str,
-        auth_snapshot: dict[str, Any],
+        auth_snapshot: OrganizationAuthorizationSnapshot,
     ) -> TaskOutcome | None:
         """Re-validate the authorization snapshot against the current policy.
 
@@ -261,56 +276,52 @@ class OrganizeDownloadHandler:
           expansion does **not** grant extra permissions.
         """
         if self._org_policy_store is None:
-            # No policy store configured — allow execution (backward compat).
-            return None
+            return self._authorization_failure(
+                "ORGANIZE_POLICY_UNAVAILABLE",
+                "Organization authorization store is unavailable",
+                content_path,
+                destination_root,
+            )
 
         try:
-            from app.domain.organization import OrganizationAutomationPolicy
-
-            current: OrganizationAutomationPolicy = self._org_policy_store.load()
+            current: OrganizationAuthorizationPolicy = self._org_policy_store.load()
         except Exception as exc:
             logger.warning(
-                "Failed to load current organization policy: %s — allowing execution",
+                "Failed to load current organization authorization: %s",
                 exc,
             )
-            return None
+            return self._authorization_failure(
+                "ORGANIZE_POLICY_UNAVAILABLE",
+                "Current organization authorization could not be loaded",
+                content_path,
+                destination_root,
+            )
 
         # 1. Policy must be enabled.
-        if not current.enabled:
-            return Fail(
-                code="ORGANIZE_POLICY_DISABLED",
-                message=(
-                    "Organization automation has been disabled since this "
-                    "task was created.  Enable it in Settings and retry, "
-                    "or cancel the task."
-                ),
-                retryable=False,
-                details={
-                    "content_path": content_path,
-                    "destination_root": destination_root,
-                },
+        if not current.background_organization_allowed:
+            return self._authorization_failure(
+                "ORGANIZE_POLICY_DISABLED",
+                "Background organization is not currently authorized",
+                content_path,
+                destination_root,
             )
 
         # 2. Source path must be under a prefix allowed by BOTH snapshot
         #    and current policy.
-        snapshot_prefixes: list[str] = auth_snapshot.get(
-            "allowed_source_path_prefixes", []
-        ) or []
+        snapshot_prefixes = auth_snapshot.allowed_source_path_prefixes
         current_prefixes: list[str] = current.allowed_source_path_prefixes or []
-
-        # Intersection: only prefixes present in both sets.
-        effective_prefixes = [
-            p for p in snapshot_prefixes
-            if p in current_prefixes
-        ]
-
-        if not effective_prefixes:
+        snapshot_allows = any(
+            self._path_within(content_path, prefix) for prefix in snapshot_prefixes
+        )
+        current_allows = any(
+            self._path_within(content_path, prefix) for prefix in current_prefixes
+        )
+        if not snapshot_allows or not current_allows:
             return Fail(
                 code="ORGANIZE_SOURCE_SCOPE_REVOKED",
                 message=(
-                    "The allowed source paths for organization have been "
-                    "narrowed or removed since this task was created.  "
-                    "The task can no longer access its source directory."
+                    "The source path is not authorized by both the immutable "
+                    "snapshot and the current policy"
                 ),
                 retryable=False,
                 details={
@@ -320,26 +331,13 @@ class OrganizeDownloadHandler:
                 },
             )
 
-        source_allowed = any(
-            content_path.startswith(prefix) for prefix in effective_prefixes
-        )
-        if not source_allowed:
-            return Fail(
-                code="ORGANIZE_SOURCE_NOT_IN_SCOPE",
-                message=(
-                    f"The source path {content_path!r} is no longer within "
-                    f"the allowed organization prefixes."
-                ),
-                retryable=False,
-                details={
-                    "content_path": content_path,
-                    "effective_prefixes": effective_prefixes,
-                },
-            )
-
-        # 3. Destination root must match snapshot.
-        snapshot_dest = auth_snapshot.get("destination_root", "")
-        if snapshot_dest and destination_root != snapshot_dest:
+        # 3. Destination must remain exactly the snapshot destination and the
+        # current policy must still authorize that same destination.
+        snapshot_dest = auth_snapshot.destination_root
+        if (
+            destination_root != snapshot_dest
+            or current.destination_root != snapshot_dest
+        ):
             return Fail(
                 code="ORGANIZE_DESTINATION_MISMATCH",
                 message=(
@@ -350,11 +348,56 @@ class OrganizeDownloadHandler:
                 retryable=False,
                 details={
                     "snapshot_destination": snapshot_dest,
-                    "current_destination": destination_root,
+                    "execution_destination": destination_root,
+                    "current_policy_destination": current.destination_root,
                 },
             )
 
         return None
+
+    @staticmethod
+    def _normalize_authorization_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+        """Map deployed legacy snapshot keys to the authorization contract."""
+        normalized = dict(snapshot)
+        if "background_organization_allowed" not in normalized and "enabled" in normalized:
+            normalized["background_organization_allowed"] = bool(normalized["enabled"])
+        if "allowed_source_path_prefixes" not in normalized:
+            legacy_prefixes = normalized.get("allowed_source_prefixes")
+            if isinstance(legacy_prefixes, list):
+                normalized["allowed_source_path_prefixes"] = legacy_prefixes
+        normalized.pop("enabled", None)
+        normalized.pop("allowed_source_prefixes", None)
+        normalized.pop("default_after_download", None)
+        return normalized
+
+    @staticmethod
+    def _path_within(path: str, prefix: str) -> bool:
+        """Return path containment with component boundaries, not string prefix."""
+        if not path or not prefix or not os.path.isabs(path) or not os.path.isabs(prefix):
+            return False
+        try:
+            return os.path.commonpath(
+                (os.path.normpath(path), os.path.normpath(prefix))
+            ) == os.path.normpath(prefix)
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _authorization_failure(
+        code: str,
+        message: str,
+        content_path: str,
+        destination_root: str,
+    ) -> Fail:
+        return Fail(
+            code=code,
+            message=message,
+            retryable=False,
+            details={
+                "content_path": content_path,
+                "destination_root": destination_root,
+            },
+        )
 
     # ------------------------------------------------------------------
     # Outcome builder

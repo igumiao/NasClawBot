@@ -198,14 +198,23 @@ def mark_expired(
 
 def risk_for_tool(tool_name: str, arguments: dict[str, Any] | None = None) -> ApprovalRisk:
     if tool_name in {"qb_add_torrent", "qb_add_torrents"}:
+        completion_action = str((arguments or {}).get("completion_action") or "")
         if tool_name == "qb_add_torrents":
             return ApprovalRisk(
                 level=ApprovalRiskLevel.SIDE_EFFECT,
-                summary="Submit multiple torrents to qBittorrent in paused state",
+                summary=(
+                    "Submit multiple paused torrents and organize them after completion"
+                    if completion_action == "organize"
+                    else "Submit multiple torrents to qBittorrent in paused state"
+                ),
             )
         return ApprovalRisk(
             level=ApprovalRiskLevel.SIDE_EFFECT,
-            summary="Submit torrent to qBittorrent in paused state",
+            summary=(
+                "Submit a paused torrent and organize it after completion"
+                if completion_action == "organize"
+                else "Submit torrent to qBittorrent in paused state"
+            ),
         )
     if tool_name == "qb_control_torrent":
         action = (arguments or {}).get("action", "")
@@ -228,20 +237,20 @@ def risk_for_tool(tool_name: str, arguments: dict[str, Any] | None = None) -> Ap
             level=ApprovalRiskLevel.SIDE_EFFECT,
             summary="Modify per-torrent speed limits",
         )
-    if tool_name == "schedule_download_check":
+    if tool_name == "monitor_download":
         return ApprovalRisk(
             level=ApprovalRiskLevel.SIDE_EFFECT,
-            summary="Create a scheduled future download completion check",
+            summary="Create a durable download monitor",
         )
     if tool_name == "task_cancel":
         return ApprovalRisk(
             level=ApprovalRiskLevel.SIDE_EFFECT,
             summary="Cancel a pending background task",
         )
-    if tool_name == "task_reschedule":
+    if tool_name == "update_download_monitor":
         return ApprovalRisk(
             level=ApprovalRiskLevel.SIDE_EFFECT,
-            summary="Reschedule a pending download check task",
+            summary="Change a download monitor's schedule or completion behavior",
         )
     return ApprovalRisk(
         level=ApprovalRiskLevel.SIDE_EFFECT,

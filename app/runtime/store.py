@@ -9,6 +9,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
+from app.domain.downloads import (
+    MonitorCompletionAction,
+    MonitorMode,
+    parse_download_monitor,
+)
 from app.domain.runtime_tasks import (
     RuntimeTask,
     TaskEvent,
@@ -646,6 +651,31 @@ class RuntimeTaskStore:
     # External-facing methods
     # ------------------------------------------------------------------
 
+    def _raise_creation_conflict(
+        self,
+        *,
+        dedupe_key: str | None,
+        exclusive_key: str | None,
+        original: sqlite3.IntegrityError,
+    ) -> None:
+        """Translate SQLite uniqueness failures into stable domain errors."""
+        if exclusive_key is not None:
+            with closing(connect(self._db_path)) as conn:
+                row = conn.execute(
+                    "SELECT task_id FROM runtime_tasks "
+                    "WHERE exclusive_key = ? "
+                    "AND status IN ('initializing', 'queued', 'running', 'waiting')",
+                    (exclusive_key,),
+                ).fetchone()
+            if row is not None:
+                raise ValueError(
+                    f"Active task {row['task_id']!r} already owns "
+                    f"exclusive_key {exclusive_key!r}"
+                ) from original
+        if dedupe_key is not None:
+            raise ValueError(f"Task dedupe conflict for {dedupe_key!r}") from original
+        raise ValueError("Runtime task uniqueness conflict") from original
+
     def prepare(
         self,
         kind: str,
@@ -655,6 +685,7 @@ class RuntimeTaskStore:
         dedupe_key: str | None,
         now: datetime,
         id_factory: Callable[[], str],
+        exclusive_key: str | None = None,
     ) -> RuntimeTask:
         """Create a task in ``INITIALIZING`` status.
 
@@ -687,12 +718,23 @@ class RuntimeTaskStore:
         try:
             conn.execute("BEGIN IMMEDIATE")
 
-            conn.execute(
-                "INSERT OR IGNORE INTO runtime_tasks "
+            existing = None
+            if dedupe_key is not None:
+                existing = conn.execute(
+                    "SELECT * FROM runtime_tasks WHERE dedupe_key = ?",
+                    (dedupe_key,),
+                ).fetchone()
+            if existing is not None:
+                conn.commit()
+                return _parse_task(existing)
+
+            try:
+                conn.execute(
+                "INSERT INTO runtime_tasks "
                 "(task_id, kind, status, payload_json, run_after, "
-                "parent_task_id, source_session_id, dedupe_key, "
+                "parent_task_id, source_session_id, dedupe_key, exclusive_key, "
                 "created_at, updated_at) "
-                "VALUES (?, ?, 'initializing', ?, NULL, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, 'initializing', ?, NULL, ?, ?, ?, ?, ?, ?)",
                 (
                     task_id,
                     kind,
@@ -700,10 +742,18 @@ class RuntimeTaskStore:
                     parent_task_id,
                     source_session_id,
                     dedupe_key,
+                    exclusive_key,
                     now_iso,
                     now_iso,
                 ),
-            )
+                )
+            except sqlite3.IntegrityError as exc:
+                conn.rollback()
+                self._raise_creation_conflict(
+                    dedupe_key=dedupe_key,
+                    exclusive_key=exclusive_key,
+                    original=exc,
+                )
 
             if dedupe_key is not None:
                 row = conn.execute(
@@ -727,6 +777,7 @@ class RuntimeTaskStore:
         payload_patch: dict[str, Any] | None,
         run_after: str | None,
         now: datetime,
+        exclusive_key: str | None = None,
     ) -> RuntimeTask:
         """Transition a task from ``INITIALIZING`` to ``QUEUED``.
 
@@ -768,20 +819,30 @@ class RuntimeTaskStore:
             if payload_patch:
                 new_payload.update(payload_patch)
 
-            conn.execute(
-                "UPDATE runtime_tasks SET "
-                "status = 'queued', "
-                "payload_json = ?, "
-                "run_after = ?, "
-                "updated_at = ? "
-                "WHERE task_id = ?",
-                (
-                    _d(new_payload),
-                    run_after,
-                    now_iso,
-                    task_id,
-                ),
-            )
+            try:
+                conn.execute(
+                    "UPDATE runtime_tasks SET "
+                    "status = 'queued', "
+                    "payload_json = ?, "
+                    "run_after = ?, "
+                    "exclusive_key = COALESCE(?, exclusive_key), "
+                    "updated_at = ? "
+                    "WHERE task_id = ?",
+                    (
+                        _d(new_payload),
+                        run_after,
+                        exclusive_key,
+                        now_iso,
+                        task_id,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                conn.rollback()
+                self._raise_creation_conflict(
+                    dedupe_key=None,
+                    exclusive_key=exclusive_key,
+                    original=exc,
+                )
 
             conn.commit()
 
@@ -803,6 +864,7 @@ class RuntimeTaskStore:
         run_after: str | None,
         now: datetime,
         id_factory: Callable[[], str],
+        exclusive_key: str | None = None,
     ) -> RuntimeTask:
         """Create a task directly in ``QUEUED`` status.
 
@@ -836,12 +898,23 @@ class RuntimeTaskStore:
         try:
             conn.execute("BEGIN IMMEDIATE")
 
-            conn.execute(
-                "INSERT OR IGNORE INTO runtime_tasks "
+            existing = None
+            if dedupe_key is not None:
+                existing = conn.execute(
+                    "SELECT * FROM runtime_tasks WHERE dedupe_key = ?",
+                    (dedupe_key,),
+                ).fetchone()
+            if existing is not None:
+                conn.commit()
+                return _parse_task(existing)
+
+            try:
+                conn.execute(
+                "INSERT INTO runtime_tasks "
                 "(task_id, kind, status, payload_json, run_after, "
-                "parent_task_id, source_session_id, dedupe_key, "
+                "parent_task_id, source_session_id, dedupe_key, exclusive_key, "
                 "created_at, updated_at) "
-                "VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     task_id,
                     kind,
@@ -850,10 +923,18 @@ class RuntimeTaskStore:
                     parent_task_id,
                     source_session_id,
                     dedupe_key,
+                    exclusive_key,
                     now_iso,
                     now_iso,
                 ),
-            )
+                )
+            except sqlite3.IntegrityError as exc:
+                conn.rollback()
+                self._raise_creation_conflict(
+                    dedupe_key=dedupe_key,
+                    exclusive_key=exclusive_key,
+                    original=exc,
+                )
 
             if dedupe_key is not None:
                 row = conn.execute(
@@ -1074,37 +1155,41 @@ class RuntimeTaskStore:
         finally:
             conn.close()
 
-    def reschedule_pending_once(
+    def update_download_monitor(
         self,
         task_id: str,
-        run_after: str,
+        *,
+        run_after: str | None = None,
+        mode: MonitorMode | None = None,
+        on_completed: MonitorCompletionAction | None = None,
+        authorization_snapshot: dict[str, Any] | None = None,
         now: datetime,
     ) -> RuntimeTask:
-        """Atomically update ``run_after`` for a pending once-mode task.
+        """Atomically update a pending ``download_watch`` task.
 
-        1. Reads the current row inside ``BEGIN IMMEDIATE``.
-        2. Validates status is ``QUEUED`` or ``WAITING`` (not claimed).
-        3. Validates ``check_policy.mode`` is ``"once"`` (not a continuous watch).
-        4. Updates ``run_after`` and ``updated_at``.
+        The read, status/kind validation, legacy parsing, canonical payload
+        rewrite, and column update all occur under one ``BEGIN IMMEDIATE``
+        transaction.  Consequently a worker claim either happens before this
+        method (and the update is rejected as RUNNING) or after it (and sees
+        the complete new monitor specification).
 
-        Args:
-            task_id: The task to reschedule.
-            run_after: New canonical UTC ISO-8601 timestamp.
-            now: Current timestamp.
-
-        Returns:
-            The updated task.
-
-        Raises:
-            ValueError: When the task does not exist, is ineligible, or the
-                check policy does not permit rescheduling.
+        ``run_after=None`` means keep the current value.  An organize action
+        requires an authorization snapshot when transitioning from notify or
+        legacy silent completion; an existing organize snapshot is preserved
+        when the action remains organize.  Notify always removes the snapshot.
         """
-        now_iso = now.isoformat()
+        if (
+            run_after is None
+            and mode is None
+            and on_completed is None
+            and authorization_snapshot is None
+        ):
+            raise ValueError("At least one download monitor mutation is required")
 
+        now_iso = now.isoformat()
         conn = connect(self._db_path)
         try:
             conn.execute("BEGIN IMMEDIATE")
-
             row = conn.execute(
                 "SELECT * FROM runtime_tasks WHERE task_id = ?",
                 (task_id,),
@@ -1113,59 +1198,84 @@ class RuntimeTaskStore:
                 raise ValueError(f"Task {task_id!r} not found")
 
             current = _parse_task(row)
-
+            if current.kind != "download_watch":
+                raise ValueError(
+                    f"Task {task_id!r} has kind {current.kind!r}; "
+                    "only download_watch tasks can be updated"
+                )
+            if current.status == TaskStatus.RUNNING:
+                raise ValueError(
+                    f"Task {task_id!r} is currently RUNNING and cannot be updated"
+                )
             if is_terminal(current.status):
                 raise ValueError(
                     f"Task {task_id!r} is already terminal ({current.status.value})"
                 )
-
-            if current.status == TaskStatus.RUNNING:
-                raise ValueError(
-                    f"Task {task_id!r} is currently RUNNING and cannot be rescheduled"
-                )
-
             if current.status not in (TaskStatus.QUEUED, TaskStatus.WAITING):
                 raise ValueError(
-                    f"Task {task_id!r} is {current.status.value} — "
-                    f"only QUEUED/WAITING tasks can be rescheduled"
+                    f"Task {task_id!r} is {current.status.value}; "
+                    "only QUEUED/WAITING monitors can be updated"
                 )
 
-            # Validate check_policy.mode == "once".
-            payload = current.payload or {}
-            check_policy = payload.get("check_policy") or {}
-            if isinstance(check_policy, dict):
-                mode = check_policy.get("mode", "continuous")
-            else:
-                mode = "continuous"
-
-            if mode != "once":
+            try:
+                parsed = parse_download_monitor(current.payload)
+            except Exception as exc:
                 raise ValueError(
-                    f"Task {task_id!r} has check_policy.mode={mode!r} — "
-                    f"only once-mode tasks can be rescheduled"
+                    f"Task {task_id!r} has an invalid download monitor payload"
+                ) from exc
+
+            final_mode = mode or parsed.mode
+            final_action = on_completed or parsed.on_completed
+            if final_action == "none":
+                raise ValueError(
+                    "Legacy silent monitors require an explicit on_completed update"
                 )
 
-            # Update run_after and also update scheduled_for in payload for
-            # consistency (the handler reads from payload, not the column).
-            new_payload = dict(payload)
-            new_payload["scheduled_for"] = run_after
-            payload_json = json.dumps(new_payload, ensure_ascii=False)
+            payload = dict(current.payload)
+            payload.pop("check_policy", None)
+            payload.pop("resolved_follow_up", None)
+            payload.pop("scheduled_for", None)
+            payload["monitor"] = {
+                "mode": final_mode,
+                "on_completed": final_action,
+            }
 
+            if final_action == "notify":
+                payload.pop("authorization_snapshot", None)
+            else:
+                snapshot = authorization_snapshot
+                if snapshot is None and parsed.on_completed == "organize":
+                    existing = current.payload.get("authorization_snapshot")
+                    if isinstance(existing, dict):
+                        snapshot = existing
+                    else:
+                        legacy_follow_up = current.payload.get("resolved_follow_up")
+                        if isinstance(legacy_follow_up, dict):
+                            candidate = legacy_follow_up.get("authorization_snapshot")
+                            if isinstance(candidate, dict):
+                                snapshot = candidate
+                if snapshot is None:
+                    raise ValueError(
+                        "Organize monitor update requires an authorization snapshot"
+                    )
+                payload["authorization_snapshot"] = snapshot
+
+            next_run_after = current.run_after if run_after is None else run_after
             conn.execute(
-                "UPDATE runtime_tasks SET "
-                "run_after = ?, "
-                "payload_json = ?, "
-                "updated_at = ? "
-                "WHERE task_id = ?",
-                (run_after, payload_json, now_iso, task_id),
+                "UPDATE runtime_tasks SET payload_json = ?, run_after = ?, "
+                "updated_at = ? WHERE task_id = ?",
+                (_d(payload), next_run_after, now_iso, task_id),
             )
-
             conn.commit()
-
-            row = conn.execute(
+            updated = conn.execute(
                 "SELECT * FROM runtime_tasks WHERE task_id = ?",
                 (task_id,),
             ).fetchone()
-            return _parse_task(row)
+            return _parse_task(updated)
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
         finally:
             conn.close()
 

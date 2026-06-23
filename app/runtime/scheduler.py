@@ -18,6 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Callable
 
+from app.domain.downloads import MonitorCompletionAction, MonitorMode
 from app.domain.runtime_tasks import RuntimeTask
 from app.runtime.store import RuntimeTaskStore
 
@@ -67,6 +68,7 @@ class TaskScheduler:
         source_session_id: str | None = None,
         parent_task_id: str | None = None,
         dedupe_key: str | None = None,
+        exclusive_key: str | None = None,
     ) -> RuntimeTask:
         """Create a task in ``INITIALIZING`` status.
 
@@ -99,6 +101,7 @@ class TaskScheduler:
             dedupe_key=dedupe_key,
             now=self._clock(),
             id_factory=self._id_factory,
+            exclusive_key=exclusive_key,
         )
 
     def activate(
@@ -106,6 +109,7 @@ class TaskScheduler:
         task_id: str,
         payload_patch: dict[str, Any] | None = None,
         run_after: str | None = None,
+        exclusive_key: str | None = None,
     ) -> RuntimeTask:
         """Transition a task from ``INITIALIZING`` to ``QUEUED``.
 
@@ -132,6 +136,7 @@ class TaskScheduler:
             payload_patch=payload_patch,
             run_after=run_after,
             now=self._clock(),
+            exclusive_key=exclusive_key,
         )
 
     def enqueue(
@@ -142,6 +147,7 @@ class TaskScheduler:
         parent_task_id: str | None = None,
         dedupe_key: str | None = None,
         run_after: str | None = None,
+        exclusive_key: str | None = None,
     ) -> RuntimeTask:
         """Create a task directly in ``QUEUED`` status.
 
@@ -176,6 +182,7 @@ class TaskScheduler:
             run_after=run_after,
             now=self._clock(),
             id_factory=self._id_factory,
+            exclusive_key=exclusive_key,
         )
 
     def fail_initialization(
@@ -296,30 +303,21 @@ class TaskScheduler:
             now=self._clock(),
         )
 
-    def reschedule_pending_once(
+    def update_download_monitor(
         self,
         task_id: str,
-        run_after: str,
+        *,
+        run_after: str | None = None,
+        mode: MonitorMode | None = None,
+        on_completed: MonitorCompletionAction | None = None,
+        authorization_snapshot: dict[str, Any] | None = None,
     ) -> RuntimeTask:
-        """Atomically update ``run_after`` for a pending once-mode task.
-
-        Only ``QUEUED`` / ``WAITING`` tasks with ``check_policy.mode=once``
-        are eligible.  Atomic read-check-update prevents races with the
-        worker claim loop.
-
-        Args:
-            task_id: The task to reschedule.
-            run_after: New canonical UTC ISO-8601 timestamp.
-
-        Returns:
-            The updated task.
-
-        Raises:
-            ValueError: When the task does not exist, is ineligible, or
-                the update would race with a claim.
-        """
-        return self._store.reschedule_pending_once(
+        """Atomically mutate a pending canonical/legacy download monitor."""
+        return self._store.update_download_monitor(
             task_id=task_id,
             run_after=run_after,
+            mode=mode,
+            on_completed=on_completed,
+            authorization_snapshot=authorization_snapshot,
             now=self._clock(),
         )

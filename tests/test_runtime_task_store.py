@@ -566,6 +566,169 @@ class TestDedupeKey:
         t2 = store.enqueue("test", {}, None, None, "key-b", None, fixed_clock(), sequential_id_factory)
         assert t1.task_id != t2.task_id
 
+
+class TestActiveExclusiveKey:
+    def test_enqueue_conflicts_while_first_monitor_is_active(
+        self, store, fixed_clock, sequential_id_factory
+    ) -> None:
+        store.enqueue(
+            "download_watch", {"monitor": {"mode": "until_complete", "on_completed": "notify"}},
+            None, None, None, None, fixed_clock(), sequential_id_factory,
+            exclusive_key="download-monitor:abc",
+        )
+        with pytest.raises(ValueError, match="already owns"):
+            store.enqueue(
+                "download_watch", {"monitor": {"mode": "once", "on_completed": "notify"}},
+                None, None, None, None, fixed_clock(), sequential_id_factory,
+                exclusive_key="download-monitor:abc",
+            )
+
+    def test_terminal_task_releases_exclusive_key(
+        self, store, fixed_clock, sequential_id_factory
+    ) -> None:
+        first = store.enqueue(
+            "download_watch", {"monitor": {"mode": "once", "on_completed": "notify"}},
+            None, None, None, None, fixed_clock(), sequential_id_factory,
+            exclusive_key="download-monitor:abc",
+        )
+        claimed = store.claim_due(
+            ["download_watch"], 1, "worker", 60, fixed_clock()
+        )[0]
+        store.finish(
+            claimed.task_id, TaskStatus.SUCCEEDED, {}, None, fixed_clock()
+        )
+        second = store.enqueue(
+            "download_watch", {"monitor": {"mode": "once", "on_completed": "notify"}},
+            None, None, None, None, fixed_clock(), sequential_id_factory,
+            exclusive_key="download-monitor:abc",
+        )
+        assert second.task_id != first.task_id
+
+    def test_activate_binds_exclusive_key_atomically(
+        self, store, fixed_clock, sequential_id_factory
+    ) -> None:
+        existing = store.enqueue(
+            "download_watch", {"monitor": {"mode": "once", "on_completed": "notify"}},
+            None, None, None, None, fixed_clock(), sequential_id_factory,
+            exclusive_key="download-monitor:abc",
+        )
+        prepared = store.prepare(
+            "download_watch", {"monitor": {"mode": "until_complete", "on_completed": "notify"}},
+            None, None, None, fixed_clock(), sequential_id_factory,
+        )
+        with pytest.raises(ValueError, match=existing.task_id):
+            store.activate(
+                prepared.task_id,
+                {"qb_hash": "abc"},
+                None,
+                fixed_clock(),
+                exclusive_key="download-monitor:abc",
+            )
+        unchanged = store.get(prepared.task_id)
+        assert unchanged is not None
+        assert unchanged.status == TaskStatus.INITIALIZING
+        assert unchanged.payload.get("qb_hash") is None
+        assert unchanged.exclusive_key is None
+
+
+class TestAtomicDownloadMonitorUpdate:
+    def _create(self, store, clock, ids, *, action="notify"):
+        payload = {
+            "qb_hash": "abc",
+            "monitor": {"mode": "until_complete", "on_completed": action},
+        }
+        if action == "organize":
+            payload["authorization_snapshot"] = {
+                "background_organization_allowed": True,
+                "allowed_source_path_prefixes": ["/downloads"],
+                "destination_root": "/media",
+            }
+        return store.enqueue(
+            "download_watch", payload, None, None, None,
+            "2026-06-24T00:00:00+00:00", clock(), ids,
+            exclusive_key="download-monitor:abc",
+        )
+
+    def test_updates_time_mode_and_action_in_one_write(
+        self, store, fixed_clock, sequential_id_factory
+    ) -> None:
+        task = self._create(store, fixed_clock, sequential_id_factory)
+        snapshot = {
+            "background_organization_allowed": True,
+            "allowed_source_path_prefixes": ["/downloads"],
+            "destination_root": "/media",
+        }
+        updated = store.update_download_monitor(
+            task.task_id,
+            run_after="2026-06-25T00:00:00+00:00",
+            mode="once",
+            on_completed="organize",
+            authorization_snapshot=snapshot,
+            now=fixed_clock(),
+        )
+        assert updated.run_after == "2026-06-25T00:00:00+00:00"
+        assert updated.payload["monitor"] == {
+            "mode": "once", "on_completed": "organize"
+        }
+        assert updated.payload["authorization_snapshot"] == snapshot
+
+    def test_organize_to_notify_removes_snapshot(
+        self, store, fixed_clock, sequential_id_factory
+    ) -> None:
+        task = self._create(
+            store, fixed_clock, sequential_id_factory, action="organize"
+        )
+        updated = store.update_download_monitor(
+            task.task_id, on_completed="notify", now=fixed_clock()
+        )
+        assert updated.payload["monitor"]["on_completed"] == "notify"
+        assert "authorization_snapshot" not in updated.payload
+
+    def test_legacy_payload_is_rewritten_canonically(
+        self, store, fixed_clock, sequential_id_factory
+    ) -> None:
+        task = store.enqueue(
+            "download_watch",
+            {
+                "qb_hash": "legacy",
+                "check_policy": {"mode": "once", "on_incomplete": "notify"},
+                "resolved_follow_up": {"mode": "notify_only"},
+                "scheduled_for": "old",
+            },
+            None, None, None, None, fixed_clock(), sequential_id_factory,
+        )
+        updated = store.update_download_monitor(
+            task.task_id, mode="until_complete", now=fixed_clock()
+        )
+        assert updated.payload["monitor"] == {
+            "mode": "until_complete", "on_completed": "notify"
+        }
+        assert "check_policy" not in updated.payload
+        assert "resolved_follow_up" not in updated.payload
+        assert "scheduled_for" not in updated.payload
+
+    def test_running_and_terminal_updates_are_rejected(
+        self, store, fixed_clock, sequential_id_factory
+    ) -> None:
+        task = self._create(store, fixed_clock, sequential_id_factory)
+        store.update_download_monitor(
+            task.task_id, run_after=fixed_clock().isoformat(), now=fixed_clock()
+        )
+        running = store.claim_due(
+            ["download_watch"], 1, "worker", 60, fixed_clock()
+        )[0]
+        with pytest.raises(ValueError, match="RUNNING"):
+            store.update_download_monitor(
+                running.task_id, mode="once", now=fixed_clock()
+            )
+        store.finish(
+            running.task_id, TaskStatus.SUCCEEDED, {}, None, fixed_clock()
+        )
+        with pytest.raises(ValueError, match="terminal"):
+            store.update_download_monitor(
+                task.task_id, mode="once", now=fixed_clock()
+            )
+
     def test_null_dedupe_keys_are_distinct(
         self,
         store: RuntimeTaskStore,
