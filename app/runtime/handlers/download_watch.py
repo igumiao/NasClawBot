@@ -45,6 +45,14 @@ After this many polls where qB returns no torrent for the known ``qb_hash``,
 the handler transitions to ``QB_TORRENT_MISSING`` failure.
 """
 
+HASH_RESOLUTION_MAX_ATTEMPTS: int = 12
+"""Maximum number of ``list_torrents`` attempts for hash resolution.
+
+When no qB torrent is found for the correlation tag after this many
+consecutive polls, the handler fails with ``QB_HASH_UNRESOLVED``.
+With default 30 s polling this gives ~6 minutes before giving up.
+"""
+
 ORGANIZE_DEDUPE_KEY_PREFIX: str = "organize-"
 """Prefix for the ``organize_download`` child-task dedupe key.
 
@@ -225,26 +233,56 @@ class DownloadWatchHandler:
         try:
             torrents = self._qb.list_torrents(tag=correlation_tag)
         except Exception as exc:
+            resolution_attempts = int(task.payload.get("resolution_attempts", 0) if task.payload else 0) + 1
             logger.warning(
-                "list_torrents failed for task %s tag=%s: %s",
+                "list_torrents failed for task %s tag=%s (attempt %d): %s",
                 task.task_id,
                 correlation_tag,
+                resolution_attempts,
                 exc,
             )
             return Reschedule(
                 run_after=run_after,
+                payload_patch={"resolution_attempts": resolution_attempts},
                 reason="list_torrents call failed, will retry",
             )
 
         count = len(torrents)
+        resolution_attempts = int(task.payload.get("resolution_attempts", 0) if task.payload else 0) + 1
 
         if count == 0:
+            if resolution_attempts >= HASH_RESOLUTION_MAX_ATTEMPTS:
+                logger.error(
+                    "qB hash resolution exhausted for task %s tag=%s "
+                    "after %d attempts",
+                    task.task_id,
+                    correlation_tag,
+                    resolution_attempts,
+                )
+                return Fail(
+                    code="QB_HASH_UNRESOLVED",
+                    message=(
+                        f"No qB torrent found for tag {correlation_tag!r} "
+                        f"after {resolution_attempts} attempts"
+                    ),
+                    retryable=False,
+                    details={
+                        "correlation_tag": correlation_tag,
+                        "resolution_attempts": resolution_attempts,
+                    },
+                )
+
             logger.info(
-                "No qB torrent found for task %s tag=%s",
+                "No qB torrent found for task %s tag=%s (attempt %d/%d)",
                 task.task_id,
                 correlation_tag,
+                resolution_attempts,
+                HASH_RESOLUTION_MAX_ATTEMPTS,
             )
-            return Reschedule(run_after=run_after)
+            return Reschedule(
+                run_after=run_after,
+                payload_patch={"resolution_attempts": resolution_attempts},
+            )
 
         if count == 1:
             t = torrents[0]
