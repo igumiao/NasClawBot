@@ -504,6 +504,7 @@ class NasClawAgentRunner:
         approval_id: str,
         decision: str = "approve_once",
     ) -> AgentApprovalResult:
+        current_agent_session_id.set(session_id)
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint is None:
             raise KeyError("Agent session not found")
@@ -588,6 +589,7 @@ class NasClawAgentRunner:
 
     @_serialize_session
     def deny(self, session_id: str, approval_id: str) -> AgentApprovalResult:
+        current_agent_session_id.set(session_id)
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint is None:
             raise KeyError("Agent session not found")
