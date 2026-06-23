@@ -25,7 +25,7 @@ NasClawBot is a single-user NAS/PT media assistant and Agent engineering playgro
 - `qb_add_torrent` and `qb_add_torrents` do not expose `qb_category` to the LLM; the category is derived server-side. The Agent sees optional `save_path` and `tag` (for media type labeling, e.g. 电影/电视剧/动漫). Use `qb_list_tags` to query existing qB tags.
 
 - There is no `/confirm` route, no `confirmation_payload`, no `HelloAgentWorkflowRunner`, no `SequentialWorkflow`, no active workflow runtime.
-- `/chat/agent` is the active Agent route. It delegates to `NasClawAgentRunner`, which uses `ToolCallingAgent` with 23 base tools: the existing time/memory/search/TMDB/qB/skill tools plus `monitor_download`, `update_download_monitor`, `task_list`, and `task_cancel`. An additional 14 MCP filesystem tools are registered dynamically when the MCP pool is active. Read-only tools and `task_list` execute immediately; qB mutations, monitor create/update, and task cancellation require approval. Session grants apply only to eligible `qb_add_torrent(s)` calls and never cover organize completion or monitor/task mutations. Checkpoints live under `memory/agent-sessions/{session_id}.json`.
+- `/chat/agent` is the active Agent route. It delegates to `NasClawAgentRunner`, which uses `ToolCallingAgent` with 24 base tools: the existing time/memory/search/TMDB/qB/skill tools plus `monitor_download`, `update_download_monitor`, `task_list`, `task_cancel`, and `list_task_events`. An additional 14 MCP filesystem tools are registered dynamically when the MCP pool is active. Read-only tools and `task_list`/`list_task_events` execute immediately; qB mutations, monitor create/update, and task cancellation require approval. Session grants apply only to eligible `qb_add_torrent(s)` calls and never cover organize completion or monitor/task mutations. Checkpoints live under `memory/agent-sessions/{session_id}.json`.
 - `GET /chat/agent/sessions` lists persisted Agent checkpoint summaries without calling an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}` returns one persisted Agent checkpoint with renderable message history, also without calling an LLM or tools.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` approves a pending Agent tool call. Optional body `{"decision":"approve_once"}` or `{"decision":"approve_and_grant_session"}` controls whether an eligible download-add approval also creates a session grant. For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, and resumes the normal tool loop with `tool_choice="auto"`. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
@@ -313,7 +313,7 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 
 Two independent layers, no `ToolPermission` enum:
 
-- **Filter** (`hello_agents/tools/filter.py`): runs **before** tools are sent to the LLM. Narrows the tool list to control context window usage and sub-agent capability scope. Currently allows 23 base tools plus dynamically registered MCP tools.
+- **Filter** (`hello_agents/tools/filter.py`): runs **before** tools are sent to the LLM. Narrows the tool list to control context window usage and sub-agent capability scope. Currently allows 24 base tools plus dynamically registered MCP tools.
 - **Gate** (`hello_agents/tools/gate.py`): runs **after** LLM returns a tool call, **before** `tool.run()`. Three gates: deny_rules → confirm_rules → default allow. Confirms all 5 qB actions, `monitor_download`, `update_download_monitor`, `task_cancel`, `mcp_filesystem_write_file`, and `mcp_filesystem_edit_file`. `task_list` is read-only. Session grants remain limited to eligible paused qB adds; `completion_action=organize` and monitor/task mutations always require one-time approval.
 
 Factory functions for common deny rules: `deny_command()`, `deny_paths()`, `deny_outside_workspace()`, `deny_regex()`.
@@ -352,12 +352,13 @@ POST /chat/agent
   -> load JSON checkpoint
   -> inject background task events into system prompt
   -> ToolCallingAgent
-  -> 23 base tools: current_time, memory_search, remember_this, mteam_search,
+  -> 24 base tools: current_time, memory_search, remember_this, mteam_search,
      tavily_search, tmdb_search, tmdb_details, tmdb_discover, tmdb_trending,
      member_profile, qb_add_torrent, qb_add_torrents, qb_list_torrents,
      qb_get_torrent, qb_list_tags, qb_control_torrent,
      qb_set_global_speed, qb_set_torrent_speed, skill_load,
-     monitor_download, update_download_monitor, task_list, task_cancel
+     monitor_download, update_download_monitor, task_list, task_cancel,
+     list_task_events
   + 14 MCP filesystem tools (when MCP pool active)
   -> Filter selects allowed tools; Gate requires approval for action tools
   -> tool result back to LLM
