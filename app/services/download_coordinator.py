@@ -127,6 +127,11 @@ class DownloadCoordinator:
 
         # 3 -- Reserve a watch task in INITIALIZING (crash-window guard)
         watch_payload = self._build_watch_payload(request, resolved)
+        logger.info(
+            "download_coordinator.submit: torrent_id=%s source_session_id=%r",
+            request.torrent_id,
+            source_session_id,
+        )
         watch_task = self._scheduler.prepare(
             kind=WATCH_TASK_KIND,
             payload=watch_payload,
