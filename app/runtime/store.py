@@ -854,6 +854,79 @@ class RuntimeTaskStore:
         finally:
             conn.close()
 
+    def bind_download_monitor_identity(
+        self,
+        task_id: str,
+        *,
+        qb_hash: str,
+        payload_patch: dict[str, Any],
+        exclusive_key: str,
+        now: datetime,
+    ) -> RuntimeTask:
+        """Atomically persist a late-resolved qB hash and exclusive key."""
+
+        clean_hash = str(qb_hash or "").strip()
+        if not clean_hash:
+            raise ValueError("qb_hash is required")
+
+        conn = connect(self._db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM runtime_tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Task {task_id!r} not found")
+
+            current = _parse_task(row)
+            if current.kind != "download_watch":
+                raise ValueError(f"Task {task_id!r} is not a download_watch task")
+            if current.status not in {
+                TaskStatus.QUEUED,
+                TaskStatus.RUNNING,
+                TaskStatus.WAITING,
+            }:
+                raise ValueError(
+                    f"Task {task_id!r} is {current.status.value}; identity cannot be bound"
+                )
+
+            existing_hash = str(current.payload.get("qb_hash") or "").strip()
+            if existing_hash and existing_hash.lower() != clean_hash.lower():
+                raise ValueError(
+                    f"Task {task_id!r} is already bound to qB hash {existing_hash!r}"
+                )
+
+            payload = dict(current.payload)
+            payload.update(payload_patch)
+            payload["qb_hash"] = clean_hash
+            try:
+                conn.execute(
+                    "UPDATE runtime_tasks SET payload_json = ?, exclusive_key = ?, "
+                    "updated_at = ? WHERE task_id = ?",
+                    (_d(payload), exclusive_key, now.isoformat(), task_id),
+                )
+            except sqlite3.IntegrityError as exc:
+                conn.rollback()
+                self._raise_creation_conflict(
+                    dedupe_key=None,
+                    exclusive_key=exclusive_key,
+                    original=exc,
+                )
+
+            conn.commit()
+            updated = conn.execute(
+                "SELECT * FROM runtime_tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            return _parse_task(updated)
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def enqueue(
         self,
         kind: str,

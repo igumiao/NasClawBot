@@ -20,8 +20,10 @@ from typing import Any, Callable
 from app.adapters.qbittorrent import QBittorrentAdapter
 from app.domain.downloads import (
     ParsedDownloadMonitor,
+    download_monitor_exclusive_key,
     parse_download_monitor,
 )
+from app.domain.path_mapping import translate_path
 from app.domain.runtime_tasks import (
     ChildTaskSpec,
     Complete,
@@ -155,13 +157,7 @@ class DownloadWatchHandler:
         separators are normalised to forward slashes for Linux filesystem
         compatibility (MCP, WSL, Docker).
         """
-        if not self._path_mapping or not path:
-            return path
-        for qb_prefix, local_prefix in self._path_mapping.items():
-            if path.startswith(qb_prefix):
-                translated = local_prefix + path[len(qb_prefix):]
-                return translated.replace("\\", "/")
-        return path
+        return translate_path(path, self._path_mapping)
 
     # ------------------------------------------------------------------
     # Handler protocol
@@ -299,26 +295,38 @@ class DownloadWatchHandler:
 
         if count == 1:
             t = torrents[0]
-            qb_hash = t.get("hash", "")
+            qb_hash = str(t.get("hash", "") or "").strip()
             logger.info(
                 "Resolved qB hash %s for task %s (name=%s)",
                 qb_hash,
                 task.task_id,
                 t.get("name", ""),
             )
-            return Reschedule(
-                run_after=run_after,
-                payload_patch={
-                    "qb_hash": qb_hash,
-                    "torrent_name": t.get("name", ""),
-                    "save_path": self._translate_path(t.get("save_path", "")),
-                    "consecutive_misses": 0,
-                    "consecutive_errors": 0,
-                    "last_poll_at": now.isoformat(),
-                    "last_progress": 0.0,
-                    "poll_count": 0,
-                },
-            )
+            payload_patch = {
+                "qb_hash": qb_hash,
+                "torrent_name": t.get("name", ""),
+                "save_path": self._translate_path(t.get("save_path", "")),
+                "consecutive_misses": 0,
+                "consecutive_errors": 0,
+                "last_poll_at": now.isoformat(),
+                "last_progress": 0.0,
+                "poll_count": 0,
+            }
+            try:
+                self._scheduler.bind_download_monitor_identity(
+                    task.task_id,
+                    qb_hash=qb_hash,
+                    payload_patch=payload_patch,
+                    exclusive_key=download_monitor_exclusive_key(qb_hash),
+                )
+            except ValueError as exc:
+                return Fail(
+                    code="MONITOR_IDENTITY_CONFLICT",
+                    message=str(exc),
+                    retryable=False,
+                    details={"qb_hash": qb_hash},
+                )
+            return Reschedule(run_after=run_after, payload_patch=payload_patch)
 
         # count > 1
         logger.error(

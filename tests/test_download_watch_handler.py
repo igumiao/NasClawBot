@@ -256,6 +256,42 @@ class TestHashResolution:
         assert outcome.payload_patch["save_path"] == "/media/movies"
         assert outcome.payload_patch["consecutive_misses"] == 0
         assert outcome.payload_patch["consecutive_errors"] == 0
+        persisted = store.get(task.task_id)
+        assert persisted is not None
+        assert persisted.payload["qb_hash"] == "hash-abc"
+        assert persisted.exclusive_key == "download-monitor:hash-abc"
+
+    async def test_late_hash_binding_rejects_existing_active_monitor(
+        self,
+        qb_adapter: FakeQBAdapter,
+        handler: DownloadWatchHandler,
+        scheduler: TaskScheduler,
+        store: RuntimeTaskStore,
+        fixed_clock: Callable[[], datetime],
+        sequential_id_factory: Callable[[], str],
+    ) -> None:
+        scheduler.enqueue(
+            kind="download_watch",
+            payload={"qb_hash": "hash-abc"},
+            exclusive_key="download-monitor:hash-abc",
+        )
+        qb_adapter.torrents_by_tag["nasclaw-task-task-late-conflict"] = [
+            make_torrent("hash-abc", name="Existing.Movie"),
+        ]
+        task = enqueue_watch_task(
+            store,
+            fixed_clock,
+            sequential_id_factory,
+            task_id="task-late-conflict",
+        )
+
+        outcome = await handler(task, store, scheduler)
+
+        assert isinstance(outcome, Fail)
+        assert outcome.code == "MONITOR_IDENTITY_CONFLICT"
+        persisted = store.get(task.task_id)
+        assert persisted is not None
+        assert persisted.exclusive_key is None
 
     async def test_fails_on_multiple_matches(
         self,

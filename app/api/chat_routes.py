@@ -37,6 +37,7 @@ from app.api.schemas import (
 from app.config import get_settings
 from app.domain.authorization import DownloadAuthorizationPolicy
 from app.domain.downloads import DownloadSubmissionRequest
+from app.domain.path_mapping import parse_path_mapping
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
 from app.services.download_automation import DownloadAutomation
 from app.services.download_submission import DownloadSubmission
@@ -178,6 +179,9 @@ def _build_download_automation_factory(
             clock=_utc_now,
             id_factory=_uuid_hex,
             mcp_allowed_dirs=allowed_dirs,
+            path_mapping=parse_path_mapping(
+                str(getattr(settings, "qb_path_mapping", ""))
+            ),
         )
 
     return factory

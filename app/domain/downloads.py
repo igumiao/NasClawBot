@@ -16,6 +16,15 @@ DownloadCompletionAction = Literal["none", "notify", "organize"]
 SubmissionStatus = Literal["accepted", "duplicate", "failed"]
 
 
+def download_monitor_exclusive_key(torrent_hash: str) -> str:
+    """Return the active-monitor identity for a resolved qB hash."""
+
+    clean_hash = str(torrent_hash or "").strip().lower()
+    if not clean_hash:
+        raise ValueError("torrent_hash is required for monitor identity")
+    return f"download-monitor:{clean_hash}"
+
+
 class DownloadSubmissionRequest(BaseModel):
     """Internal request used by the deterministic qB submission service."""
 

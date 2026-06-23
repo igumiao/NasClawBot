@@ -101,6 +101,31 @@ def test_submit_retry_does_not_repeat_qb_side_effect(automation):
     assert submission.submit.call_count == 1
 
 
+def test_submit_notify_accepts_success_without_immediate_hash(automation):
+    service, scheduler, submission, _, _ = automation
+    submission.submit.return_value = {
+        "resource_title": "Movie",
+        "external_id": "123",
+        "qb_hash": None,
+        "status": "submitted_paused",
+    }
+
+    result = service.submit_downloads(
+        [DownloadSubmissionRequest(torrent_id="123", save_path="/downloads")],
+        "notify",
+        "session",
+        "approval-qb4",
+    )
+
+    item = result.items[0]
+    assert item.status == "accepted"
+    task = scheduler.get(item.watch_task_id)
+    assert task is not None
+    assert task.status.value == "queued"
+    assert task.payload["qb_hash"] == ""
+    assert task.exclusive_key is None
+
+
 def test_submit_organize_captures_snapshot(automation):
     service, scheduler, _, _, _ = automation
     result = service.submit_downloads(
@@ -156,6 +181,76 @@ def test_organize_rejects_destination_path_traversal(automation):
             "session",
         )
     assert exc.value.code == "DESTINATION_OUTSIDE_MCP_SCOPE"
+
+
+def test_create_monitor_translates_qb_windows_source_path_before_authorization(
+    automation,
+):
+    _, scheduler, submission, qb, policy = automation
+    qb.get_torrent.return_value = {
+        "hash": "ABC",
+        "name": "Movie",
+        "save_path": r"D:\影视\未整理",
+        "content_path": r"D:\影视\未整理\Movie",
+    }
+    policy.policy = policy.policy.model_copy(update={
+        "allowed_source_path_prefixes": ["/mnt/d/影视/未整理"],
+    })
+    service = DownloadAutomation(
+        submission,
+        qb,
+        scheduler,
+        policy,
+        lambda: NOW,
+        lambda: "mapped-monitor",
+        ["/media"],
+        path_mapping={"D:\\": "/mnt/d/"},
+    )
+
+    receipt = service.create_monitor(
+        DownloadMonitorRequest(
+            torrent_hash="ABC",
+            mode="until_complete",
+            on_completed="organize",
+        ),
+        "session",
+        "approval-mapped",
+    )
+
+    task = scheduler.get(receipt.task_id)
+    assert task is not None
+    assert task.payload["save_path"] == "/mnt/d/影视/未整理/Movie"
+
+
+def test_submit_organize_translates_effective_qb_save_path_before_authorization(
+    automation,
+):
+    _, scheduler, submission, qb, policy = automation
+    submission.resolve_save_path.return_value = r"D:\影视\未整理"
+    submission.resolve_save_path.side_effect = None
+    policy.policy = policy.policy.model_copy(update={
+        "allowed_source_path_prefixes": ["/mnt/d/影视/未整理"],
+    })
+    service = DownloadAutomation(
+        submission,
+        qb,
+        scheduler,
+        policy,
+        lambda: NOW,
+        lambda: "mapped-download",
+        ["/media"],
+        path_mapping={"D:\\": "/mnt/d/"},
+    )
+
+    result = service.submit_downloads(
+        [DownloadSubmissionRequest(torrent_id="123")],
+        "organize",
+        "session",
+    )
+
+    task = scheduler.get(result.items[0].watch_task_id)
+    assert task is not None
+    assert task.payload["save_path"] == "/mnt/d/影视/未整理"
 
 
 def test_create_and_atomic_update_monitor(automation):

@@ -174,6 +174,49 @@ def test_qb_add_torrent_url_reports_submitted_when_not_paused(monkeypatch: pytes
     assert result["status"] == "submitted", "unpaused add should report submitted"
 
 
+def test_qb5_pending_add_is_success_even_before_hash_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    adapter = QBittorrentAdapter(
+        base_url="http://qb.local",
+        username="user",
+        password="pass",
+    )
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            _ = kwargs
+
+        def auth_log_in(self):
+            return None
+
+        def torrents_add(self, **kwargs):
+            _ = kwargs
+            return {
+                "success_count": 0,
+                "pending_count": 1,
+                "added_torrent_ids": [],
+            }
+
+    monkeypatch.setattr(
+        qb_module,
+        "qbittorrentapi",
+        SimpleNamespace(Client=FakeClient),
+        raising=False,
+    )
+
+    result = adapter.add_torrent_url(
+        url="https://download.local/token",
+        category="movie",
+        rename="[123] Dune",
+        paused=True,
+    )
+
+    assert result["ok"] is True
+    assert result["status"] == "submitted_paused"
+    assert result["qb_hash"] is None
+
+
 def test_qb_list_categories_reads_qbittorrent_api_categories(monkeypatch: pytest.MonkeyPatch):
     adapter = QBittorrentAdapter(
         base_url="http://qb.local",

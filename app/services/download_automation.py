@@ -18,6 +18,7 @@ from app.domain.downloads import (
     DownloadSubmissionRequest,
     DownloadSubmissionResult,
     build_download_monitor_payload,
+    download_monitor_exclusive_key,
     is_future_time,
     normalize_to_utc,
     parse_download_monitor,
@@ -26,6 +27,7 @@ from app.domain.organization import (
     OrganizationAuthorizationPolicy,
     OrganizationAuthorizationSnapshot,
 )
+from app.domain.path_mapping import translate_path
 from app.domain.runtime_tasks import RuntimeTask, TaskStatus
 from app.runtime.scheduler import TaskScheduler
 from app.services.download_submission import DownloadSubmission
@@ -34,7 +36,6 @@ from app.services.organization_policy_store import OrganizationAuthorizationPoli
 logger = logging.getLogger(__name__)
 
 WATCH_TASK_KIND = "download_watch"
-DOWNLOAD_MONITOR_EXCLUSIVE_PREFIX = "download-monitor"
 DOWNLOAD_MONITOR_DEDUPE_PREFIX = "download-monitor-approval"
 DOWNLOAD_SUBMISSION_DEDUPE_PREFIX = "download-submission-approval"
 
@@ -60,6 +61,7 @@ class DownloadAutomation:
         clock: Callable[[], datetime],
         id_factory: Callable[[], str],
         mcp_allowed_dirs: Iterable[str] = (),
+        path_mapping: dict[str, str] | None = None,
     ) -> None:
         self._submission = submission
         self._qb = qb_adapter
@@ -70,6 +72,7 @@ class DownloadAutomation:
         self._mcp_allowed_dirs = tuple(
             path.strip() for path in mcp_allowed_dirs if str(path).strip()
         )
+        self._path_mapping = dict(path_mapping or {})
 
     def submit_downloads(
         self,
@@ -205,7 +208,9 @@ class DownloadAutomation:
                 receipt_id, request, submission, watch_task_id=None
             )
 
-        source_path = self._submission.resolve_save_path(request)
+        source_path = self._translate_path(
+            self._submission.resolve_save_path(request)
+        )
         snapshot = (
             self._capture_organization_snapshot(source_path)
             if completion_action == "organize"
@@ -259,33 +264,20 @@ class DownloadAutomation:
             )
 
         qb_hash = str(submission.get("qb_hash") or "").strip()
-        if not qb_hash:
-            self._scheduler.fail_initialization(
-                task.task_id,
-                error={
-                    "code": "MISSING_QB_HASH",
-                    "message": "qB accepted the submission but returned no torrent hash",
-                },
-            )
-            return DownloadSubmissionResult(
-                receipt_id=receipt_id,
-                torrent_id=request.torrent_id,
-                status="failed",
-                error="qB accepted the submission but returned no torrent hash",
-            )
-
         try:
+            payload_patch = {
+                "torrent_name": str(
+                    submission.get("resource_title") or request.torrent_id
+                ),
+                "receipt": submission,
+                "reservation_nonce": None,
+            }
+            if qb_hash:
+                payload_patch["qb_hash"] = qb_hash
             self._scheduler.activate(
                 task.task_id,
-                payload_patch={
-                    "qb_hash": qb_hash,
-                    "torrent_name": str(
-                        submission.get("resource_title") or request.torrent_id
-                    ),
-                    "receipt": submission,
-                    "reservation_nonce": None,
-                },
-                exclusive_key=self._exclusive_key(qb_hash),
+                payload_patch=payload_patch,
+                exclusive_key=(self._exclusive_key(qb_hash) if qb_hash else None),
             )
         except ValueError as exc:
             # qB side effect already occurred. Preserve the reservation as a
@@ -448,9 +440,14 @@ class DownloadAutomation:
                 "Organization destination_root is outside MCP filesystem allowed directories",
             )
 
-    @staticmethod
-    def _torrent_source_path(torrent: dict) -> str:
-        return str(torrent.get("content_path") or torrent.get("save_path") or "").strip()
+    def _torrent_source_path(self, torrent: dict) -> str:
+        source = str(
+            torrent.get("content_path") or torrent.get("save_path") or ""
+        ).strip()
+        return self._translate_path(source)
+
+    def _translate_path(self, path: str) -> str:
+        return translate_path(path, self._path_mapping)
 
     @staticmethod
     def _path_in_prefixes(path: str, prefixes: list[str]) -> bool:
@@ -470,7 +467,7 @@ class DownloadAutomation:
 
     @staticmethod
     def _exclusive_key(torrent_hash: str) -> str:
-        return f"{DOWNLOAD_MONITOR_EXCLUSIVE_PREFIX}:{torrent_hash.lower()}"
+        return download_monitor_exclusive_key(torrent_hash)
 
     @staticmethod
     def _monitor_receipt(task: RuntimeTask) -> DownloadMonitorReceipt:

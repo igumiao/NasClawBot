@@ -50,6 +50,7 @@ from typing import Any, Callable
 from app.adapters.qbittorrent import QBittorrentAdapter
 
 from app.domain.runtime_tasks import RuntimeTask, TaskStatus
+from app.domain.path_mapping import parse_path_mapping
 from app.runtime.handlers.download_watch import DownloadWatchConfig, DownloadWatchHandler
 from app.runtime.handlers.organize_download import (
     OrganizeDownloadConfig,
@@ -358,22 +359,7 @@ def _parse_path_mapping(raw: str) -> dict[str, str]:
     Format: ``"D:\\->/mnt/d/"``  (comma-separated pairs with ``->`` separator).
     Empty string returns an empty dict (translation disabled).
     """
-    if not raw or not raw.strip():
-        return {}
-    mapping: dict[str, str] = {}
-    for pair in raw.split(","):
-        pair = pair.strip()
-        if not pair:
-            continue
-        if "->" not in pair:
-            logger.warning("Invalid QB_PATH_MAPPING entry (missing '->'): %r", pair)
-            continue
-        src, dst = pair.split("->", 1)
-        src = src.strip()
-        dst = dst.strip()
-        if src and dst:
-            mapping[src] = dst
-    return mapping
+    return parse_path_mapping(raw)
 
 
 def setup_download_watch_handler(

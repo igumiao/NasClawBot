@@ -139,6 +139,24 @@ class TaskScheduler:
             exclusive_key=exclusive_key,
         )
 
+    def bind_download_monitor_identity(
+        self,
+        task_id: str,
+        *,
+        qb_hash: str,
+        payload_patch: dict[str, Any],
+        exclusive_key: str,
+    ) -> RuntimeTask:
+        """Atomically bind a late-resolved qB hash and active identity."""
+
+        return self._store.bind_download_monitor_identity(
+            task_id=task_id,
+            qb_hash=qb_hash,
+            payload_patch=payload_patch,
+            exclusive_key=exclusive_key,
+            now=self._clock(),
+        )
+
     def enqueue(
         self,
         kind: str,
