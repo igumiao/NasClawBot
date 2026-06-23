@@ -109,6 +109,7 @@ from app.tools import (
     TaskCancelTool,
     TaskListTool,
     UpdateDownloadMonitorTool,
+    ListTaskEventsTool,
     TavilySearchTool,
     TMDBSearchTool,
     TMDBDetailsTool,
@@ -320,6 +321,7 @@ class NasClawAgentRunner:
             "task_list",
             "task_cancel",
             "update_download_monitor",
+            "list_task_events",
         ])
         self.tool_gate = tool_gate or Gate(confirm=[
             lambda call: call.tool_name == "qb_add_torrent",
@@ -497,6 +499,9 @@ class NasClawAgentRunner:
             tms = self._task_management_service_factory()
             registry.register_tool(TaskListTool(tms))
             registry.register_tool(TaskCancelTool(tms))
+        # ── Task events tool (when store is available) ─────────
+        if self._runtime_task_store is not None:
+            registry.register_tool(ListTaskEventsTool(self._runtime_task_store))
         # ── MCP tools ──────────────────────────────────────────
         mcp_pool = get_mcp_pool()
         if mcp_pool is not None:

@@ -26,6 +26,7 @@ from app.tools.monitor_download import MonitorDownloadTool
 from app.tools.task_list import TaskListTool
 from app.tools.task_cancel import TaskCancelTool
 from app.tools.update_download_monitor import UpdateDownloadMonitorTool
+from app.tools.list_task_events import ListTaskEventsTool
 
 __all__ = [
     "CurrentTimeTool",
@@ -51,4 +52,5 @@ __all__ = [
     "TaskListTool",
     "TaskCancelTool",
     "UpdateDownloadMonitorTool",
+    "ListTaskEventsTool",
 ]
