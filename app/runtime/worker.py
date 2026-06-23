@@ -58,8 +58,8 @@ class TaskWorkerConfig:
         max_concurrency: Global limit on in-flight handler executions.
         per_kind_semaphores: Per-kind concurrency limits; unlisted kinds
             default to 1 (serial execution).
-        purge_max_age_seconds: Maximum age for terminal tasks before they
-            are purged from the database.
+        purge_max_age_seconds: Maximum age (seconds) for terminal tasks before
+            they are purged from the database.  Default 3600 (1 hour).
         clock: Callable returning the current ``datetime``.  Inject a
             deterministic implementation in tests.
         worker_id: Unique identifier for this worker instance, used as
@@ -70,8 +70,8 @@ class TaskWorkerConfig:
     lease_seconds: int = 120
     max_concurrency: int = 4
     per_kind_semaphores: dict[str, int] = field(default_factory=dict)
-    purge_max_age_seconds: int = 300
-    event_consumed_purge_seconds: int = 3600
+    purge_max_age_seconds: int = 3600
+    event_consumed_purge_seconds: int = 86400
     event_max_age_seconds: int = 604800
     clock: Callable[[], datetime] = datetime.now
     worker_id: str = "worker-1"

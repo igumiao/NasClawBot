@@ -139,17 +139,17 @@ New subsystem under `app/runtime/` that manages durable background tasks for pos
 | `TASK_WORKER_CONCURRENCY` | 4 | Global handler concurrency |
 | `DOWNLOAD_WATCH_CONCURRENCY` | 4 | Per-kind download_watch concurrency |
 | `ORGANIZE_WORKER_CONCURRENCY` | 1 | Per-kind organize_download concurrency (serial) |
-| `TASK_PURGE_MAX_AGE_SECONDS` | 300 | Max age for terminal tasks before purge (5 min default) |
-| `EVENT_CONSUMED_PURGE_SECONDS` | 3600 | Max age for consumed events (acknowledged + injected) (1h default) |
+| `TASK_PURGE_MAX_AGE_SECONDS` | 3600 | Max age for terminal tasks before purge (1h default) |
+| `EVENT_CONSUMED_PURGE_SECONDS` | 86400 | Max age for consumed events (acknowledged + injected) (24h default) |
 | `EVENT_MAX_AGE_SECONDS` | 604800 | Absolute max age for any event before purge (7d default) |
 | `QB_PATH_MAPPING` | `""` | Windows→WSL path prefix translation, e.g. `D:\->/mnt/d/` |
 
 **Design decisions:**
 
 - Download watch polls with dynamic intervals: computes speed from progress delta between two polls, estimates ETA, polls at half-ETA (clamped to 30s–600s). Stalled progress falls back to 60s.
-- Terminal tasks auto-purged after `TASK_PURGE_MAX_AGE_SECONDS` (default 300s, 5 min). Purge runs each worker tick and deletes tasks + runs only — events are managed independently.
+- Terminal tasks auto-purged after `TASK_PURGE_MAX_AGE_SECONDS` (default 3600s, 1h). Purge runs each worker tick and deletes tasks + runs only — events are managed independently.
 - Task events are decoupled from task lifecycle: no FK on `runtime_task_events.task_id`, so events outlive their parent tasks. Two-tier event purge:
-  - **Consumed events** (both `acknowledged_at` and `injected_at` set, both older than `EVENT_CONSUMED_PURGE_SECONDS`, default 3600s = 1h) — short retention after user + Agent have seen the event.
+  - **Consumed events** (both `acknowledged_at` and `injected_at` set, both older than `EVENT_CONSUMED_PURGE_SECONDS`, default 86400s = 24h) — retention after user + Agent have seen the event.
   - **Absolute max age** (`EVENT_MAX_AGE_SECONDS`, default 604800s = 7d) — backstop preventing unbounded table growth; deletes events older than this regardless of acknowledgement/injection status.
 - `max_attempts` (renamed `max_failure_attempts`) is 8. Failed tasks retry with exponential backoff (30s, 60s, 120s… capped at 3600s).
 - `QB_PATH_MAPPING` translates Windows backslash paths to Linux forward-slash paths (e.g. `D:\影视\foo` → `/mnt/d/影视/foo`). `app/domain/path_mapping.py` is shared by `DownloadAutomation` before authorization and by `DownloadWatchHandler`, so approved and executed paths use identical mapping semantics.
