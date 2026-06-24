@@ -139,7 +139,7 @@ Skill 用来把“领域流程和规范”外化成可维护的 markdown，而�
 
 ```text
 skills/
-└── renaming-rules/
+└── organization-rules/
     └── SKILL.md
 ```
 
@@ -147,7 +147,7 @@ skills/
 
 ```markdown
 ---
-name: renaming-rules
+name: organization-rules
 description: 影视文件重命名与目录结构规范。
 ---
 
@@ -160,7 +160,7 @@ description: 影视文件重命名与目录结构规范。
 
 | Skill | 用途 |
 | --- | --- |
-| `renaming-rules` | 影视文件重命名、目录结构、分类与整理流程 |
+| `organization-rules` | 影视文件重命名、目录结构、分类与整理流程 |
 | `test` | 验证 `SkillLoader` 与 `skill_load` 链路是否正常 |
 
 相关实现：
@@ -170,7 +170,7 @@ description: 影视文件重命名与目录结构规范。
 | `hello_agents/skills/loader.py` | 扫描 `skills/`，解析 frontmatter，按需加载完整 skill |
 | `hello_agents/tools/builtin/skill_tool.py` | 将 `SkillLoader` 包装成 Agent 工具 `skill_load` |
 | `app/agent/runner.py` | 开启 `skills_enabled`，把可用技能列表追加到 system prompt |
-| `skills/renaming-rules/SKILL.md` | 媒体文件整理规范示例，也是当前可用的真实领域技能 |
+| `skills/organization-rules/SKILL.md` | 媒体文件整理规范示例，也是当前可用的真实领域技能 |
 
 ## 记忆系统
 

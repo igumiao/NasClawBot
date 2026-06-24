@@ -106,7 +106,7 @@ class TestExtractResult:
         obs = [
             FakeObservation(
                 "skill_load",
-                arguments={"name": "renaming-rules"},
+                arguments={"name": "organization-rules"},
             ),
             FakeObservation("mcp_filesystem_list_directory", arguments={"path": "/a"}),
         ]
@@ -120,7 +120,7 @@ class TestExtractResult:
         obs = [
             FakeObservation(
                 "skill_load",
-                arguments={"name": "renaming-rules"},
+                arguments={"name": "organization-rules"},
             ),
             FakeObservation("mcp_filesystem_list_directory", arguments={"path": "/a"}),
             FakeObservation(
@@ -147,7 +147,7 @@ class TestExtractResult:
         obs = [
             FakeObservation(
                 "skill_load",
-                arguments={"name": "renaming-rules"},
+                arguments={"name": "organization-rules"},
             ),
             FakeObservation(
                 "mcp_filesystem_move_file",
@@ -172,7 +172,7 @@ class TestExtractResult:
         obs = [
             FakeObservation(
                 "skill_load",
-                arguments={"name": "renaming-rules"},
+                arguments={"name": "organization-rules"},
             ),
             FakeObservation(
                 "mcp_filesystem_move_file",
@@ -196,7 +196,7 @@ class TestExtractResult:
         obs = [
             FakeObservation(
                 "skill_load",
-                arguments={"name": "renaming-rules"},
+                arguments={"name": "organization-rules"},
             ),
             FakeObservation(
                 "mcp_filesystem_move_file",
@@ -211,7 +211,7 @@ class TestExtractResult:
     def test_tool_calls_count(self) -> None:
         obs = [FakeObservation("mcp_filesystem_list_directory", arguments={"path": "/a"}) for _ in range(5)]
         # Make skill_load appear so status is "failed" but not "error"
-        obs.insert(0, FakeObservation("skill_load", arguments={"name": "renaming-rules"}))
+        obs.insert(0, FakeObservation("skill_load", arguments={"name": "organization-rules"}))
         agent = FakeAgent(obs)
         worker = OrganizeWorkerAgent()
         result = worker._extract_result(agent, "")
@@ -328,7 +328,7 @@ class TestSkillGateState:
         wrapped = SkillTool(loader)
         wrapper = _OrganizeSkillTool(wrapped, gate_state)
 
-        result = wrapper.run({"name": "renaming-rules"})
+        result = wrapper.run({"name": "organization-rules"})
         assert result.status == ToolStatus.SUCCESS
         assert gate_state.skill_loaded is True
 
@@ -386,11 +386,11 @@ class TestErrorHandling:
         worker = OrganizeWorkerAgent()
         agent = worker._build_agent()
         prompt = agent.system_prompt or ""
-        assert "renaming-rules" in prompt
+        assert "organization-rules" in prompt
         assert "skill_load" in prompt
         # Token-saving guidance — the prompt warns about directory_tree
         assert "directory_tree" in prompt
         assert "list_directory" in prompt
         assert "get_file_info" in prompt
         # Detailed workflow (create_directory, move_file, tmdb_search, etc.)
-        # lives in the renaming-rules SKILL.md — loaded by skill_load on first step.
+        # lives in the organization-rules SKILL.md — loaded by skill_load on first step.

@@ -3,7 +3,7 @@
 Builds a fresh tool registry per run containing only the tools needed for
 media organization (skill_load, TMDB lookup, MCP filesystem read-only and
 mutation tools).  A dynamic Gate denies mutating operations (create_directory,
-move_file) until the renaming-rules skill has been loaded via ``skill_load``.
+move_file) until the organization-rules skill has been loaded via ``skill_load``.
 
 After the agent loop completes, the structured ``OrganizeWorkerResult`` is
 extracted from the conversation observations — the agent self-verifies by
@@ -111,7 +111,7 @@ _ORGANIZE_SYSTEM_PROMPT = """你是 NasClawBot 的下载整理助手。
 
 ## 第一步（强制）
 
-调用 `skill_load("renaming-rules")` 加载整理规范。该文档包含完整的目录结构、命名规则和整理流程。
+调用 `skill_load("organization-rules")` 加载整理规范。该文档包含完整的目录结构、命名规则和整理流程。
 在 skill 加载成功之前，文件系统写入工具（create_directory, move_file）不可用。
 
 ## 执行原则
@@ -130,7 +130,7 @@ _ORGANIZE_SYSTEM_PROMPT = """你是 NasClawBot 的下载整理助手。
 class _SkillGateState:
     """Mutable flag holder referenced by the Gate lambda and the skill wrapper.
 
-    Updated by :class:`_OrganizeSkillTool` when ``skill_load("renaming-rules")``
+    Updated by :class:`_OrganizeSkillTool` when ``skill_load("organization-rules")``
     returns successfully.  The Gate checks this flag before allowing mutating
     file operations.
     """
@@ -147,7 +147,7 @@ class _SkillGateState:
 class _OrganizeSkillTool(Tool):
     """Wraps ``SkillTool`` to update ``_SkillGateState`` on successful load.
 
-    When the agent calls ``skill_load("renaming-rules")`` and the wrapped
+    When the agent calls ``skill_load("organization-rules")`` and the wrapped
     tool succeeds, the gate state flag is flipped so that subsequent
     ``create_directory`` / ``move_file`` calls are allowed through the Gate.
     """
@@ -167,11 +167,11 @@ class _OrganizeSkillTool(Tool):
         response = self._wrapped.run(parameters)
         if (
             response.status == ToolStatus.SUCCESS
-            and parameters.get("name") == "renaming-rules"
+            and parameters.get("name") == "organization-rules"
         ):
             self._gate_state.skill_loaded = True
             logger.info(
-                "renaming-rules skill loaded — Gate now allows mutating operations"
+                "organization-rules skill loaded — Gate now allows mutating operations"
             )
         return response
 
@@ -268,7 +268,7 @@ class OrganizeWorkerAgent:
 
         The registry contains only the subset of tools required for media
         organization.  The Gate denies ``create_directory`` and ``move_file``
-        until the renaming-rules skill has been loaded.
+        until the organization-rules skill has been loaded.
         """
         settings = get_settings()
         gate_state = _SkillGateState()
@@ -369,7 +369,7 @@ class OrganizeWorkerAgent:
                 skill_block = (
                     "\n\n## 可用技能 (Skills)\n\n"
                     "你可以使用 `skill_load` 工具加载任意技能的完整指导文档。"
-                    "在执行整理任务前，必须先加载 renaming-rules 技能。\n\n"
+                    "在执行整理任务前，必须先加载 organization-rules 技能。\n\n"
                     f"{descriptions}"
                 )
                 agent.system_prompt = (agent.system_prompt or "") + skill_block
@@ -446,7 +446,7 @@ class OrganizeWorkerAgent:
             if obs.tool_name == "skill_load":
                 args = obs.arguments or {}
                 if (
-                    args.get("name") == "renaming-rules"
+                    args.get("name") == "organization-rules"
                     and obs.response is not None
                     and obs.response.status == ToolStatus.SUCCESS
                 ):
@@ -464,7 +464,7 @@ class OrganizeWorkerAgent:
         # Determine overall status.
         if not skill_loaded:
             issues.append(
-                "renaming-rules skill was never loaded. "
+                "organization-rules skill was never loaded. "
                 "The agent may not have followed the required workflow."
             )
             status = "failed"

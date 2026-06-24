@@ -50,7 +50,7 @@ NasClawBot is a single-user NAS/PT media assistant and Agent engineering playgro
 - `app/services/download_automation.py` is the only download-domain task creation/mutation module. It owns `prepare → paused qB submit → activate/fail`, explicit `completion_action=none|notify|organize`, monitor create/update, idempotency, authorization snapshots, and active uniqueness. `DownloadSubmission` remains an internal qB/M-Team boundary and does not create tasks or choose behavior.
 - `GET /tasks`, `GET /tasks/{id}`, `POST /tasks/{id}/cancel`, `GET /task-events`, and `POST /task-events/{id}/acknowledge` expose the runtime task system for listing, cancelling, and acknowledging completion events.
 - `GET /settings/organization-authorization` and `PUT /settings/organization-authorization` read/write `OrganizationAuthorizationPolicy`: `background_organization_allowed`, `allowed_source_path_prefixes`, and `destination_root`; delete/overwrite remain forced `False`. Settings grants authority only and never selects a default completion action.
-- The organize worker (`app/agent/organize_worker.py`) runs a separate `ToolCallingAgent` per download with 10 tools (skill_load + 2 TMDB + 7 MCP filesystem) and a dynamic Gate that denies `create_directory`/`move_file` until `skill_load("renaming-rules")` succeeds. Uses `skills_auto_register=False` to prevent overwriting the wrapper.
+- The organize worker (`app/agent/organize_worker.py`) runs a separate `ToolCallingAgent` per download with 10 tools (skill_load + 2 TMDB + 7 MCP filesystem) and a dynamic Gate that denies `create_directory`/`move_file` until `skill_load("organization-rules")` succeeds. Uses `skills_auto_register=False` to prevent overwriting the wrapper.
 - `current_agent_session_id` ContextVar in `app/agent/runner.py` is set at each Agent turn start so download and monitor tools pass the correct `source_session_id` to `DownloadAutomation`, enabling task-event-to-session matching.
 
 ### MCP Filesystem Integration
@@ -84,7 +84,7 @@ Key files:
 |------|---------|
 | `hello_agents/skills/loader.py` | `SkillLoader` — scans `skills/` directory, parses YAML frontmatter, provides L1 descriptions and L2 body loading |
 | `hello_agents/tools/builtin/skill_tool.py` | `SkillTool` — bridges SkillLoader to Agent ToolRegistry as `skill_load` |
-| `skills/renaming-rules/SKILL.md` | Media file naming and directory organization rules |
+| `skills/organization-rules/SKILL.md` | Media file naming and directory organization rules |
 | `skills/test/SKILL.md` | Verification skill for testing the load mechanism |
 
 Skills are auto-registered at runner startup. L1 metadata is injected into the system prompt under a "可用技能 (Skills)" section. The `skill_load` tool is included in the Filter allow list.
@@ -168,7 +168,7 @@ New subsystem under `app/runtime/` that manages durable background tasks for pos
 `app/agent/organize_worker.py` (`OrganizeWorkerAgent`) is a single-use `ToolCallingAgent` per organization run. Key characteristics:
 
 - **Constrained tools:** 10 tools — `skill_load` + `tmdb_search` + `tmdb_details` + 7 MCP filesystem tools (`list_directory`, `directory_tree`, `read_text_file`, `get_file_info`, `search_files`, `create_directory`, `move_file`).
-- **Dynamic Gate:** `_SkillGateState` flag — denies `create_directory`/`move_file` until `skill_load("renaming-rules")` returns success. `_OrganizeSkillTool` wraps `SkillTool` to toggle this flag when the skill is loaded.
+- **Dynamic Gate:** `_SkillGateState` flag — denies `create_directory`/`move_file` until `skill_load("organization-rules")` returns success. `_OrganizeSkillTool` wraps `SkillTool` to toggle this flag when the skill is loaded.
 - **`skills_auto_register=False`** in `Config` prevents the auto-registered `SkillTool` from overwriting the `_OrganizeSkillTool` wrapper.
 - **System prompt (Chinese):** six-step workflow — load skill → scan → identify → create directories → move files → verify. Bans write operations before skill is loaded.
 - **Result extraction:** post-run, parses tool observations to count `move_file` successes, detect destination, and collect issues.

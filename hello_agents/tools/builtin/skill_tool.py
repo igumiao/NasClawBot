@@ -1,6 +1,6 @@
 """SkillTool — 将 SkillLoader 包装为 Agent 可调用的工具。
 
-Agent 调用 skill_load("renaming-rules") → 获取对应 SKILL.md 的完整内容，
+Agent 调用 skill_load("organization-rules") → 获取对应 SKILL.md 的完整内容，
 注入到对话上下文中。实现三级渐进式披露的 L2（按需加载）。
 """
 

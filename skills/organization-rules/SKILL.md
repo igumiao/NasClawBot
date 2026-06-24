@@ -1,5 +1,5 @@
 ---
-name: renaming-rules
+name: organization-rules
 description: 影视文件重命名与目录结构规范。电影/剧集/动漫/综艺/纪录片的命名标准及整理流程。
 ---
 
