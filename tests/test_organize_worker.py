@@ -388,7 +388,9 @@ class TestErrorHandling:
         prompt = agent.system_prompt or ""
         assert "renaming-rules" in prompt
         assert "skill_load" in prompt
+        # Token-saving guidance — the prompt warns about directory_tree
+        assert "directory_tree" in prompt
         assert "list_directory" in prompt
-        assert "create_directory" in prompt
-        assert "move_file" in prompt
-        assert "tmdb_search" in prompt
+        assert "get_file_info" in prompt
+        # Detailed workflow (create_directory, move_file, tmdb_search, etc.)
+        # lives in the renaming-rules SKILL.md — loaded by skill_load on first step.

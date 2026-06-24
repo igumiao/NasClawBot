@@ -131,6 +131,25 @@ _SESSION_LOCKS_GUARD = Lock()
 _SETTINGS_DIR = Path(__file__).resolve().parents[2] / "memory" / "settings"
 _MEMORY_DIR = Path(__file__).resolve().parents[2] / "memory" / "agent-memory"
 
+# MCP filesystem tools available to the chat Agent.  The deprecated `read_file`
+# (aliased to read_text_file by the server) is excluded — the canonical
+# `read_text_file` with head/tail support is the only text-file reader.
+_MCP_CHAT_TOOLS: list[str] = [
+    "read_text_file",
+    "read_media_file",
+    "read_multiple_files",
+    "write_file",
+    "edit_file",
+    "create_directory",
+    "list_directory",
+    "list_directory_with_sizes",
+    "directory_tree",
+    "move_file",
+    "search_files",
+    "get_file_info",
+    "list_allowed_directories",
+]
+
 
 def _session_lock(session_id: str) -> RLock:
     with _SESSION_LOCKS_GUARD:
@@ -505,7 +524,10 @@ class NasClawAgentRunner:
         # ── MCP tools ──────────────────────────────────────────
         mcp_pool = get_mcp_pool()
         if mcp_pool is not None:
-            register_mcp_tools(mcp_pool, registry, tool_filter=self.tool_filter)
+            register_mcp_tools(
+                mcp_pool, registry, tool_filter=self.tool_filter,
+                allow=_MCP_CHAT_TOOLS,
+            )
         # ── Agent config ───────────────────────────────────────
         config_values = {
             "trace_enabled": False,  # runner manages trace per conversation session

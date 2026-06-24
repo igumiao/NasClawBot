@@ -50,7 +50,7 @@ async def init_mcp_pool() -> McpPool | None:
     """启动 MCP server 连接。
 
     当前接入 filesystem MCP server，允许 Agent 在指定目录内
-    执行文件操作（read_file、write_file、edit_file、create_directory、
+    执行文件操作（read_text_file、write_file、edit_file、create_directory、
     list_directory、move_file、search_files、get_file_info 等）。
 
     通过 MCP_FS_ENABLED 控制开关（进程环境 > .env > 默认 true）。

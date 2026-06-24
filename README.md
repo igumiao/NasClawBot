@@ -119,7 +119,7 @@ NasClawBot 的核心工程边界在 `hello_agents/` 与 `app/agent/runner.py`：
 | qB 动作 | `qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed` |
 | 后台任务 | `monitor_download`, `update_download_monitor`, `task_list`, `task_cancel` |
 | 技能 | `skill_load` |
-| MCP filesystem | `mcp_filesystem_read_file`, `write_file`, `edit_file`, `list_directory`, `move_file`, `search_files`, `get_file_info` 等 |
+| MCP filesystem | `mcp_filesystem_read_text_file`, `write_file`, `edit_file`, `list_directory`, `move_file`, `search_files`, `get_file_info` 等 |
 
 M-Team Agent-facing contract 保持刻意收窄：`keyword`、`sort_by`、`imdb`、`douban` 都是可选参数；内部固定 normal mode，第一页 20 条，返回最多 10 个候选。`discount`、分页、原始 sort 字段和分类不暴露给 LLM，只作为候选信息或 adapter 细节处理。
 

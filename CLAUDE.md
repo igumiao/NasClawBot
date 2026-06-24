@@ -332,7 +332,7 @@ Generic MCP (Model Context Protocol) client bridge — JSON-RPC 2.0 over STDIO t
 
 **Design decisions:**
 
-- **Tool naming:** `mcp_{server_name}_{tool_name}` (e.g. `mcp_filesystem_read_file`).
+- **Tool naming:** `mcp_{server_name}_{tool_name}` (e.g. `mcp_filesystem_read_text_file`).
 - **Schema conversion:** MCP `inputSchema` (JSON Schema) → `ToolParameter` list in `McpBridgeTool._parse_schema()`.
 - **Filter integration:** `register_mcp_tools()` composes MCP tool names into the existing `Filter` predicate — preserves the original allow list.
 - **Gate:** MCP tools default to `ALLOW` (read-only). Gate can be overridden per tool.
