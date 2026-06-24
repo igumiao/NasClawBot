@@ -11,14 +11,24 @@ from hello_agents.tools.response import ToolResponse
 
 
 class CurrentTimeTool(Tool):
-    """Return the current date/time in a configured timezone."""
+    """Return the current date/time in a configured timezone.
 
-    def __init__(self, timezone_name: str = "Asia/Shanghai") -> None:
+    When *fixed_now* is provided the tool returns that datetime instead of
+    calling ``datetime.now()``.  This allows evaluation runs to produce
+    reproducible date/time output without monkeypatching.
+    """
+
+    def __init__(
+        self,
+        timezone_name: str = "Asia/Shanghai",
+        fixed_now: datetime | None = None,
+    ) -> None:
         super().__init__(
             name="current_time",
             description="获取当前日期、年份、月份、星期和时区。",
         )
         self._timezone_name = timezone_name
+        self._fixed_now = fixed_now
 
     def get_parameters(self) -> list[ToolParameter]:
         return []
@@ -49,7 +59,7 @@ class CurrentTimeTool(Tool):
                 message=f"Unknown timezone: {self._timezone_name}",
             )
 
-        now = datetime.now(timezone)
+        now = self._fixed_now or datetime.now(timezone)
         payload = {
             "iso": now.isoformat(),
             "date": now.date().isoformat(),

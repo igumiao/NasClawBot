@@ -38,20 +38,28 @@ def _reset_module_qb_adapter() -> None:
         _qb_adapter = None
 
 
-def _get_or_create_trace_logger(session_id: str) -> TraceLogger:
+def _get_or_create_trace_logger(
+    session_id: str,
+    output_dir: str = "memory/traces",
+) -> TraceLogger:
+    key = (session_id, output_dir)
     with _trace_loggers_lock:
-        if session_id not in _trace_loggers:
-            _trace_loggers[session_id] = TraceLogger(
-                output_dir="memory/traces",
+        if key not in _trace_loggers:
+            _trace_loggers[key] = TraceLogger(
+                output_dir=output_dir,
                 session_id=session_id,
             )
-        return _trace_loggers[session_id]
+        return _trace_loggers[key]
 
 
-def _cleanup_session_trace(session_id: str) -> None:
+def _cleanup_session_trace(
+    session_id: str,
+    output_dir: str = "memory/traces",
+) -> None:
     """Finalize and remove a session's trace logger. Called on session delete."""
+    key = (session_id, output_dir)
     with _trace_loggers_lock:
-        tl = _trace_loggers.pop(session_id, None)
+        tl = _trace_loggers.pop(key, None)
     if tl:
         try:
             tl.finalize()
@@ -62,6 +70,7 @@ from app.adapters.mteam import MTeamAdapter
 from app.adapters.qbittorrent import QBittorrentAdapter
 from app.adapters.tavily import TavilyAdapter
 from app.adapters.tmdb import TMDBAdapter
+from app.agent.dependencies import AgentToolDependencies
 from app.agent.approvals import (
     ApprovalRecord,
     ApprovalStatus,
@@ -75,7 +84,7 @@ from app.agent.runtime_state import (
     update_runtime_state_after_approval,
     update_runtime_state_after_turn,
 )
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.mcp_pool import get_mcp_pool
 from app.domain.authorization import (
     DownloadAuthorizationPolicy,
@@ -230,15 +239,25 @@ def _requests_background_organization(
     )
 
 
-def _agent_session_prompt(settings: Any, profile_memory: str = "") -> str:
-    """Build the Agent system prompt with a fresh server date anchor."""
+def _agent_session_prompt(
+    settings: Any,
+    profile_memory: str = "",
+    now: datetime | None = None,
+) -> str:
+    """Build the Agent system prompt with a fresh server date anchor.
+
+    When *now* is provided it is used as the current datetime (allowing
+    evaluation runs to pin the date anchor).  Otherwise ``datetime.now()``
+    is called with the configured timezone.
+    """
     try:
         tz = ZoneInfo(settings.app_timezone)
         timezone_name = settings.app_timezone
     except ZoneInfoNotFoundError:
         tz = ZoneInfo("UTC")
         timezone_name = "UTC"
-    today = datetime.now(tz).date().isoformat()
+    effective_now = now or datetime.now(tz)
+    today = effective_now.date().isoformat()
     date_line = (
         f"当前日期：{today}，时区：{timezone_name}。"
         "判断已上映、未上映、最新、最近时，以工具结果中的日期和当前日期为准。"
@@ -310,6 +329,10 @@ class NasClawAgentRunner:
         download_automation_factory: Callable[[], DownloadAutomation] | None = None,
         runtime_task_store: RuntimeTaskStore | None = None,
         task_management_service_factory: Callable[[], Any] | None = None,
+        settings: Settings | None = None,
+        fixed_now: datetime | None = None,
+        trace_root: Path | None = None,
+        dependencies: "AgentToolDependencies | None" = None,
     ):
         self.checkpoint_store = checkpoint_store
         self.llm_factory = llm_factory or HelloAgentsLLM
@@ -361,6 +384,10 @@ class NasClawAgentRunner:
         self._download_automation_factory = download_automation_factory
         self._runtime_task_store = runtime_task_store
         self._task_management_service_factory = task_management_service_factory
+        self.settings = settings or get_settings()
+        self.fixed_now = fixed_now
+        self.trace_root = trace_root or Path("memory/traces")
+        self._dependencies = dependencies
 
     @_serialize_session
     def run(self, session_id: str, message: str) -> AgentRunResult:
@@ -377,7 +404,7 @@ class NasClawAgentRunner:
                 tool_calls=[],
                 pending_approvals=self._enrich_approvals_for_display(
                     self._pending_approval_dicts(checkpoint),
-                    default_save_path=get_settings().download_default_save_path,
+                    default_save_path=self.settings.download_default_save_path,
                 ),
                 checkpoint=checkpoint,
                 context_usage=checkpoint.metadata.get("context_usage"),
@@ -387,15 +414,16 @@ class NasClawAgentRunner:
         # ── 加载未注入的后台任务事件，注入到 ephemeral system context ──
         uninjected_events: list[TaskEvent] = []
         extra_system_text = ""
-        if self._runtime_task_store is not None:
-            uninjected_events = self._runtime_task_store.get_events_for_session(
+        rt_store = self._get_runtime_task_store()
+        if rt_store is not None:
+            uninjected_events = rt_store.get_events_for_session(
                 session_id, uninjected_only=True,
             )
             if uninjected_events:
                 extra_system_text = self._format_background_events(uninjected_events)
 
         agent = self._build_agent(extra_system_text=extra_system_text)
-        agent.trace_logger = _get_or_create_trace_logger(session_id)
+        agent.trace_logger = _get_or_create_trace_logger(session_id, output_dir=str(self.trace_root))
         if checkpoint:
             self._restore_history(agent, checkpoint)
         self._install_authorization_hook(agent, checkpoint)
@@ -412,15 +440,15 @@ class NasClawAgentRunner:
         self.checkpoint_store.save(saved_checkpoint)
 
         # ── 标记事件已注入（仅在保存 checkpoint 成功后） ──
-        if uninjected_events and self._runtime_task_store is not None:
-            self._runtime_task_store.mark_events_injected(
+        if uninjected_events and rt_store is not None:
+            rt_store.mark_events_injected(
                 [e.event_id for e in uninjected_events],
                 now=datetime.now(timezone.utc),
             )
 
         # 为 API 响应注入默认存储路径（仅展示用，不修改 checkpoint）
         display_approvals = self._enrich_approvals_for_display(
-            pending_approvals, default_save_path=get_settings().download_default_save_path,
+            pending_approvals, default_save_path=self.settings.download_default_save_path,
         )
 
         return AgentRunResult(
@@ -449,7 +477,7 @@ class NasClawAgentRunner:
         with _qb_adapter_lock:
             if _qb_adapter is not None:
                 return _qb_adapter
-            settings = get_settings()
+            settings = self.settings
             _qb_adapter = self.qb_adapter_factory(
                 base_url=settings.qb_base_url,
                 username=settings.qb_username,
@@ -467,23 +495,49 @@ class NasClawAgentRunner:
             return None
         return self._download_automation_factory()
 
+    def _get_runtime_task_store(self) -> RuntimeTaskStore | None:
+        """Return the runtime task store, preferring deps over the injected store."""
+        if self._dependencies is not None:
+            return self._dependencies.runtime_task_store
+        return self._runtime_task_store
+
+    def _get_task_management_service(self) -> Any | None:
+        """Return the task management service, preferring deps over the factory."""
+        if self._dependencies is not None:
+            return self._dependencies.task_management
+        if self._task_management_service_factory is not None:
+            return self._task_management_service_factory()
+        return None
+
+    def _get_download_automation(self) -> DownloadAutomation | None:
+        """Return DownloadAutomation, preferring deps over the factory."""
+        if self._dependencies is not None:
+            return self._dependencies.download_automation
+        return self._build_download_automation()
+
     def _build_agent(self, extra_system_text: str = "") -> ToolCallingAgent:
-        settings = get_settings()
+        settings = self.settings
+        deps = self._dependencies
         llm = self.llm_factory(
             model=settings.llm_model,
             api_key=settings.llm_api_key,
             base_url=settings.llm_base_url,
             temperature=0.2,
         )
-        mteam_adapter = self.mteam_adapter_factory(
-            base_url=settings.mteam_base_url,
-            api_key=settings.mteam_api_key,
-        )
-        qb_adapter = self._get_qb_adapter()
+        if deps is not None:
+            mteam_adapter = deps.mteam
+            qb_adapter = deps.qb
+            memory_store = deps.memory_store
+        else:
+            mteam_adapter = self.mteam_adapter_factory(
+                base_url=settings.mteam_base_url,
+                api_key=settings.mteam_api_key,
+            )
+            qb_adapter = self._get_qb_adapter()
+            memory_store = MarkdownMemoryStore(self.memory_root)
+            memory_store.ensure_template_files()
         registry = ToolRegistry()
-        memory_store = MarkdownMemoryStore(self.memory_root)
-        memory_store.ensure_template_files()
-        registry.register_tool(CurrentTimeTool(timezone_name=settings.app_timezone))
+        registry.register_tool(CurrentTimeTool(timezone_name=settings.app_timezone, fixed_now=self.fixed_now))
         registry.register_tool(MemorySearchTool(memory_store))
         registry.register_tool(RememberThisTool(memory_store))
         registry.register_tool(MTeamSearchTool(mteam_adapter))
@@ -491,7 +545,7 @@ class NasClawAgentRunner:
 
         default_save_path = settings.download_default_save_path
 
-        automation = self._build_download_automation()
+        automation = deps.download_automation if deps is not None else self._build_download_automation()
         if automation is not None:
             registry.register_tool(QBAddTorrentTool(automation))
             registry.register_tool(QBAddTorrentsTool(automation))
@@ -503,27 +557,37 @@ class NasClawAgentRunner:
         registry.register_tool(QBControlTorrentTool(qb_adapter))
         registry.register_tool(QBSetGlobalSpeedTool(qb_adapter))
         registry.register_tool(QBSetTorrentSpeedTool(qb_adapter))
-        tavily_adapter = TavilyAdapter(api_key=settings.tavily_api_key)
+        if deps is not None:
+            tavily_adapter = deps.tavily
+            tmdb_adapter = deps.tmdb
+        else:
+            tavily_adapter = TavilyAdapter(api_key=settings.tavily_api_key)
+            tmdb_network = TMDBNetworkSettingsStore(_SETTINGS_DIR).load()
+            tmdb_adapter = TMDBAdapter(
+                api_key=settings.tmdb_api_key,
+                proxy_url=tmdb_network.active_proxy_url,
+            )
         registry.register_tool(TavilySearchTool(tavily_adapter))
-        tmdb_network = TMDBNetworkSettingsStore(_SETTINGS_DIR).load()
-        tmdb_adapter = TMDBAdapter(
-            api_key=settings.tmdb_api_key,
-            proxy_url=tmdb_network.active_proxy_url,
-        )
         registry.register_tool(TMDBSearchTool(tmdb_adapter))
         registry.register_tool(TMDBDetailsTool(tmdb_adapter))
         registry.register_tool(TMDBDiscoverTool(tmdb_adapter))
         registry.register_tool(TMDBTrendingTool(tmdb_adapter))
         # ── Task management tools (when factory is available) ──
-        if self._task_management_service_factory is not None:
+        if deps is not None:
+            tms = deps.task_management
+        elif self._task_management_service_factory is not None:
             tms = self._task_management_service_factory()
+        else:
+            tms = None
+        if tms is not None:
             registry.register_tool(TaskListTool(tms))
             registry.register_tool(TaskCancelTool(tms))
         # ── Task events tool (when store is available) ─────────
-        if self._runtime_task_store is not None:
-            registry.register_tool(ListTaskEventsTool(self._runtime_task_store))
+        rt_store = deps.runtime_task_store if deps is not None else self._runtime_task_store
+        if rt_store is not None:
+            registry.register_tool(ListTaskEventsTool(rt_store))
         # ── MCP tools ──────────────────────────────────────────
-        mcp_pool = get_mcp_pool()
+        mcp_pool = deps.mcp_pool if deps is not None else get_mcp_pool()
         if mcp_pool is not None:
             register_mcp_tools(
                 mcp_pool, registry, tool_filter=self.tool_filter,
@@ -549,7 +613,7 @@ class NasClawAgentRunner:
             name="nasclawbot-agent",
             llm=llm,
             tool_registry=registry,
-            system_prompt=_agent_session_prompt(settings, memory_store.format_user_profile_prompt()),
+            system_prompt=_agent_session_prompt(settings, memory_store.format_user_profile_prompt(), now=self.fixed_now),
             config=Config(**config_values),
             max_steps=self.max_steps,
             tool_filter=self.tool_filter,
@@ -638,7 +702,7 @@ class NasClawAgentRunner:
             error = None
 
         agent = self._build_agent()
-        agent.trace_logger = _get_or_create_trace_logger(session_id)
+        agent.trace_logger = _get_or_create_trace_logger(session_id, output_dir=str(self.trace_root))
         self._restore_history(agent, checkpoint)
         message = agent.resume_tool_call(paused_loop, response)
         saved_checkpoint = self._checkpoint_from_resumed_agent(
@@ -657,7 +721,7 @@ class NasClawAgentRunner:
             error=error,
             pending_approvals=self._enrich_approvals_for_display(
                 self._pending_approval_dicts(saved_checkpoint),
-                default_save_path=get_settings().download_default_save_path,
+                default_save_path=self.settings.download_default_save_path,
             ),
             checkpoint=saved_checkpoint,
             context_usage=saved_checkpoint.metadata.get("context_usage"),
@@ -699,7 +763,7 @@ class NasClawAgentRunner:
             context={"tool_name": approval.tool_name},
         )
         agent = self._build_agent()
-        agent.trace_logger = _get_or_create_trace_logger(session_id)
+        agent.trace_logger = _get_or_create_trace_logger(session_id, output_dir=str(self.trace_root))
         self._restore_history(agent, checkpoint)
         message = agent.resume_tool_call(paused_loop, denial_response)
         saved_checkpoint = self._checkpoint_from_resumed_agent(
@@ -716,7 +780,7 @@ class NasClawAgentRunner:
             message=message,
             pending_approvals=self._enrich_approvals_for_display(
                 self._pending_approval_dicts(saved_checkpoint),
-                default_save_path=get_settings().download_default_save_path,
+                default_save_path=self.settings.download_default_save_path,
             ),
             checkpoint=saved_checkpoint,
             context_usage=saved_checkpoint.metadata.get("context_usage"),
@@ -799,9 +863,9 @@ class NasClawAgentRunner:
         )
 
     @staticmethod
-    def cleanup_session_trace(session_id: str) -> None:
+    def cleanup_session_trace(session_id: str, trace_root: str = "memory/traces") -> None:
         """Finalize and remove trace files for a deleted session."""
-        _cleanup_session_trace(session_id)
+        _cleanup_session_trace(session_id, output_dir=trace_root)
 
     @staticmethod
     def _restore_history(agent: ToolCallingAgent, checkpoint: ConversationCheckpoint) -> None:
@@ -885,7 +949,7 @@ class NasClawAgentRunner:
         metadata["authorization_grants"] = list(metadata.get("authorization_grants") or [])
         setattr(agent, "_session_metadata", metadata)
         policy = self._load_download_authorization_policy()
-        default_save_path = get_settings().download_default_save_path
+        default_save_path = self.settings.download_default_save_path
 
         def authorize_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
             if _requests_background_organization(tool_name, arguments):
@@ -902,7 +966,7 @@ class NasClawAgentRunner:
     def _validate_grant_decision(self, approval: ApprovalRecord) -> None:
         if _requests_background_organization(approval.tool_name, approval.arguments):
             raise ValueError("Downloads that organize on completion require one-time approval")
-        default_save_path = get_settings().download_default_save_path
+        default_save_path = self.settings.download_default_save_path
         info = approval_authorization_info(
             self._load_download_authorization_policy(),
             approval.tool_name,
@@ -919,7 +983,7 @@ class NasClawAgentRunner:
         response: ToolResponse,
     ) -> None:
         policy = self._load_download_authorization_policy()
-        default_save_path = get_settings().download_default_save_path
+        default_save_path = self.settings.download_default_save_path
         used_items = granted_item_count(approval.tool_name, response.data, approval.arguments)
         grant = create_session_grant(
             policy,
@@ -948,7 +1012,7 @@ class NasClawAgentRunner:
             "monitor_download",
             "update_download_monitor",
         ):
-            automation = self._build_download_automation()
+            automation = self._get_download_automation()
             if automation is None:
                 raise RuntimeError(
                     "DownloadAutomation factory not configured — cannot execute download approvals."
@@ -964,12 +1028,12 @@ class NasClawAgentRunner:
             if tool_name != "update_download_monitor" and "idempotency_key" not in approval.arguments:
                 approval.arguments["idempotency_key"] = approval.approval_id
         elif tool_name == "task_cancel":
-            if self._task_management_service_factory is None:
+            tms = self._get_task_management_service()
+            if tms is None:
                 raise RuntimeError(
                     "TaskManagementService factory not configured — "
                     "cannot execute task management approvals."
                 )
-            tms = self._task_management_service_factory()
             tool = TaskCancelTool(tms)
         else:
             qb_adapter = self._get_qb_adapter()
@@ -1208,7 +1272,7 @@ class NasClawAgentRunner:
         if not self.approval_summary_enabled:
             return fallback_message
 
-        settings = get_settings()
+        settings = self.settings
         llm = self.llm_factory(
             model=settings.llm_model,
             api_key=settings.llm_api_key,
@@ -1336,7 +1400,7 @@ class NasClawAgentRunner:
         if not agent.last_result:
             return []
         policy = self._load_download_authorization_policy()
-        default_save_path = get_settings().download_default_save_path
+        default_save_path = self.settings.download_default_save_path
         approvals: list[dict[str, Any]] = []
         for raw in deepcopy(agent.last_result.pending_approvals):
             record = create_pending_approval(raw, session_id=session_id)
