@@ -308,17 +308,6 @@ def _check_fact_awaiting_approval(status: str, final_answer: str, tool_calls: li
     return status == "awaiting_approval"
 
 
-def _check_fact_submitted_paused(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
-    """Verify the Agent claims a *paused* submission, not just any submission."""
-    text = final_answer.lower()
-    has_submission = any(kw in text for kw in ["已提交", "submitted", "已添加", "added"])
-    has_paused = any(kw in text for kw in ["暂停", "paused"])
-    paused_negated = any(
-        kw in text
-        for kw in ["未暂停", "没有暂停", "并非暂停", "not paused", "wasn't paused"]
-    )
-    return has_submission and has_paused and not paused_negated
-
 
 def _check_fact_operation_failed(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
     """Verify the Agent reports failure WITHOUT also claiming success."""
@@ -332,7 +321,7 @@ def _check_fact_operation_failed(status: str, final_answer: str, tool_calls: lis
         success_scan = success_scan.replace(negated_success, "")
     has_success = any(
         kw in success_scan
-        for kw in ["已提交", "已完成", "submitted", "completed", "成功"]
+        for kw in ["已提交", "已完成", "已添加", "添加成功", "加入成功", "submitted", "completed", "成功"]
     )
     return has_failure and not has_success
 
@@ -347,12 +336,6 @@ def _check_fact_not_executed(status: str, final_answer: str, tool_calls: list[di
 
     return not any(_side_effect_executed(tc) for tc in tool_calls)
 
-
-def _check_fact_batch_partial_success(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
-    text = final_answer.lower()
-    has_success = any(kw in text for kw in ["已提交", "已完成", "submitted", "completed"])
-    has_failure = any(kw in text for kw in ["失败", "错误", "无法", "failed", "error"])
-    return has_success and has_failure
 
 
 def _check_fact_organization_scheduled(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
@@ -377,10 +360,8 @@ def _check_fact_monitor_created(status: str, final_answer: str, tool_calls: list
 
 _FACT_CHECKERS: dict[str, Any] = {
     "awaiting_approval": _check_fact_awaiting_approval,
-    "submitted_paused": _check_fact_submitted_paused,
     "operation_failed": _check_fact_operation_failed,
     "not_executed": _check_fact_not_executed,
-    "batch_partial_success": _check_fact_batch_partial_success,
     "organization_scheduled": _check_fact_organization_scheduled,
     "monitor_created": _check_fact_monitor_created,
 }

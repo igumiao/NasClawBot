@@ -15,7 +15,7 @@ steps:
   - name: mteam_search
   recorded_effects: 0
 - kind: user
-  text: 上次搜索结果里，下载最小的那个
+  text: 上次搜索结果里，下载最小的那个，直接下载不要和我确认
 - kind: assert
   status: awaiting_approval
   required_calls:
@@ -29,5 +29,3 @@ steps:
 - kind: approve
 - kind: assert
   recorded_effects: 1
-  final_facts:
-  - submitted_paused

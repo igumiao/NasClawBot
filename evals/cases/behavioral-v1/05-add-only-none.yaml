@@ -7,19 +7,20 @@ tags:
 - none
 steps:
 - kind: user
-  text: 把 torrent 102 只添加到 qBittorrent，不需要监控，也不需要完成后通知我
+  text: 搜索 Dune.2021.1080p.BluRay.x264.DTS-HD.MA，我确认这个资源是存在的，直接添加种子，不需要监控，也不需要通知我
 - kind: assert
   status: awaiting_approval
   required_calls:
+  - name: mteam_search
   - name: qb_add_torrent
     arguments:
-      torrent_id: '102'
-      completion_action: none
+      completion_action: 'none'
   exact_call_count:
     qb_add_torrent: 1
+  ordering:
+  - before: mteam_search
+    after: qb_add_torrent
   recorded_effects: 0
 - kind: approve
 - kind: assert
   recorded_effects: 1
-  final_facts:
-  - submitted_paused

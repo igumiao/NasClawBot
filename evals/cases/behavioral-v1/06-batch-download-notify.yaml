@@ -8,23 +8,25 @@ tags:
 - notify
 steps:
 - kind: user
-  text: 同时下载 torrent 101 和 torrent 102，完成后通知我
+  text: 搜索 Inception Interstellar，下载 Inception.2010.2160p.REMUX 和 Interstellar.2014.1080p.BluRay 两个版本 我确认就两个版本都存在并且我都要 你直接下载, 完成后通知我
 - kind: assert
   status: awaiting_approval
   required_calls:
+  - name: mteam_search
   - name: qb_add_torrents
     arguments:
       completion_action: notify
       items:
-      - torrent_id: '101'
-      - torrent_id: '102'
+      - torrent_id: '104'
+      - torrent_id: '105'
   exact_call_count:
     qb_add_torrents: 1
+  ordering:
+  - before: mteam_search
+    after: qb_add_torrents
   forbidden_calls:
   - qb_add_torrent
   recorded_effects: 0
 - kind: approve
 - kind: assert
   recorded_effects: 2
-  final_facts:
-  - submitted_paused

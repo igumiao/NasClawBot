@@ -13,11 +13,15 @@ fixture_overrides:
     status: error
 steps:
 - kind: user
-  text: 下载 torrent 101
+  text: 搜索 Dune 2021 2160p REMUX (HDR/DV/TrueHD Atmos) 20 GiB，不需要确认直接下载添加到qbittorrent里
 - kind: assert
   status: awaiting_approval
   required_calls:
+  - name: mteam_search
   - name: qb_add_torrent
+  ordering:
+  - before: mteam_search
+    after: qb_add_torrent
   recorded_effects: 0
 - kind: approve
 - kind: assert

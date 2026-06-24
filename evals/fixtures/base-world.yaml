@@ -43,6 +43,28 @@ resources:
     has_chinese_subtitle: false
     labels_new: []
 
+  - torrent_id: "104"
+    title: "Inception.2010.2160p.REMUX.HDR.DTS-HD.MA"
+    size: "25.0 GiB"
+    size_bytes: 26843545600
+    seeders: 35
+    leechers: 5
+    discount: NORMAL
+    resolution: "2160p"
+    has_chinese_subtitle: true
+    labels_new: ["国语中字"]
+
+  - torrent_id: "105"
+    title: "Interstellar.2014.1080p.BluRay.x264.DTS-HD.MA"
+    size: "12.0 GiB"
+    size_bytes: 12884901888
+    seeders: 40
+    leechers: 2
+    discount: FREE
+    resolution: "1080p"
+    has_chinese_subtitle: true
+    labels_new: []
+
 # ── Synthetic qBittorrent download tasks ──────────────────────────────────
 qb_tasks:
   - hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

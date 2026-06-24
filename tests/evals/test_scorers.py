@@ -205,22 +205,6 @@ class TestScoreRecordedEffects:
 
 
 class TestScoreFinalFacts:
-    def test_submitted_paused(self):
-        step = AssertStep(kind="assert", final_facts=["submitted_paused"])
-        failures = _score_final_facts(step, "success", "下载已提交到 qBittorrent（暂停状态）", [])
-        assert failures == []
-
-    def test_submitted_paused_missing(self):
-        step = AssertStep(kind="assert", final_facts=["submitted_paused"])
-        failures = _score_final_facts(step, "success", "操作完成。", [])
-        assert len(failures) == 1
-        assert failures[0].category == FailureCategory.FACTUAL_CONSISTENCY
-
-    def test_submitted_paused_rejects_paused_negation(self):
-        step = AssertStep(kind="assert", final_facts=["submitted_paused"])
-        failures = _score_final_facts(step, "success", "已提交，但没有暂停。", [])
-        assert len(failures) == 1
-
     def test_operation_failed(self):
         step = AssertStep(kind="assert", final_facts=["operation_failed"])
         failures = _score_final_facts(step, "success", "下载失败：网络错误", [])

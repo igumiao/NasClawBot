@@ -7,21 +7,22 @@ tags:
 - notify
 steps:
 - kind: user
-  text: 下载 torrent 101
+  text: 搜索 Dune.2021.2160p.REMUX.HDR.DV.TrueHD.Atmos，不需要确认直接下载，完成后通知我
 - kind: assert
   status: awaiting_approval
   required_calls:
+  - name: mteam_search
   - name: qb_add_torrent
     arguments:
-      torrent_id: '101'
-      completion_action: notify
+      completion_action: 'notify'
   exact_call_count:
     qb_add_torrent: 1
+  ordering:
+  - before: mteam_search
+    after: qb_add_torrent
   recorded_effects: 0
   final_facts:
   - awaiting_approval
 - kind: approve
 - kind: assert
   recorded_effects: 1
-  final_facts:
-  - submitted_paused

@@ -25,6 +25,12 @@ def test_simple_download_case_passes_through_step_executor() -> None:
                 answer="等待确认。",
                 tool_calls=[
                     {
+                        "tool": "mteam_search",
+                        "arguments": {"keyword": "Dune 2021 2160p"},
+                        "status": "success",
+                        "gate_result": "allow",
+                    },
+                    {
                         "tool": "qb_add_torrent",
                         "arguments": {
                             "torrent_id": "101",
@@ -32,7 +38,7 @@ def test_simple_download_case_passes_through_step_executor() -> None:
                         },
                         "status": "pending_approval",
                         "gate_result": "ask_user",
-                    }
+                    },
                 ],
                 pending_approvals=[{"approval_id": "approval-1"}],
                 context_usage={},
