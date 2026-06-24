@@ -1,0 +1,131 @@
+# base-world.yaml
+# Anonymous, structurally realistic test world for NasClawBot Agent evaluation.
+# Contains zero real API keys, cookies, token URLs, account info, or download records.
+
+name: base-world
+description: >
+  Standard anonymous test world with synthetic M-Team resources, seeded qB tasks,
+  background runtime tasks, download submission results, TMDB responses, and
+  filesystem path constraints.
+
+# ── Synthetic M-Team search results ──────────────────────────────────────
+resources:
+  - torrent_id: "101"
+    title: "Dune.2021.2160p.REMUX.HDR.DV.TrueHD.Atmos"
+    size: "20.0 GiB"
+    size_bytes: 21474836480
+    seeders: 52
+    leechers: 8
+    discount: NORMAL
+    resolution: "2160p"
+    has_chinese_subtitle: false
+    labels_new: []
+
+  - torrent_id: "102"
+    title: "SomeShow.S01.1080p.WEB-DL.AAC.H264"
+    size: "8.0 GiB"
+    size_bytes: 8589934592
+    seeders: 20
+    leechers: 3
+    discount: FREE
+    resolution: "1080p"
+    has_chinese_subtitle: true
+    labels_new: ["国语中字"]
+
+  - torrent_id: "103"
+    title: "AnimeTitle.S01.720p.BluRay.x264"
+    size: "2.0 GiB"
+    size_bytes: 2147483648
+    seeders: 5
+    leechers: 1
+    discount: NORMAL
+    resolution: "720p"
+    has_chinese_subtitle: false
+    labels_new: []
+
+# ── Synthetic qBittorrent download tasks ──────────────────────────────────
+qb_tasks:
+  - hash: "abc123"
+    name: "Dune.2021.2160p"
+    size_bytes: 53687091200
+    progress: 1.0
+    state: pausedUP
+    category: movie
+    tags: []
+
+  - hash: "def456"
+    name: "SomeShow.S01.1080p"
+    size_bytes: 32212254720
+    progress: 0.45
+    state: downloading
+    category: tv
+    tags: []
+
+# ── Synthetic background runtime tasks ───────────────────────────────────
+background_tasks:
+  - task_id: "task-1"
+    kind: download_watch
+    status: SUCCEEDED
+    title: "Download completed: Dune.2021.2160p"
+
+  - task_id: "task-2"
+    kind: organize_download
+    status: FAILED
+    title: "Organize failed: SomeShow.S01.1080p"
+
+# ── Filesystem path constraints ──────────────────────────────────────────
+allowed_paths:
+  - "/media/downloads"
+  - "/media/library"
+
+out_of_bounds_paths:
+  - "/etc"
+
+# ── Download submission results ──────────────────────────────────────────
+download_submit:
+  torrent_id: "101"
+  outcome: success
+  status: submitted_paused
+
+download_submit_error:
+  torrent_id: "599"
+  outcome: error
+  code: SUBMIT_FAILED
+  status: submitted_paused
+
+# ── TMDB responses ───────────────────────────────────────────────────────
+tmdb_search_results:
+  Dune:
+    - id: 438631
+      title: "Dune"
+      original_title: "Dune"
+      release_date: "2021-10-22"
+      overview: "A mythic and emotionally charged hero's journey, Dune tells the story of Paul Atreides."
+      media_type: movie
+      vote_average: 8.0
+    - id: 12
+      title: "Dune: Part Two"
+      original_title: "Dune: Part Two"
+      release_date: "2024-03-01"
+      overview: "Paul Atreides unites with the Fremen to seek revenge against those who destroyed his family."
+      media_type: movie
+      vote_average: 8.5
+
+tmdb_details:
+  "438631":
+    id: 438631
+    title: "Dune"
+    original_title: "Dune"
+    release_date: "2021-10-22"
+    overview: "A mythic and emotionally charged hero's journey, Dune tells the story of Paul Atreides."
+    runtime: 155
+    genres:
+      - id: 878
+        name: "Science Fiction"
+      - id: 12
+        name: "Adventure"
+    vote_average: 8.0
+    poster_path: "/d5NXSklXo0qyIYkgV94XAgMIckC.jpg"
+    belongs_to_collection:
+      id: 726871
+      name: "Dune Collection"
