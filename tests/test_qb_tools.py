@@ -11,8 +11,7 @@ from app.domain.downloads import (
     BatchDownloadSubmissionResult,
     DownloadSubmissionResult,
 )
-from app.tools.qb_add_torrent import QBAddTorrentTool
-from app.tools.qb_add_torrents import MAX_BATCH_ITEMS, QBAddTorrentsTool
+from app.tools.qb_add_torrent import MAX_BATCH_ITEMS, QBAddTorrentTool
 from app.tools.qb_control_torrent import QBControlTorrentTool
 from app.tools.qb_get_torrent import QBGetTorrentTool
 from app.tools.qb_list_categories import QBListCategoriesTool
@@ -415,7 +414,7 @@ def test_qb_add_torrents_submits_all_items_paused():
         summary={"accepted": 2},
     )
 
-    tool = QBAddTorrentsTool(coord)
+    tool = QBAddTorrentTool(coord)
     response = tool.run({
         "items": [
             {"torrent_id": "101", "qb_category": "电视剧", "save_path": "/downloads/tv"},
@@ -451,7 +450,7 @@ def test_qb_add_torrents_reports_partial_success():
         summary={"accepted": 1, "failed": 1},
     )
 
-    tool = QBAddTorrentsTool(coord)
+    tool = QBAddTorrentTool(coord)
     response = tool.run({
         "items": [
             {"torrent_id": "101", "qb_category": "电视剧"},
@@ -466,7 +465,7 @@ def test_qb_add_torrents_reports_partial_success():
 
 
 def test_qb_add_torrents_rejects_oversized_batch():
-    tool = QBAddTorrentsTool(MagicMock())
+    tool = QBAddTorrentTool(MagicMock())
     response = tool.run({
         "items": [{"torrent_id": str(i)} for i in range(MAX_BATCH_ITEMS + 1)],
         "completion_action": "notify",
@@ -492,7 +491,7 @@ def test_qb_add_torrents_handles_single_item():
         summary={"accepted": 1},
     )
 
-    tool = QBAddTorrentsTool(coord)
+    tool = QBAddTorrentTool(coord)
     response = tool.run({
         "items": [
             {"torrent_id": "101", "qb_category": "电视剧"},

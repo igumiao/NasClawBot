@@ -360,7 +360,7 @@ def test_chat_agent_batch_approval_includes_session_authorization_eligibility(tm
                 tool_calls=[
                     ToolCall(
                         id="call-batch-download",
-                        name="qb_add_torrents",
+                        name="qb_add_torrent",
                         arguments=(
                             '{"items":['
                             '{"torrent_id":"101","qb_category":"电视剧","save_path":"/downloads/tv/show"},'
@@ -386,7 +386,7 @@ def test_chat_agent_batch_approval_includes_session_authorization_eligibility(tm
 
     assert body.status == "awaiting_approval"
     approval = body.pending_approvals[0]
-    assert approval["tool_name"] == "qb_add_torrents"
+    assert approval["tool_name"] == "qb_add_torrent"
     assert approval["authorization"]["eligible"] is True
     assert approval["authorization"]["policy_id"] == "download-add-torrents-v1"
 
@@ -459,7 +459,7 @@ def test_chat_agent_session_grant_auto_authorizes_batch_download(tmp_path, monke
             {"torrent_id": "102", "qb_category": "电视剧", "save_path": "/downloads/tv/show"},
         ]
     }
-    grant = create_session_grant(policy, "qb_add_torrents", args)
+    grant = create_session_grant(policy, "qb_add_torrent", args)
     store = JSONConversationCheckpointStore(session_dir)
     store.save(
         ConversationCheckpoint(
@@ -479,7 +479,7 @@ def test_chat_agent_session_grant_auto_authorizes_batch_download(tmp_path, monke
                 tool_calls=[
                     ToolCall(
                         id="call-auto-download",
-                        name="qb_add_torrents",
+                        name="qb_add_torrent",
                         arguments='{"items":[{"torrent_id":"101","qb_category":"电视剧","save_path":"/downloads/tv/show"},{"torrent_id":"102","qb_category":"电视剧","save_path":"/downloads/tv/show"}]}',
                     )
                 ],
@@ -505,7 +505,7 @@ def test_chat_agent_session_grant_auto_authorizes_batch_download(tmp_path, monke
 
     assert body.status == "completed"
     assert body.pending_approvals == []
-    assert body.tool_calls[0]["tool"] == "qb_add_torrents"
+    assert body.tool_calls[0]["tool"] == "qb_add_torrent"
     assert body.tool_calls[0]["gate_result"] == "allow"
     checkpoint = store.load("agent-auto-grant")
     assert checkpoint is not None
@@ -743,7 +743,7 @@ def test_approve_agent_batch_approval_executes_downloads(tmp_path, monkeypatch: 
                     {
                         "approval_id": "approval-1",
                         "tool_call_id": "call-download",
-                        "tool_name": "qb_add_torrents",
+                        "tool_name": "qb_add_torrent",
                             "arguments": {
                                 "items": [
                                     {"torrent_id": "101", "qb_category": "电视剧"},
@@ -772,7 +772,7 @@ def test_approve_agent_batch_approval_executes_downloads(tmp_path, monkeypatch: 
     checkpoint = store.load("agent-batch-approve")
     assert checkpoint is not None
     assert checkpoint.metadata["pending_approvals"] == []
-    assert checkpoint.metadata["approvals"][0]["tool_name"] == "qb_add_torrents"
+    assert checkpoint.metadata["approvals"][0]["tool_name"] == "qb_add_torrent"
 
 
 def test_approve_agent_batch_approval_can_create_session_grant(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -802,7 +802,7 @@ def test_approve_agent_batch_approval_can_create_session_grant(tmp_path, monkeyp
                     {
                         "approval_id": "approval-1",
                         "tool_call_id": "call-download",
-                        "tool_name": "qb_add_torrents",
+                        "tool_name": "qb_add_torrent",
                             "arguments": {
                                 "items": [
                                     {"torrent_id": "101", "qb_category": "电视剧", "save_path": "/downloads/tv/show"},

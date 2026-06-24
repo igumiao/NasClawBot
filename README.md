@@ -116,7 +116,7 @@ NasClawBot 的核心工程边界在 `hello_agents/` 与 `app/agent/runner.py`：
 | 媒体搜索 | `tavily_search`, `tmdb_search`, `tmdb_details`, `tmdb_discover`, `tmdb_trending`, `mteam_search` |
 | PT/站点信息 | `member_profile` |
 | qB 只读 | `qb_list_torrents`, `qb_get_torrent`, `qb_list_tags` |
-| qB 动作 | `qb_add_torrent`, `qb_add_torrents`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed` |
+| qB 动作 | `qb_add_torrent`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed` |
 | 后台任务 | `monitor_download`, `update_download_monitor`, `task_list`, `task_cancel` |
 | 技能 | `skill_load` |
 | MCP filesystem | `mcp_filesystem_read_text_file`, `write_file`, `edit_file`, `list_directory`, `move_file`, `search_files`, `get_file_info` 等 |

@@ -19,6 +19,5 @@ steps:
     after: tmdb_details
   forbidden_calls:
   - qb_add_torrent
-  - qb_add_torrents
   - mteam_search
   recorded_effects: 0

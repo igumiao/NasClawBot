@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 DOWNLOAD_AUTHORIZATION_POLICY_ID = "download-add-torrents-v1"
-POLICY_ELIGIBLE_TOOLS = {"qb_add_torrent", "qb_add_torrents"}
+POLICY_ELIGIBLE_TOOLS = {"qb_add_torrent"}
 
 
 class DownloadAuthorizationPolicy(BaseModel):
@@ -156,17 +156,19 @@ def authorize_with_session_grant(
 
 
 def granted_item_count(tool_name: str, response_data: dict[str, Any], arguments: dict[str, Any]) -> int:
-    if tool_name == "qb_add_torrent":
-        return 1 if response_data.get("receipt") else 0
-    if tool_name != "qb_add_torrents":
+    if tool_name != "qb_add_torrent":
         return 0
-    summary = response_data.get("summary")
-    if isinstance(summary, dict):
-        try:
-            return max(0, int(summary.get("succeeded") or 0))
-        except (TypeError, ValueError):
-            return 0
-    return len(_extract_items(arguments))
+    # Batch mode: when "items" key is present in the original arguments.
+    if "items" in arguments:
+        summary = response_data.get("summary")
+        if isinstance(summary, dict):
+            try:
+                return max(0, int(summary.get("succeeded") or 0))
+            except (TypeError, ValueError):
+                return 0
+        return len(_extract_items(arguments))
+    # Single-item mode.
+    return 1 if response_data.get("receipt") else 0
 
 
 def _arguments_match_policy(

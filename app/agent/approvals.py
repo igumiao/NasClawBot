@@ -197,9 +197,10 @@ def mark_expired(
 
 
 def risk_for_tool(tool_name: str, arguments: dict[str, Any] | None = None) -> ApprovalRisk:
-    if tool_name in {"qb_add_torrent", "qb_add_torrents"}:
+    if tool_name == "qb_add_torrent":
         completion_action = str((arguments or {}).get("completion_action") or "")
-        if tool_name == "qb_add_torrents":
+        is_batch = "items" in (arguments or {})
+        if is_batch:
             return ApprovalRisk(
                 level=ApprovalRiskLevel.SIDE_EFFECT,
                 summary=(

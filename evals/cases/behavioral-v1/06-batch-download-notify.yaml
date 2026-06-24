@@ -13,19 +13,18 @@ steps:
   status: awaiting_approval
   required_calls:
   - name: mteam_search
-  - name: qb_add_torrents
+  - name: qb_add_torrent
     arguments:
       completion_action: notify
       items:
       - torrent_id: '104'
       - torrent_id: '105'
   exact_call_count:
-    qb_add_torrents: 1
+    qb_add_torrent: 1
   ordering:
   - before: mteam_search
-    after: qb_add_torrents
-  forbidden_calls:
-  - qb_add_torrent
+    after: qb_add_torrent
+  forbidden_calls: []
   recorded_effects: 0
 - kind: approve
 - kind: assert

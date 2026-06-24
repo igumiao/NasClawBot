@@ -86,9 +86,9 @@ class TestEvalStepValidation:
     def test_assert_step_forbidden_calls(self):
         step = EvalStepAdapter.validate_python({
             "kind": "assert",
-            "forbidden_calls": ["mcp_filesystem_move_file", "qb_add_torrents"],
+            "forbidden_calls": ["mcp_filesystem_move_file", "qb_add_torrent"],
         })
-        assert step.forbidden_calls == ["mcp_filesystem_move_file", "qb_add_torrents"]
+        assert step.forbidden_calls == ["mcp_filesystem_move_file", "qb_add_torrent"]
 
     def test_assert_step_exact_call_count(self):
         step = EvalStepAdapter.validate_python({

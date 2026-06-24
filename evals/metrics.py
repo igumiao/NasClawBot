@@ -26,7 +26,6 @@ from evals.models import (
 
 _DOWNLOAD_TOOLS = frozenset({
     "qb_add_torrent",
-    "qb_add_torrents",
     "monitor_download",
     "update_download_monitor",
 })

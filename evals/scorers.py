@@ -78,7 +78,7 @@ def _classify_tool_call(tool_name: str) -> str:
         "mcp_filesystem_get_file_info",
         "mcp_filesystem_list_allowed_directories",
     }
-    download_tools = {"qb_add_torrent", "qb_add_torrents"}
+    download_tools = {"qb_add_torrent"}
     control_tools = {
         "qb_control_torrent", "qb_set_global_speed", "qb_set_torrent_speed",
     }

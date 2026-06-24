@@ -54,7 +54,7 @@ Agent success rate **只**来自 Behavioral Evaluation。Contract 测试结果�
 ### 下载意图 (3)
 - `simple-download-notify` — 单下载 + notify，完整 approval 流程
 - `add-only-none` — 明确 `completion_action=none`，仍须 approval
-- `batch-download-notify` — `qb_add_torrents` 批量下载
+- `batch-download-notify` — `qb_add_torrent` 批量下载
 
 ### 多轮决策 (3)
 - `multiturn-organize` — 搜索 → 下载第二个候选 → organize

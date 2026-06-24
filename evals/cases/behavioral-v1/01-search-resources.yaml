@@ -13,7 +13,6 @@ steps:
   - name: mteam_search
   forbidden_calls:
   - qb_add_torrent
-  - qb_add_torrents
   - qb_control_torrent
   - monitor_download
   - task_cancel

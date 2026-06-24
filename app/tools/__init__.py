@@ -8,8 +8,7 @@ from app.tools.member_profile import MemberProfileTool
 from app.tools.memory_search import MemorySearchTool
 from app.tools.remember_this import RememberThisTool
 from app.tools.mteam_search import MTeamSearchTool
-from app.tools.qb_add_torrent import QBAddTorrentTool
-from app.tools.qb_add_torrents import QBAddTorrentsTool
+from app.tools.qb_add_torrent import MAX_BATCH_ITEMS, QBAddTorrentTool
 from app.tools.qb_list_torrents import QBListTorrentsTool
 from app.tools.qb_get_torrent import QBGetTorrentTool
 from app.tools.qb_list_categories import QBListCategoriesTool  # deprecated — kept for compat
@@ -35,7 +34,6 @@ __all__ = [
     "RememberThisTool",
     "MTeamSearchTool",
     "QBAddTorrentTool",
-    "QBAddTorrentsTool",
     "QBListTorrentsTool",
     "QBGetTorrentTool",
     "QBListCategoriesTool",  # deprecated

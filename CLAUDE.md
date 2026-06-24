@@ -22,10 +22,10 @@ NasClawBot is a single-user NAS/PT media assistant and Agent engineering playgro
 - `GET /mteam/free-topped` returns topped (置顶) free torrents for ratio boosting. Uses two-pass M-Team search (discount=FREE + mallSingleFree community-funded free), grouped by toppingLevel 2/1. Frontend tab "刷流" at `frontend/src/components/free-torrents/FreeTorrentsPanel.tsx`.
 - The `/download` endpoint supports optional `save_path` in the request body for custom download directories.
 - All Agent downloads go to an inbox directory by default. The download path is configured via `DOWNLOAD_DEFAULT_SAVE_PATH` env var (default `""`); there is no separate JSON store for download defaults. When a non-empty default path is configured, it appears in the system prompt and approval cards.
-- `qb_add_torrent` and `qb_add_torrents` do not expose `qb_category` to the LLM; the category is derived server-side. The Agent sees optional `save_path` and `tag` (for media type labeling, e.g. 电影/电视剧/动漫). Use `qb_list_tags` to query existing qB tags.
+- `qb_add_torrent` does not expose `qb_category` to the LLM; the category is derived server-side. The Agent sees optional `save_path` and `tag` (for media type labeling, e.g. 电影/电视剧/动漫). Use `qb_list_tags` to query existing qB tags.
 
 - There is no `/confirm` route, no `confirmation_payload`, no `HelloAgentWorkflowRunner`, no `SequentialWorkflow`, no active workflow runtime.
-- `/chat/agent` is the active Agent route. It delegates to `NasClawAgentRunner`, which uses `ToolCallingAgent` with 24 base tools: the existing time/memory/search/TMDB/qB/skill tools plus `monitor_download`, `update_download_monitor`, `task_list`, `task_cancel`, and `list_task_events`. An additional 14 MCP filesystem tools are registered dynamically when the MCP pool is active. Read-only tools and `task_list`/`list_task_events` execute immediately; qB mutations, monitor create/update, and task cancellation require approval. Session grants apply only to eligible `qb_add_torrent(s)` calls and never cover organize completion or monitor/task mutations. Checkpoints live under `memory/agent-sessions/{session_id}.json`.
+- `/chat/agent` is the active Agent route. It delegates to `NasClawAgentRunner`, which uses `ToolCallingAgent` with 24 base tools: the existing time/memory/search/TMDB/qB/skill tools plus `monitor_download`, `update_download_monitor`, `task_list`, `task_cancel`, and `list_task_events`. An additional 14 MCP filesystem tools are registered dynamically when the MCP pool is active. Read-only tools and `task_list`/`list_task_events` execute immediately; qB mutations, monitor create/update, and task cancellation require approval. Session grants apply only to eligible `qb_add_torrent` calls and never cover organize completion or monitor/task mutations. Checkpoints live under `memory/agent-sessions/{session_id}.json`.
 - `GET /chat/agent/sessions` lists persisted Agent checkpoint summaries without calling an LLM or tools.
 - `GET /chat/agent/sessions/{session_id}` returns one persisted Agent checkpoint with renderable message history, also without calling an LLM or tools.
 - `POST /chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` approves a pending Agent tool call. Optional body `{"decision":"approve_once"}` or `{"decision":"approve_and_grant_session"}` controls whether an eligible download-add approval also creates a session grant. For checkpoints with `paused_loop`, the runner validates the paused provider tool call against the approval record, executes the tool, appends the provider `tool` result, and resumes the normal tool loop with `tool_choice="auto"`. Legacy checkpoints without `paused_loop` fall back to the deterministic approval summary path.
@@ -254,7 +254,7 @@ While a session has a non-expired pending approval, `/chat/agent` rejects new us
 
 `app/agent/approvals.py` defines the application-level approval lifecycle. Pending records include `session_id`, `expires_at`, `risk`, `decision`, `result`, and `error`; resolved records move from checkpoint `metadata["pending_approvals"]` to `metadata["approvals"]`.
 
-`metadata["authorization_grants"]` stores session-scoped download-add grants created by approving with `approve_and_grant_session`. Grants are checked before `Gate` for `qb_add_torrent` and `qb_add_torrents` only; other ASK_USER tools are never covered by this policy.
+`metadata["authorization_grants"]` stores session-scoped download-add grants created by approving with `approve_and_grant_session`. Grants are checked before `Gate` for `qb_add_torrent` only; other ASK_USER tools are never covered by this policy.
 
 `ToolCallingLoop` performs one forced final LLM pass with `tool_choice="none"` when `max_steps` is reached. That pass summarizes current observations without executing more tools; if it fails or returns tool calls, the loop falls back to the controlled max-steps message.
 
@@ -354,7 +354,7 @@ POST /chat/agent
   -> ToolCallingAgent
   -> 24 base tools: current_time, memory_search, remember_this, mteam_search,
      tavily_search, tmdb_search, tmdb_details, tmdb_discover, tmdb_trending,
-     member_profile, qb_add_torrent, qb_add_torrents, qb_list_torrents,
+     member_profile, qb_add_torrent, qb_list_torrents,
      qb_get_torrent, qb_list_tags, qb_control_torrent,
      qb_set_global_speed, qb_set_torrent_speed, skill_load,
      monitor_download, update_download_monitor, task_list, task_cancel,
@@ -379,7 +379,7 @@ POST /chat/agent
 
 Continue evolving the gated Agent loop.
 
-- Keep `qb_add_torrent` and `qb_add_torrents` behind approval gating unless an eligible `none|notify` add is covered by an active session download authorization grant. Organize completion never inherits the grant.
+- Keep `qb_add_torrent` behind approval gating unless an eligible `none|notify` add is covered by an active session download authorization grant. Organize completion never inherits the grant.
 - Keep `/download` as the stable explicit user action.
 - qB Agent tools cover search (read-only) + download + control + speed management. Read-only tools execute freely; action tools require user approval. `qb_control_torrent` with `action=delete` is classified as `DESTRUCTIVE` risk.
 - MCP filesystem tools are available for media library organization (renaming, moving, directory creation). Access is limited to configured directories via `MCP_FS_ALLOWED_DIRS`.

@@ -12,7 +12,6 @@ steps:
   status: success
   forbidden_calls:
   - qb_add_torrent
-  - qb_add_torrents
   recorded_effects: 0
   final_facts:
   - not_executed

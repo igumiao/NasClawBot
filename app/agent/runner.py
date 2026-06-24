@@ -107,7 +107,6 @@ from app.tools import (
     RememberThisTool,
     MTeamSearchTool,
     QBAddTorrentTool,
-    QBAddTorrentsTool,
     QBListTorrentsTool,
     QBGetTorrentTool,
     QBListTagsTool,
@@ -205,7 +204,7 @@ AGENT_SESSION_PROMPT = f"""你是 NasClawBot 的媒体搜索和下载助手。
 - 可用 qb_list_tags 查询 qBittorrent 中已存在的标签。
 
 安全边界：
-- 下载、控制、限速、删除等操作类工具会等待用户审核，工具审核前不要声称已经执行工具。
+- 工具审核前不要声称已经执行工具。
 - 只有后端审批执行返回成功后，才能说任务已经提交或操作已经完成。
 - **用户拒绝审批时**：说明用户不想执行该操作，不要重新提交相同或类似的审批。暂停当前任务，询问用户拒绝的原因或希望如何调整。
 - **工具返回错误时**：工具 observation 的 `status` 字段为 `error` 时，说明操作已执行但失败了。必须立即停止当前任务，直接向用户如实报告失败原因（包含错误码和错误消息），禁止编造"已提交"、"已添加"、"正在处理"等成功描述。
@@ -218,7 +217,6 @@ def _tool_display_name(tool_name: str) -> str:
     """Return a short Chinese display label for *tool_name*."""
     _LABELS: dict[str, str] = {
         "qb_add_torrent": "下载请求",
-        "qb_add_torrents": "批量下载请求",
         "qb_control_torrent": "种子控制操作",
         "qb_set_global_speed": "全局限速",
         "qb_set_torrent_speed": "种子限速",
@@ -235,7 +233,7 @@ def _requests_background_organization(
 ) -> bool:
     """Return whether a download add includes background organization."""
     return (
-        tool_name in {"qb_add_torrent", "qb_add_torrents"}
+        tool_name == "qb_add_torrent"
         and str(arguments.get("completion_action") or "") == "organize"
     )
 
@@ -349,7 +347,6 @@ class NasClawAgentRunner:
             "mteam_search",
             "member_profile",
             "qb_add_torrent",
-            "qb_add_torrents",
             "qb_list_torrents",
             "qb_get_torrent",
             "qb_list_tags",
@@ -370,7 +367,6 @@ class NasClawAgentRunner:
         ])
         self.tool_gate = tool_gate or Gate(confirm=[
             lambda call: call.tool_name == "qb_add_torrent",
-            lambda call: call.tool_name == "qb_add_torrents",
             lambda call: call.tool_name == "qb_control_torrent",
             lambda call: call.tool_name == "qb_set_global_speed",
             lambda call: call.tool_name == "qb_set_torrent_speed",
@@ -586,7 +582,6 @@ class NasClawAgentRunner:
         automation = deps.download_automation if deps is not None else self._build_download_automation()
         if automation is not None:
             registry.register_tool(QBAddTorrentTool(automation))
-            registry.register_tool(QBAddTorrentsTool(automation))
             registry.register_tool(MonitorDownloadTool(automation))
             registry.register_tool(UpdateDownloadMonitorTool(automation))
         registry.register_tool(QBListTorrentsTool(qb_adapter))
@@ -703,7 +698,6 @@ class NasClawAgentRunner:
             raise ValueError("Unknown approval decision")
         _EXECUTABLE_TOOLS = {
             "qb_add_torrent",
-            "qb_add_torrents",
             "qb_control_torrent",
             "qb_set_global_speed",
             "qb_set_torrent_speed",
@@ -1048,7 +1042,6 @@ class NasClawAgentRunner:
         tool_name = approval.tool_name
         if tool_name in (
             "qb_add_torrent",
-            "qb_add_torrents",
             "monitor_download",
             "update_download_monitor",
         ):
@@ -1059,8 +1052,6 @@ class NasClawAgentRunner:
                 )
             if tool_name == "qb_add_torrent":
                 tool = QBAddTorrentTool(automation)
-            elif tool_name == "qb_add_torrents":
-                tool = QBAddTorrentsTool(automation)
             elif tool_name == "monitor_download":
                 tool = MonitorDownloadTool(automation)
             else:
@@ -1288,7 +1279,9 @@ class NasClawAgentRunner:
     ) -> str:
         torrent_id = str(approval.arguments.get("torrent_id", ""))
         category = str(approval.arguments.get("qb_category", ""))
-        if approval.tool_name == "qb_add_torrents":
+        # Batch mode: arguments contain an "items" array.
+        is_batch = "items" in approval.arguments
+        if is_batch:
             items = approval.arguments.get("items")
             count = len(items) if isinstance(items, list) else 0
             if receipt:
@@ -1471,7 +1464,7 @@ class NasClawAgentRunner:
         enriched: list[dict[str, Any]] = []
         for a in approvals:
             tool_name = str(a.get("tool_name", ""))
-            if tool_name not in ("qb_add_torrent", "qb_add_torrents"):
+            if tool_name != "qb_add_torrent":
                 enriched.append(a)
                 continue
             a = deepcopy(a)
@@ -1479,7 +1472,8 @@ class NasClawAgentRunner:
             if not isinstance(args, dict):
                 enriched.append(a)
                 continue
-            if tool_name == "qb_add_torrents":
+            # Batch mode: "items" key in arguments.
+            if "items" in args:
                 for item in args.get("torrents", []) or args.get("items", []):
                     if isinstance(item, dict) and not str(item.get("save_path", "")).strip():
                         item["save_path"] = resolved
