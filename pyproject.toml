@@ -27,7 +27,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["app*", "evals*", "hello_agents*"]
 namespaces = true
 
 [tool.pytest.ini_options]
