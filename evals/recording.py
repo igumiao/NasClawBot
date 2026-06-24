@@ -10,7 +10,6 @@ evaluation runs.
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
 from itertools import count
 from typing import Any
 
@@ -22,8 +21,8 @@ from app.domain.downloads import (
     DownloadMonitorUpdate,
     DownloadSubmissionRequest,
     DownloadSubmissionResult,
-    MonitorMode,
 )
+from app.services.task_management import TaskManagementError, TaskView
 from evals.models import CallJournalEntry, Fixture, FixtureQbTask, FixtureResource
 
 
@@ -171,8 +170,8 @@ def _qb_task_to_dict(t: FixtureQbTask) -> dict[str, Any]:
 
 
 def _now_stub() -> str:
-    """Return the current UTC time as an ISO-8601 string."""
-    return datetime.now(timezone.utc).isoformat()
+    """Return the evaluation world's fixed UTC timestamp."""
+    return "2026-06-15T04:00:00+00:00"
 
 
 # ======================================================================
@@ -414,7 +413,15 @@ class RecordingTMDBAdapter:
     def search_multi(self, query: str, **kwargs: Any) -> dict[str, Any]:
         """Return fixture search results for *query*, or an empty structure."""
         self._journal.record("tmdb", "search_multi", {"query": query, **kwargs})
-        results = self._fixture.tmdb_search_results.get(query, [])
+        results = self._fixture.tmdb_search_results.get(query)
+        if results is None:
+            normalized_query = " ".join(query.casefold().split())
+            results = []
+            for fixture_query, fixture_results in self._fixture.tmdb_search_results.items():
+                normalized_fixture_query = " ".join(fixture_query.casefold().split())
+                if normalized_fixture_query in normalized_query:
+                    results = fixture_results
+                    break
         return {
             "page": 1,
             "results": results,
@@ -528,8 +535,19 @@ class RecordingDownloadAutomation:
         now = _now_stub()
         items: list[DownloadSubmissionResult] = []
         error_result = self._fixture.download_submit_error
+        configured_result = self._fixture.download_submit
 
         for req in requests:
+            matched_result = (
+                error_result
+                if error_result is not None and error_result.torrent_id == req.torrent_id
+                else (
+                    configured_result
+                    if configured_result is not None
+                    and configured_result.torrent_id == req.torrent_id
+                    else None
+                )
+            )
             self._journal.record(
                 "download",
                 "submit_downloads",
@@ -542,17 +560,18 @@ class RecordingDownloadAutomation:
                     "tag": req.tag,
                     "qb_category": req.qb_category,
                 },
+                outcome=matched_result.outcome if matched_result is not None else "success",
                 kind="effect",
             )
 
             # Honour the fixture error mapping.
-            if error_result is not None and error_result.torrent_id == req.torrent_id:
+            if matched_result is not None and matched_result.outcome != "success":
                 items.append(
                     DownloadSubmissionResult(
                         receipt_id=f"rec-{req.torrent_id}-{now}",
                         torrent_id=req.torrent_id,
                         status="failed",
-                        error=error_result.code or "fixture_error",
+                        error=matched_result.code or "fixture_error",
                         submitted_at=now,
                     )
                 )
@@ -596,7 +615,7 @@ class RecordingDownloadAutomation:
             "create_monitor",
             {
                 "torrent_hash": request.torrent_hash,
-                "mode": request.mode.value if request.mode else None,
+                "mode": request.mode,
                 "on_completed": request.on_completed,
                 "source_session_id": source_session_id,
                 "idempotency_key": idempotency_key,
@@ -609,7 +628,7 @@ class RecordingDownloadAutomation:
             torrent_hash=request.torrent_hash,
             torrent_name=request.torrent_hash,
             start_at=request.start_at,
-            mode=request.mode or MonitorMode.ONCE,
+            mode=request.mode,
             on_completed=request.on_completed or "notify",
             status="queued",
         )
@@ -635,7 +654,7 @@ class RecordingDownloadAutomation:
             torrent_hash="unknown",
             torrent_name="unknown",
             start_at=request.start_at,
-            mode=MonitorMode(request.mode) if request.mode else MonitorMode.ONCE,
+            mode=request.mode or "once",
             on_completed=request.on_completed or "notify",
             status="queued",
         )
@@ -647,27 +666,52 @@ class RecordingDownloadAutomation:
 
 
 class RecordingTaskManagement:
-    """Records calls and returns empty task lists (no real tasks in eval)."""
+    """Records task queries/mutations against fixture-backed TaskView values."""
 
-    def __init__(self, journal: CallJournal) -> None:
+    def __init__(self, fixture: Fixture, journal: CallJournal) -> None:
+        self._fixture = fixture
         self._journal = journal
 
-    def list_tasks(self, query: Any = None) -> list[Any]:
+    def list_tasks(self, query: Any = None) -> list[TaskView]:
         self._journal.record(
             "task_mgmt", "list_tasks",
             {"query": str(query) if query else None},
         )
-        return []
+        tasks = [
+            TaskView(
+                task_id=task.task_id,
+                kind=task.kind,
+                status=task.status.lower(),
+                description=task.title,
+            )
+            for task in self._fixture.background_tasks
+        ]
+        if query is not None:
+            if getattr(query, "status", None):
+                tasks = [task for task in tasks if task.status == query.status]
+            if getattr(query, "kind", None):
+                tasks = [task for task in tasks if task.kind == query.kind]
+            tasks = tasks[: int(getattr(query, "limit", 50))]
+        return tasks
 
-    def get_task(self, task_id: str) -> Any:
+    def get_task(self, task_id: str) -> TaskView:
         self._journal.record("task_mgmt", "get_task", {"task_id": task_id})
-        return None
+        for task in self.list_tasks():
+            if task.task_id == task_id:
+                return task
+        raise TaskManagementError("TASK_NOT_FOUND", f"Task {task_id!r} not found")
 
-    def cancel_task(self, task_id: str) -> Any:
+    def cancel_task(self, task_id: str) -> TaskView:
         self._journal.record(
             "task_mgmt", "cancel_task", {"task_id": task_id}, kind="effect",
         )
-        return None
+        task = self.get_task(task_id)
+        if task.status not in {"queued", "waiting"}:
+            raise TaskManagementError(
+                "CANCEL_REJECTED",
+                f"Task {task_id!r} is {task.status} and cannot be cancelled",
+            )
+        return task.model_copy(update={"status": "cancelled"})
 
 
 # ======================================================================
@@ -705,6 +749,20 @@ class RecordingRuntimeTaskStore:
             {"event_ids": event_ids},
             kind="effect",
         )
+
+    def list_events(
+        self,
+        *,
+        limit: int = 50,
+        filters: dict[str, Any] | None = None,
+    ) -> list[Any]:
+        """Return an empty event history while preserving the production interface."""
+        self._journal.record(
+            "runtime_store",
+            "list_events",
+            {"limit": limit, "filters": dict(filters or {})},
+        )
+        return []
 
 
 # ======================================================================
@@ -902,6 +960,9 @@ class RecordingMcpPool:
     """
 
     SERVER_NAME = "filesystem"
+    _EFFECT_TOOLS = frozenset(
+        {"write_file", "edit_file", "create_directory", "move_file"}
+    )
 
     def __init__(self, journal: CallJournal) -> None:
         self._journal = journal
@@ -939,6 +1000,7 @@ class RecordingMcpPool:
             "mcp",
             f"call_{tool_name}",
             {"server": server_name, "arguments": arguments},
+            kind="effect" if tool_name in self._EFFECT_TOOLS else "read",
         )
         return f"[eval] {tool_name} executed successfully (recording mode)"
 
@@ -979,9 +1041,8 @@ def create_recording_dependencies(
     -------
     AgentToolDependencies
         A fully wired dependency object suitable for passing to
-        ``NasClawAgentRunner``.  ``task_management``, ``runtime_task_store``,
-        and ``mcp_pool`` are set to ``None`` (not needed for V1 behavioral
-        evaluation).
+        ``NasClawAgentRunner``. Task, runtime-event, and MCP adapters preserve
+        the production interfaces while recording instead of mutating real state.
     """
     return AgentToolDependencies(
         mteam=RecordingMTeamAdapter(fixture, call_journal),
@@ -990,7 +1051,7 @@ def create_recording_dependencies(
         tavily=RecordingTavilyAdapter(call_journal),
         memory_store=RecordingMemoryStore(call_journal),
         download_automation=RecordingDownloadAutomation(fixture, call_journal),
-        task_management=RecordingTaskManagement(call_journal),
+        task_management=RecordingTaskManagement(fixture, call_journal),
         runtime_task_store=RecordingRuntimeTaskStore(call_journal),
         mcp_pool=RecordingMcpPool(call_journal),
     )

@@ -301,6 +301,7 @@ class AgentApprovalResult:
     receipt: dict[str, Any] | None = None
     error: str | None = None
     pending_approvals: list[dict[str, Any]] = field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
     checkpoint: ConversationCheckpoint | None = None
     context_usage: dict[str, Any] | None = None
     session_usage: dict[str, Any] | None = None
@@ -388,6 +389,39 @@ class NasClawAgentRunner:
         self.fixed_now = fixed_now
         self.trace_root = trace_root or Path("memory/traces")
         self._dependencies = dependencies
+
+    def describe_configuration(self) -> dict[str, Any]:
+        """Return the effective, secret-free Agent configuration for eval manifests.
+
+        This builds the same Agent module used by ``run`` without invoking the
+        model.  Callers receive the rendered system prompt and the exact Tool
+        schemas visible after Filter application, so A/B reports can hash the
+        configuration that the model actually sees.
+        """
+        agent = self._build_agent()
+        schemas = agent._build_tool_schemas()
+        if self.tool_filter is not None:
+            schema_names = [
+                str(schema.get("function", {}).get("name") or "")
+                for schema in schemas
+            ]
+            allowed = set(self.tool_filter.apply(schema_names))
+            schemas = [
+                schema
+                for schema in schemas
+                if str(schema.get("function", {}).get("name") or "") in allowed
+            ]
+        schemas.sort(key=lambda item: str(item.get("function", {}).get("name") or ""))
+        return {
+            "model": self.settings.llm_model,
+            "temperature": 0.2,
+            "max_steps": self.max_steps,
+            "prompt_template": AGENT_SESSION_PROMPT,
+            "rendered_prompt": agent.system_prompt or "",
+            "tool_schemas": schemas,
+            "timezone": self.settings.app_timezone,
+            "download_path": self.settings.download_default_save_path,
+        }
 
     @_serialize_session
     def run(self, session_id: str, message: str) -> AgentRunResult:
@@ -726,6 +760,7 @@ class NasClawAgentRunner:
                 self._pending_approval_dicts(saved_checkpoint),
                 default_save_path=self.settings.download_default_save_path,
             ),
+            tool_calls=self._agent_tool_calls(agent),
             checkpoint=saved_checkpoint,
             context_usage=saved_checkpoint.metadata.get("context_usage"),
             session_usage=saved_checkpoint.metadata.get("session_usage"),
@@ -785,6 +820,7 @@ class NasClawAgentRunner:
                 self._pending_approval_dicts(saved_checkpoint),
                 default_save_path=self.settings.download_default_save_path,
             ),
+            tool_calls=self._agent_tool_calls(agent),
             checkpoint=saved_checkpoint,
             context_usage=saved_checkpoint.metadata.get("context_usage"),
             session_usage=saved_checkpoint.metadata.get("session_usage"),

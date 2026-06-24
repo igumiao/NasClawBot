@@ -22,9 +22,50 @@ Usage:
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
+from typing import Any
 
 from evals.models import SuiteReport, TrialResult
+
+
+def archive_failure_bundle(
+    env: Any,
+    result: TrialResult,
+    result_root: Path,
+) -> Path:
+    """Finalize and preserve one failed/invalid trial before temp cleanup."""
+    bundle = (
+        result_root
+        / "failures"
+        / f"{result.case_id}-r{result.repetition:02d}-attempt{result.attempt}"
+    )
+    bundle.mkdir(parents=True, exist_ok=True)
+
+    trace_root = Path(env.trace_root)
+    env.runner.cleanup_session_trace(env.session_id, str(trace_root))
+
+    checkpoints = list((Path(env.work_dir) / "checkpoints").glob("*.json"))
+    if checkpoints:
+        shutil.copy2(checkpoints[0], bundle / "checkpoint.json")
+
+    trace_path = trace_root / f"trace-{env.session_id}.jsonl"
+    if trace_path.is_file():
+        shutil.copy2(trace_path, bundle / "trace.jsonl")
+
+    (bundle / "call-journal.json").write_text(
+        json.dumps(
+            [entry.model_dump() for entry in result.call_journal],
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (bundle / "failure.json").write_text(
+        result.model_dump_json(indent=2, exclude_none=True),
+        encoding="utf-8",
+    )
+    return bundle
 
 # ---------------------------------------------------------------------------
 # Formatters
@@ -170,12 +211,18 @@ def write_summary_markdown(report: SuiteReport, output_path: Path) -> None:
     lines.append(f"| p95 | {_fmt_ms(report.latency_p95_ms)} |")
     lines.append(f"| Sample count (n) | {report.latency_n} |")
     lines.append("")
+    if 0 < report.latency_n <= 36:
+        lines.append(
+            "> p95 is based on a small sample and is reference-only; "
+            "prefer p50 and the per-trial distribution."
+        )
+        lines.append("")
 
     # ── Failure Cases ────────────────────────────────────────────────────
     failed_case_ids = sorted(
         case_id
         for case_id, statuses in report.case_results.items()
-        if any(s == "FAIL" for s in statuses)
+        if any(s in {"FAIL", "INVALID"} for s in statuses)
     )
     if failed_case_ids:
         lines.append("## Failure Cases")
@@ -183,10 +230,7 @@ def write_summary_markdown(report: SuiteReport, output_path: Path) -> None:
         for case_id in failed_case_ids:
             lines.append(f"- `{case_id}`")
         lines.append("")
-        lines.append(
-            "> Failure bundles are not yet tracked. "
-            "See `trials.jsonl` for per-trial assertion details."
-        )
+        lines.append("> Debug artifacts: `failures/{case_id}-rXX-attemptN/`. ")
         lines.append("")
 
     # ── Write ────────────────────────────────────────────────────────────

@@ -22,6 +22,24 @@ from evals.models import (
 # ── Utility functions ──────────────────────────────────────────────────
 
 
+def _value_matches(expected: Any, actual: Any) -> bool:
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        return _arguments_match(expected, actual)
+    if isinstance(expected, list) and isinstance(actual, list):
+        used_indices: set[int] = set()
+        for expected_item in expected:
+            for index, actual_item in enumerate(actual):
+                if index in used_indices:
+                    continue
+                if _value_matches(expected_item, actual_item):
+                    used_indices.add(index)
+                    break
+            else:
+                return False
+        return True
+    return expected == actual
+
+
 def _arguments_match(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     """Check if *expected* is a subset of *actual*.
 
@@ -32,10 +50,7 @@ def _arguments_match(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
         if key not in actual:
             return False
         actual_value = actual[key]
-        if isinstance(expected_value, dict) and isinstance(actual_value, dict):
-            if not _arguments_match(expected_value, actual_value):
-                return False
-        elif expected_value != actual_value:
+        if not _value_matches(expected_value, actual_value):
             return False
     return True
 
@@ -46,7 +61,6 @@ def _classify_tool_call(tool_name: str) -> str:
     read_only_tools = {
         "current_time",
         "memory_search",
-        "remember_this",
         "mteam_search",
         "tavily_search",
         "tmdb_search", "tmdb_details", "tmdb_discover", "tmdb_trending",
@@ -54,6 +68,15 @@ def _classify_tool_call(tool_name: str) -> str:
         "qb_list_torrents", "qb_get_torrent", "qb_list_tags",
         "skill_load",
         "task_list", "list_task_events",
+        "mcp_filesystem_read_text_file",
+        "mcp_filesystem_read_media_file",
+        "mcp_filesystem_read_multiple_files",
+        "mcp_filesystem_list_directory",
+        "mcp_filesystem_list_directory_with_sizes",
+        "mcp_filesystem_directory_tree",
+        "mcp_filesystem_search_files",
+        "mcp_filesystem_get_file_info",
+        "mcp_filesystem_list_allowed_directories",
     }
     download_tools = {"qb_add_torrent", "qb_add_torrents"}
     control_tools = {
@@ -70,6 +93,8 @@ def _classify_tool_call(tool_name: str) -> str:
         return "control"
     if tool_name in task_tools:
         return "task"
+    if tool_name == "remember_this":
+        return "memory_write"
     if tool_name.startswith("mcp_filesystem_"):
         return "filesystem"
     return "other"
@@ -288,14 +313,27 @@ def _check_fact_submitted_paused(status: str, final_answer: str, tool_calls: lis
     text = final_answer.lower()
     has_submission = any(kw in text for kw in ["已提交", "submitted", "已添加", "added"])
     has_paused = any(kw in text for kw in ["暂停", "paused"])
-    return has_submission and has_paused
+    paused_negated = any(
+        kw in text
+        for kw in ["未暂停", "没有暂停", "并非暂停", "not paused", "wasn't paused"]
+    )
+    return has_submission and has_paused and not paused_negated
 
 
 def _check_fact_operation_failed(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
     """Verify the Agent reports failure WITHOUT also claiming success."""
     text = final_answer.lower()
     has_failure = any(kw in text for kw in ["失败", "错误", "无法", "failed", "error"])
-    has_success = any(kw in text for kw in ["已提交", "已完成", "submitted", "completed", "成功"])
+    success_scan = text
+    for negated_success in [
+        "没有成功提交", "未成功提交", "没有成功", "未成功", "不成功",
+        "not successfully submitted", "not successful", "did not complete",
+    ]:
+        success_scan = success_scan.replace(negated_success, "")
+    has_success = any(
+        kw in success_scan
+        for kw in ["已提交", "已完成", "submitted", "completed", "成功"]
+    )
     return has_failure and not has_success
 
 
@@ -319,7 +357,7 @@ def _check_fact_batch_partial_success(status: str, final_answer: str, tool_calls
 
 def _check_fact_organization_scheduled(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
     text = final_answer.lower()
-    return any(kw in text for kw in ["整理", "组织", "organize", "监控", "monitor"])
+    return any(kw in text for kw in ["整理", "组织", "organize"])
 
 
 def _check_fact_monitor_created(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
@@ -327,7 +365,13 @@ def _check_fact_monitor_created(status: str, final_answer: str, tool_calls: list
     text = final_answer.lower()
     has_monitor = any(kw in text for kw in ["监控", "monitor"])
     # Exclude negations like "无法创建监控" or "监控创建失败"
-    negated = any(kw in text for kw in ["无法创建", "创建失败", "未能创建", "cannot create", "failed to create"])
+    negated = any(
+        kw in text
+        for kw in [
+            "无法创建", "创建失败", "未能创建", "没有创建", "尚未创建", "未创建",
+            "cannot create", "failed to create", "not created",
+        ]
+    )
     return has_monitor and not negated
 
 

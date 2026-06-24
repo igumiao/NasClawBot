@@ -54,7 +54,7 @@ def _execute_user_step(
     return {
         "status": result.status,
         "answer": result.answer,
-        "tool_calls": result.tool_calls,
+        "tool_calls": getattr(result, "tool_calls", []) or [],
         "pending_approvals": result.pending_approvals,
         "context_usage": result.context_usage,
         "session_usage": result.session_usage,
@@ -86,7 +86,7 @@ def _execute_approve_step(
     return {
         "status": result.status,
         "answer": result.message,
-        "tool_calls": [],
+        "tool_calls": getattr(result, "tool_calls", []) or [],
         "pending_approvals": result.pending_approvals or [],
         "receipt": result.receipt,
         "error": result.error,
@@ -116,7 +116,7 @@ def _execute_deny_step(
     return {
         "status": result.status,
         "answer": result.message,
-        "tool_calls": [],
+        "tool_calls": getattr(result, "tool_calls", []) or [],
         "pending_approvals": result.pending_approvals or [],
         "context_usage": result.context_usage,
         "session_usage": result.session_usage,
@@ -140,6 +140,25 @@ def _execute_advance_time_step(
 
 # ── Trial execution ───────────────────────────────────────────────────
 
+def _merge_tool_calls(
+    accumulated: list[dict[str, Any]],
+    observed: list[dict[str, Any]],
+) -> None:
+    """Merge observations by provider tool-call id without double counting resume."""
+    index_by_id = {
+        str(call.get("tool_call_id")): index
+        for index, call in enumerate(accumulated)
+        if call.get("tool_call_id")
+    }
+    for call in observed:
+        call_id = str(call.get("tool_call_id") or "")
+        if call_id and call_id in index_by_id:
+            accumulated[index_by_id[call_id]] = call
+        else:
+            if call_id:
+                index_by_id[call_id] = len(accumulated)
+            accumulated.append(call)
+
 def run_trial(
     env: EvalEnvironment,
     steps: list[EvalStep],
@@ -160,12 +179,11 @@ def run_trial(
     started_at = datetime.now(timezone.utc).isoformat()
     all_tool_calls: list[dict[str, Any]] = []
     all_failures: list[FailedAssertion] = []
-    failed_step_index: int | None = None
     current_answer = ""
     current_status = "success"
     turn_state: dict[str, Any] = {"pending_approvals": []}
     step_index = 0
-    model_calls = 0
+    harness_agent_calls = 0
     approval_latency_ms = 0.0
     last_token_usage: dict[str, int] = {}
     last_session_usage: dict[str, Any] = {}
@@ -178,34 +196,35 @@ def run_trial(
             )
 
             if isinstance(step, UserStep):
-                t0 = time.monotonic()
                 turn = _execute_user_step(env, step)
-                all_tool_calls.extend(turn["tool_calls"])
+                _merge_tool_calls(all_tool_calls, turn["tool_calls"])
                 current_answer = turn["answer"]
                 current_status = turn["status"]
                 turn_state = turn
-                model_calls += 1
+                harness_agent_calls += 1
                 _capture_usage(turn, last_token_usage, last_session_usage)
 
             elif isinstance(step, ApproveStep):
                 t0 = time.monotonic()
                 turn = _execute_approve_step(env, step, turn_state)
                 if turn.get("tool_calls"):
-                    all_tool_calls.extend(turn["tool_calls"])
+                    _merge_tool_calls(all_tool_calls, turn["tool_calls"])
                 current_answer = turn["answer"]
                 current_status = turn["status"]
                 turn_state = turn
-                model_calls += 1
+                harness_agent_calls += 1
                 approval_latency_ms += (time.monotonic() - t0) * 1000.0
                 _capture_usage(turn, last_token_usage, last_session_usage)
 
             elif isinstance(step, DenyStep):
                 t0 = time.monotonic()
                 turn = _execute_deny_step(env, step, turn_state)
+                if turn.get("tool_calls"):
+                    _merge_tool_calls(all_tool_calls, turn["tool_calls"])
                 current_answer = turn["answer"]
                 current_status = turn["status"]
                 turn_state = turn
-                model_calls += 1
+                harness_agent_calls += 1
                 approval_latency_ms += (time.monotonic() - t0) * 1000.0
                 _capture_usage(turn, last_token_usage, last_session_usage)
 
@@ -227,8 +246,9 @@ def run_trial(
                 )
                 if failures:
                     all_failures.extend(failures)
-                    if failed_step_index is None:
-                        failed_step_index = step_index
+                    # A later approve/deny step must never execute a pending
+                    # action that has already failed the case contract.
+                    break
 
             else:
                 raise RuntimeError(
@@ -246,9 +266,6 @@ def run_trial(
                 detail=str(exc),
             )
         )
-        if failed_step_index is None:
-            failed_step_index = step_index
-
     except Exception as exc:
         logger.exception(
             "Trial %s failed with harness error at step %d",
@@ -275,12 +292,12 @@ def run_trial(
         trial_status = TrialStatus.PASS
         primary_failure = None
 
-    # ── Extract token totals from accumulated usage ──────────────────
-    total_tokens = last_token_usage.get("total_tokens", 0)
-    if not total_tokens:
-        inp = last_token_usage.get("input_tokens", 0)
-        out = last_token_usage.get("output_tokens", 0)
-        total_tokens = inp + out
+    model_calls = int(last_session_usage.get("model_calls") or harness_agent_calls)
+    llm_latency_ms = float(last_session_usage.get("llm_latency_ms") or 0.0)
+    tool_latency_ms = sum(
+        float((call.get("stats") or {}).get("time_ms") or 0.0)
+        for call in all_tool_calls
+    )
 
     result = TrialResult(
         run_id=env.run_id,
@@ -300,8 +317,8 @@ def run_trial(
         tool_call_count=len(all_tool_calls),
         redundant_tool_calls=0,
         latency_ms=total_latency_ms,
-        llm_request_latency_ms=max(0.0, total_latency_ms - approval_latency_ms),
-        tool_exec_latency_ms=0.0,
+        llm_request_latency_ms=llm_latency_ms,
+        tool_exec_latency_ms=tool_latency_ms,
         approval_latency_ms=approval_latency_ms,
     )
     result.started_at = started_at
@@ -318,27 +335,31 @@ def _capture_usage(
     ctx = turn.get("context_usage") or {}
     sess = turn.get("session_usage") or {}
 
-    # Prefer context_usage (per-request) for token details.
-    for key in (
-        "total_tokens", "input_tokens", "output_tokens",
-        "cache_read_input_tokens", "cache_creation_input_tokens",
-    ):
-        if key in ctx and ctx[key]:
-            token_usage[key] = ctx[key]
-
-    # Fall back to session_usage if context_usage is missing keys.
-    if not token_usage:
-        for key in (
-            "total_tokens", "input_tokens", "output_tokens",
-            "cache_read_input_tokens", "cache_creation_input_tokens",
-        ):
-            if key in sess and sess[key]:
-                token_usage[key] = sess[key]
-
-    # Always capture the latest session_usage for reporting.
     if sess:
         session_usage.clear()
         session_usage.update(sess)
+        token_usage.clear()
+        token_usage.update(
+            {
+                "total_tokens": int(sess.get("total_tokens") or 0),
+                "prompt_tokens": int(sess.get("total_prompt_tokens") or 0),
+                "completion_tokens": int(sess.get("total_completion_tokens") or 0),
+                "cache_hit_tokens": int(sess.get("total_cache_hit_tokens") or 0),
+                "cache_miss_tokens": int(sess.get("total_cache_miss_tokens") or 0),
+            }
+        )
+        return
+
+    token_usage.clear()
+    token_usage.update(
+        {
+            "total_tokens": int(ctx.get("total_tokens") or 0),
+            "prompt_tokens": int(ctx.get("prompt_tokens") or 0),
+            "completion_tokens": int(ctx.get("completion_tokens") or 0),
+            "cache_hit_tokens": int(ctx.get("cache_hit_tokens") or 0),
+            "cache_miss_tokens": int(ctx.get("cache_miss_tokens") or 0),
+        }
+    )
 
 
 def _invalid_trial_result(

@@ -7,6 +7,7 @@ fully isolated from production state and from each other.
 
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -19,6 +20,11 @@ from evals.loader import get_fixture
 from evals.models import EvalCase, Fixture
 from evals.recording import CallJournal, create_recording_dependencies
 from hello_agents.checkpoints.json_store import JSONConversationCheckpointStore
+
+
+def _session_slug(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip(".-")
+    return cleaned[:80] or "eval"
 
 
 @dataclass
@@ -41,10 +47,16 @@ class EvalEnvironment:
     runner: NasClawAgentRunner
     session_id: str
     fixed_now: datetime
+    trace_root: Path
+    configuration_snapshot: dict[str, object]
     clock_offset: timedelta = field(default_factory=timedelta)
 
     def cleanup(self) -> None:
         """Remove the trial work directory and all its contents."""
+        self.runner.cleanup_session_trace(
+            self.session_id,
+            str(self.trace_root),
+        )
         if self.work_dir.exists():
             shutil.rmtree(self.work_dir)
 
@@ -114,7 +126,10 @@ def create_trial_environment(
     checkpoint_store = JSONConversationCheckpointStore(work_dir / "checkpoints")
 
     # ── 7. Session ID ────────────────────────────────────────────────────
-    session_id = f"eval-{run_id[:8]}-{case.id}-{label}-r{repetition:02d}"
+    session_id = (
+        f"{_session_slug(run_id)}-{_session_slug(case.id)}-"
+        f"{_session_slug(label)}-r{repetition:02d}"
+    )
 
     # ── 8. Fixed now (noon on fixed_date_str in given timezone) ──────────
     tz = ZoneInfo(fixed_timezone)
@@ -133,6 +148,13 @@ def create_trial_environment(
         runtime_task_store=None,
         task_management_service_factory=None,
     )
+    configuration_snapshot = runner.describe_configuration()
+    configuration_snapshot.update(
+        {
+            "fixed_date": fixed_now.date().isoformat(),
+            "profile_fixture": "empty-v1",
+        }
+    )
 
     # ── 10. Return ───────────────────────────────────────────────────────
     return EvalEnvironment(
@@ -147,4 +169,6 @@ def create_trial_environment(
         runner=runner,
         session_id=session_id,
         fixed_now=fixed_now,
+        trace_root=work_dir / "traces",
+        configuration_snapshot=configuration_snapshot,
     )

@@ -45,7 +45,7 @@ resources:
 
 # ── Synthetic qBittorrent download tasks ──────────────────────────────────
 qb_tasks:
-  - hash: "abc123"
+  - hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     name: "Dune.2021.2160p"
     size_bytes: 53687091200
     progress: 1.0
@@ -53,7 +53,7 @@ qb_tasks:
     category: movie
     tags: []
 
-  - hash: "def456"
+  - hash: "dddddddddddddddddddddddddddddddddddddddd"
     name: "Dune.2021.1080p"
     size_bytes: 32212254720
     progress: 0.45

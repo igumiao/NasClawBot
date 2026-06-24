@@ -28,6 +28,7 @@ from evals.loader import load_suite
 from evals.metrics import compute_metrics
 from evals.models import SuiteReport, TrialResult, TrialStatus
 from evals.report import (
+    archive_failure_bundle,
     write_manifest,
     write_summary_json,
     write_summary_markdown,
@@ -90,6 +91,8 @@ def _compute_dir_hash(directory: Path, glob_pattern: str = "*.yaml") -> str:
         return ""
     hasher = hashlib.sha256()
     for path in sorted(directory.glob(glob_pattern)):
+        hasher.update(path.relative_to(directory).as_posix().encode("utf-8"))
+        hasher.update(b"\0")
         hasher.update(path.read_bytes())
     return hasher.hexdigest()[:16]
 
@@ -100,6 +103,20 @@ def _compute_suite_hash(suite_name: str) -> str:
 
 def _compute_fixture_hash() -> str:
     return _compute_dir_hash(FIXTURES_DIR, "*.yaml")
+
+
+def _compute_text_hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def _compute_json_hash(value: Any) -> str:
+    canonical = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return _compute_text_hash(canonical)
 
 
 # ── Aggregate metrics ────────────────────────────────────────────────────
@@ -526,6 +543,8 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     # ── Run trials ───────────────────────────────────────────────────────
     trials: list[TrialResult] = []
+    trial_attempts: list[TrialResult] = []
+    run_configuration: dict[str, Any] | None = None
     started_at = datetime.now().isoformat()
 
     for case in cases:
@@ -546,10 +565,15 @@ def cmd_run(args: argparse.Namespace) -> None:
                 label=label,
                 base_work_dir=base_work_dir,
             )
+            if run_configuration is None:
+                run_configuration = dict(
+                    getattr(env, "configuration_snapshot", {}) or {}
+                )
 
             # Run the trial.
             result = run_trial(env, case.steps)
             result.run_id = run_id
+            trial_attempts.append(result)
 
             # Retry INVALID once.
             if result.status == TrialStatus.INVALID:
@@ -557,6 +581,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                     "Trial %s INVALID (attempt 1), retrying with fresh environment...",
                     env.session_id,
                 )
+                archive_failure_bundle(env, result, base_work_dir)
                 env.cleanup()
                 env = create_trial_environment(
                     run_id=run_id,
@@ -569,12 +594,15 @@ def cmd_run(args: argparse.Namespace) -> None:
                 result = run_trial(env, case.steps)
                 result.run_id = run_id
                 result.attempt = 2
+                trial_attempts.append(result)
                 if result.status == TrialStatus.INVALID:
                     logger.error(
                         "Trial %s INVALID again after retry — marking final.",
                         env.session_id,
                     )
 
+            if result.status != TrialStatus.PASS:
+                archive_failure_bundle(env, result, base_work_dir)
             trials.append(result)
             env.cleanup()
 
@@ -599,9 +627,41 @@ def cmd_run(args: argparse.Namespace) -> None:
     report.worktree_dirty = _is_worktree_dirty()
     report.suite_hash = suite_hash
     report.fixture_hash = fixture_hash
-    report.fixed_date = "2026-06-15"
-    report.fixed_timezone = "Asia/Shanghai"
-    report.fixed_download_path = "/eval/downloads"
+    configuration = run_configuration or {}
+    required_configuration = {
+        "model",
+        "temperature",
+        "max_steps",
+        "prompt_template",
+        "rendered_prompt",
+        "tool_schemas",
+        "fixed_date",
+        "timezone",
+        "download_path",
+        "profile_fixture",
+    }
+    missing_configuration = sorted(required_configuration - configuration.keys())
+    if missing_configuration:
+        raise RuntimeError(
+            "Evaluation configuration snapshot is incomplete: "
+            + ", ".join(missing_configuration)
+        )
+    report.model = str(configuration["model"])
+    report.temperature = float(configuration["temperature"])
+    report.max_steps = int(configuration["max_steps"])
+    report.prompt_template_hash = _compute_text_hash(
+        str(configuration["prompt_template"])
+    )
+    report.rendered_prompt_hash = _compute_text_hash(
+        str(configuration["rendered_prompt"])
+    )
+    report.tool_schema_hash = _compute_json_hash(
+        configuration["tool_schemas"]
+    )
+    report.fixed_date = str(configuration["fixed_date"])
+    report.fixed_timezone = str(configuration["timezone"])
+    report.fixed_download_path = str(configuration["download_path"])
+    report.profile_fixture = str(configuration["profile_fixture"])
 
     # ── Write artifacts via the canonical report writers ──────────────────
     # summary.md (excludes trials list)
@@ -616,7 +676,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     # trials.jsonl (one JSON object per trial)
     trials_jsonl_path = base_work_dir / "trials.jsonl"
-    write_trials_jsonl(trials, trials_jsonl_path)
+    write_trials_jsonl(trial_attempts, trials_jsonl_path)
     logger.info("Wrote %s", trials_jsonl_path)
 
     # manifest.json (run metadata + hashes + fixed env)
@@ -645,7 +705,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     print(f"  Invalid:    {report.invalid}")
     if report.success_rate is not None:
         print(f"  Rate:       {report.success_rate:.1%}")
-    print(f"  Results:    {summary_path}")
+    print(f"  Results:    {summary_json_path}")
     print()
 
 
@@ -697,6 +757,13 @@ def cmd_save_baseline(args: argparse.Namespace) -> None:
         logger.error(
             "Refusing to save baseline from a dirty worktree. "
             "Commit or stash changes first, then re-run."
+        )
+        sys.exit(1)
+    aggregate = manifest.get("aggregate") or {}
+    if int(aggregate.get("invalid") or 0) > 0:
+        logger.error(
+            "Refusing to save baseline with unresolved INVALID trials. "
+            "Inspect failure bundles and re-run first."
         )
         sys.exit(1)
 

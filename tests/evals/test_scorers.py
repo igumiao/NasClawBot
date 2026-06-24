@@ -31,6 +31,18 @@ class TestArgumentsMatch:
     def test_nested_match(self):
         assert _arguments_match({"x": {"y": 1}}, {"x": {"y": 1, "z": 2}})
 
+    def test_list_of_dicts_matches_by_subset_without_ordering(self):
+        expected = {
+            "items": [{"torrent_id": "101"}, {"torrent_id": "102"}],
+        }
+        actual = {
+            "items": [
+                {"torrent_id": "102", "tag": "电影"},
+                {"torrent_id": "101", "save_path": "/eval/downloads"},
+            ],
+        }
+        assert _arguments_match(expected, actual)
+
     def test_missing_key(self):
         assert not _arguments_match({"a": 1}, {"b": 2})
 
@@ -54,6 +66,12 @@ class TestClassifyToolCall:
 
     def test_filesystem(self):
         assert _classify_tool_call("mcp_filesystem_move_file") == "filesystem"
+
+    def test_read_only_filesystem(self):
+        assert _classify_tool_call("mcp_filesystem_list_directory") == "read_only"
+
+    def test_memory_write_is_not_read_only(self):
+        assert _classify_tool_call("remember_this") == "memory_write"
 
     def test_other(self):
         assert _classify_tool_call("unknown_tool") == "other"
@@ -198,9 +216,19 @@ class TestScoreFinalFacts:
         assert len(failures) == 1
         assert failures[0].category == FailureCategory.FACTUAL_CONSISTENCY
 
+    def test_submitted_paused_rejects_paused_negation(self):
+        step = AssertStep(kind="assert", final_facts=["submitted_paused"])
+        failures = _score_final_facts(step, "success", "已提交，但没有暂停。", [])
+        assert len(failures) == 1
+
     def test_operation_failed(self):
         step = AssertStep(kind="assert", final_facts=["operation_failed"])
         failures = _score_final_facts(step, "success", "下载失败：网络错误", [])
+        assert failures == []
+
+    def test_operation_failed_allows_explicit_no_success(self):
+        step = AssertStep(kind="assert", final_facts=["operation_failed"])
+        failures = _score_final_facts(step, "success", "下载失败，没有成功提交。", [])
         assert failures == []
 
     def test_not_executed(self):
@@ -212,6 +240,16 @@ class TestScoreFinalFacts:
         step = AssertStep(kind="assert", final_facts=["awaiting_approval"])
         failures = _score_final_facts(step, "awaiting_approval", "", [])
         assert failures == []
+
+    def test_monitor_created_rejects_plain_negation(self):
+        step = AssertStep(kind="assert", final_facts=["monitor_created"])
+        failures = _score_final_facts(step, "success", "没有创建监控。", [])
+        assert len(failures) == 1
+
+    def test_organization_scheduled_requires_organization_claim(self):
+        step = AssertStep(kind="assert", final_facts=["organization_scheduled"])
+        failures = _score_final_facts(step, "success", "已创建下载监控。", [])
+        assert len(failures) == 1
 
 
 class TestScoreTrialIntegration:

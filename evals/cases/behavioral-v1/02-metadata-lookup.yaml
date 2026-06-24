@@ -13,7 +13,10 @@ steps:
   - name: tmdb_search
   - name: tmdb_details
     arguments:
-      tmdb_id: '438631'
+      tmdb_id: 438631
+  ordering:
+  - before: tmdb_search
+    after: tmdb_details
   forbidden_calls:
   - qb_add_torrent
   - qb_add_torrents

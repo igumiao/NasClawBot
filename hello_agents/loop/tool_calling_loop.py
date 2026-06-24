@@ -867,6 +867,7 @@ class ToolCallingLoop:
             completion_tokens = usage.get("completion_tokens", 0)
             cache_hit_tokens = usage.get("prompt_cache_hit_tokens", 0)
             cache_miss_tokens = usage.get("prompt_cache_miss_tokens", 0)
+            latency_ms = int(getattr(response, "latency_ms", 0) or 0)
             metadata["session_usage"] = {
                 "context_window": self.agent.config.context_window,
                 "model_calls": int(previous.get("model_calls") or 0) + 1,
@@ -875,6 +876,7 @@ class ToolCallingLoop:
                 "total_completion_tokens": int(previous.get("total_completion_tokens") or 0) + completion_tokens,
                 "total_cache_hit_tokens": int(previous.get("total_cache_hit_tokens") or 0) + cache_hit_tokens,
                 "total_cache_miss_tokens": int(previous.get("total_cache_miss_tokens") or 0) + cache_miss_tokens,
+                "llm_latency_ms": int(previous.get("llm_latency_ms") or 0) + latency_ms,
             }
 
         if not self.agent.trace_logger:
