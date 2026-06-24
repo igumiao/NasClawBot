@@ -25,7 +25,14 @@ from typing import Any
 from evals.compare import CompareResult, compare as compare_reports
 from evals.environment import create_trial_environment
 from evals.loader import load_suite
+from evals.metrics import compute_metrics
 from evals.models import SuiteReport, TrialResult, TrialStatus
+from evals.report import (
+    write_manifest,
+    write_summary_json,
+    write_summary_markdown,
+    write_trials_jsonl,
+)
 from evals.runner import run_trial
 
 logger = logging.getLogger(__name__)
@@ -577,55 +584,47 @@ def cmd_run(args: argparse.Namespace) -> None:
     suite_hash = _compute_suite_hash(suite_name)
     fixture_hash = _compute_fixture_hash()
 
-    # ── Aggregate → SuiteReport ──────────────────────────────────────────
-    report = _compute_aggregate_metrics(
-        trials=trials,
-        run_id=run_id,
-        suite=suite_name,
-        label=label,
-        repetitions=repetitions,
-        suite_hash=suite_hash,
-        fixture_hash=fixture_hash,
-    )
+    # ── Aggregate metrics via the canonical metrics module ────────────────
+    report = compute_metrics(trials)
+    report.run_id = run_id
+    report.label = label
+    report.suite = suite_name
     report.started_at = started_at
     report.finished_at = finished_at
+    report.repetitions = repetitions
 
-    # ── Write artifacts ──────────────────────────────────────────────────
-    # summary.json
-    summary_path = base_work_dir / "summary.json"
-    with open(summary_path, "w", encoding="utf-8") as fh:
-        fh.write(report.model_dump_json(indent=2, exclude_none=True))
-    logger.info("Wrote %s", summary_path)
+    # ── Populate metadata for reproducibility ─────────────────────────────
+    report.git_branch = _get_git_branch()
+    report.git_commit = _get_git_commit()
+    report.worktree_dirty = _is_worktree_dirty()
+    report.suite_hash = suite_hash
+    report.fixture_hash = fixture_hash
+    report.fixed_date = "2026-06-15"
+    report.fixed_timezone = "Asia/Shanghai"
+    report.fixed_download_path = "/eval/downloads"
 
-    # summary.md
-    summary_md = _format_summary_md(report)
-    md_path = base_work_dir / "summary.md"
-    with open(md_path, "w", encoding="utf-8") as fh:
-        fh.write(summary_md)
-    logger.info("Wrote %s", md_path)
+    # ── Write artifacts via the canonical report writers ──────────────────
+    # summary.md (excludes trials list)
+    summary_md_path = base_work_dir / "summary.md"
+    write_summary_markdown(report, summary_md_path)
+    logger.info("Wrote %s", summary_md_path)
 
-    # manifest.json
-    manifest: dict[str, Any] = {
-        "run_id": run_id,
-        "suite": suite_name,
-        "label": label,
-        "repetitions": repetitions,
-        "started_at": started_at,
-        "finished_at": finished_at,
-        "git_branch": _get_git_branch(),
-        "git_commit": _get_git_commit(),
-        "worktree_dirty": _is_worktree_dirty(),
-        "total_trials": len(trials),
-        "passed": report.passed,
-        "failed": report.failed,
-        "invalid": report.invalid,
-    }
+    # summary.json (excludes trials list — use trials.jsonl for per-trial data)
+    summary_json_path = base_work_dir / "summary.json"
+    write_summary_json(report, summary_json_path)
+    logger.info("Wrote %s", summary_json_path)
+
+    # trials.jsonl (one JSON object per trial)
+    trials_jsonl_path = base_work_dir / "trials.jsonl"
+    write_trials_jsonl(trials, trials_jsonl_path)
+    logger.info("Wrote %s", trials_jsonl_path)
+
+    # manifest.json (run metadata + hashes + fixed env)
     manifest_path = base_work_dir / "manifest.json"
-    with open(manifest_path, "w", encoding="utf-8") as fh:
-        json.dump(manifest, fh, indent=2, ensure_ascii=False)
+    write_manifest(report, manifest_path)
     logger.info("Wrote %s", manifest_path)
 
-    # Individual trial results
+    # Individual per-trial JSONs for quick inspection
     trials_dir = base_work_dir / "trials"
     trials_dir.mkdir(parents=True, exist_ok=True)
     for t in trials:
@@ -633,7 +632,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         with open(trial_path, "w", encoding="utf-8") as fh:
             fh.write(t.model_dump_json(indent=2, exclude_none=True))
 
-    logger.info("Wrote %d trial result files", len(trials))
+    logger.info("Wrote %d individual trial result files", len(trials))
 
     # ── Print summary to stdout ──────────────────────────────────────────
     print("\n=== Evaluation Complete ===")

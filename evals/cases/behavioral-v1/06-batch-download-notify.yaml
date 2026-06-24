@@ -15,6 +15,9 @@ steps:
   - name: qb_add_torrents
     arguments:
       completion_action: notify
+      items:
+      - torrent_id: '101'
+      - torrent_id: '102'
   exact_call_count:
     qb_add_torrents: 1
   forbidden_calls:

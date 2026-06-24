@@ -176,7 +176,7 @@ class TestScoreRecordedEffects:
 
     def test_unexpected_effects(self):
         step = AssertStep(kind="assert", recorded_effects=0)
-        journal = [CallJournalEntry(sequence=1, dependency="qb", operation="add", outcome="success")]
+        journal = [CallJournalEntry(sequence=1, kind="effect", dependency="qb", operation="add", outcome="success")]
         failures = _score_recorded_effects(step, journal)
         assert len(failures) == 1
         assert failures[0].category == FailureCategory.APPROVAL_BEHAVIOR

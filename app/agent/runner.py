@@ -464,13 +464,16 @@ class NasClawAgentRunner:
         )
 
     def _get_qb_adapter(self) -> QBittorrentAdapter:
-        """Return the process-level cached qB adapter, creating it once.
+        """Return the qB adapter — recording deps in eval, else process-level cached.
 
-        Double-checked locking: first read without lock (fast path), then
-        acquire lock for the create-once guarantee. The adapter itself caches
-        the authenticated client internally, so every request within the
-        process reuses the same SID until the qB session expires.
+        In evaluation mode the dependencies seam provides a RecordingQBAdapter
+        that writes to the CallJournal without touching a real qBittorrent.
+        Outside evaluation the process-level singleton reuses authenticated
+        sessions across HTTP requests.
         """
+        if self._dependencies is not None and self._dependencies.qb is not None:
+            return self._dependencies.qb
+
         global _qb_adapter
         if _qb_adapter is not None:
             return _qb_adapter

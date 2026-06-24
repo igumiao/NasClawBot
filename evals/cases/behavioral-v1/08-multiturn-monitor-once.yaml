@@ -20,6 +20,7 @@ steps:
   required_calls:
   - name: monitor_download
     arguments:
+      torrent_hash: abc123
       mode: once
       on_completed: notify
   exact_call_count:

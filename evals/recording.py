@@ -17,8 +17,12 @@ from typing import Any
 from app.agent.dependencies import AgentToolDependencies
 from app.domain.downloads import (
     BatchDownloadSubmissionResult,
+    DownloadMonitorReceipt,
+    DownloadMonitorRequest,
+    DownloadMonitorUpdate,
     DownloadSubmissionRequest,
     DownloadSubmissionResult,
+    MonitorMode,
 )
 from evals.models import CallJournalEntry, Fixture, FixtureQbTask, FixtureResource
 
@@ -49,11 +53,13 @@ class CallJournal:
         outcome: str = "success",
         started_at: str = "",
         duration_ms: float = 0.0,
+        kind: str = "read",
     ) -> "CallJournalEntry":
         """Append one journal entry under the lock and return it."""
         with self._lock:
             entry = CallJournalEntry(
                 sequence=next(self._counter),
+                kind=kind,  # type: ignore[arg-type]
                 dependency=dependency,
                 operation=operation,
                 arguments=arguments or {},
@@ -291,6 +297,7 @@ class RecordingQBAdapter:
                 "tags": tags,
                 **extra,
             },
+            kind="effect",
         )
         status = "submitted_paused" if paused else "submitted"
         return {"ok": True, "status": status, "qb_hash": None, "raw_response": "Ok."}
@@ -332,6 +339,7 @@ class RecordingQBAdapter:
                 "action": action,
                 "delete_files": delete_files,
             },
+            kind="effect",
         )
         return {"ok": True, "status": action, "qb_hash": torrent_hash}
 
@@ -345,6 +353,7 @@ class RecordingQBAdapter:
             "qb",
             "set_global_speed_limits",
             {"upload_limit": upload_limit, "download_limit": download_limit},
+            kind="effect",
         )
         return {
             "ok": True,
@@ -367,6 +376,7 @@ class RecordingQBAdapter:
                 "upload_limit": upload_limit,
                 "download_limit": download_limit,
             },
+            kind="effect",
         )
         return {
             "ok": True,
@@ -446,7 +456,7 @@ class RecordingMemoryStore:
 
     def ensure_template_files(self) -> None:
         """No-op: never writes template files."""
-        self._journal.record("memory", "ensure_template_files", {})
+        self._journal.record("memory", "ensure_template_files", {}, kind="effect")
 
     def format_user_profile_prompt(self) -> str:
         """Return an empty string (no profile data in eval mode)."""
@@ -463,12 +473,12 @@ class RecordingMemoryStore:
 
         This is the method called by the ``remember_this`` tool.
         """
-        self._journal.record("memory", "append_to_inbox", {"text": text})
+        self._journal.record("memory", "append_to_inbox", {"text": text}, kind="effect")
         return text
 
     def append_user_profile(self, text: str) -> None:
         """Record the profile append (eval-interface convenience)."""
-        self._journal.record("memory", "append_user_profile", {"text": text})
+        self._journal.record("memory", "append_user_profile", {"text": text}, kind="effect")
 
     def remember(self, kind: str, text: str) -> None:
         """Record a generic memory fact (eval-interface convenience).
@@ -478,7 +488,7 @@ class RecordingMemoryStore:
         to remember something without going through the full inbox/curation
         pipeline.
         """
-        self._journal.record("memory", "remember", {"kind": kind, "text": text})
+        self._journal.record("memory", "remember", {"kind": kind, "text": text}, kind="effect")
 
 
 class RecordingDownloadAutomation:
@@ -532,6 +542,7 @@ class RecordingDownloadAutomation:
                     "tag": req.tag,
                     "qb_category": req.qb_category,
                 },
+                kind="effect",
             )
 
             # Honour the fixture error mapping.
@@ -573,6 +584,376 @@ class RecordingDownloadAutomation:
             summary[item.status] = summary.get(item.status, 0) + 1
         return BatchDownloadSubmissionResult(items=items, summary=summary)
 
+    def create_monitor(
+        self,
+        request: DownloadMonitorRequest,
+        source_session_id: str | None,
+        idempotency_key: str,
+    ) -> DownloadMonitorReceipt:
+        """Record a monitor creation and return a synthetic receipt."""
+        self._journal.record(
+            "download",
+            "create_monitor",
+            {
+                "torrent_hash": request.torrent_hash,
+                "mode": request.mode.value if request.mode else None,
+                "on_completed": request.on_completed,
+                "source_session_id": source_session_id,
+                "idempotency_key": idempotency_key,
+            },
+            kind="effect",
+        )
+        now = _now_stub()
+        return DownloadMonitorReceipt(
+            task_id=f"watch-{request.torrent_hash}-{now}",
+            torrent_hash=request.torrent_hash,
+            torrent_name=request.torrent_hash,
+            start_at=request.start_at,
+            mode=request.mode or MonitorMode.ONCE,
+            on_completed=request.on_completed or "notify",
+            status="queued",
+        )
+
+    def update_monitor(
+        self,
+        request: DownloadMonitorUpdate,
+    ) -> DownloadMonitorReceipt:
+        """Record a monitor update and return a synthetic receipt."""
+        self._journal.record(
+            "download",
+            "update_monitor",
+            {
+                "task_id": request.task_id,
+                "mode": request.mode,
+                "on_completed": request.on_completed,
+                "start_at": request.start_at,
+            },
+            kind="effect",
+        )
+        return DownloadMonitorReceipt(
+            task_id=request.task_id,
+            torrent_hash="unknown",
+            torrent_name="unknown",
+            start_at=request.start_at,
+            mode=MonitorMode(request.mode) if request.mode else MonitorMode.ONCE,
+            on_completed=request.on_completed or "notify",
+            status="queued",
+        )
+
+
+# ======================================================================
+# Recording task management
+# ======================================================================
+
+
+class RecordingTaskManagement:
+    """Records calls and returns empty task lists (no real tasks in eval)."""
+
+    def __init__(self, journal: CallJournal) -> None:
+        self._journal = journal
+
+    def list_tasks(self, query: Any = None) -> list[Any]:
+        self._journal.record(
+            "task_mgmt", "list_tasks",
+            {"query": str(query) if query else None},
+        )
+        return []
+
+    def get_task(self, task_id: str) -> Any:
+        self._journal.record("task_mgmt", "get_task", {"task_id": task_id})
+        return None
+
+    def cancel_task(self, task_id: str) -> Any:
+        self._journal.record(
+            "task_mgmt", "cancel_task", {"task_id": task_id}, kind="effect",
+        )
+        return None
+
+
+# ======================================================================
+# Recording runtime task store
+# ======================================================================
+
+
+class RecordingRuntimeTaskStore:
+    """Records calls and returns empty event lists (no real events in eval).
+
+    The ``get_events_for_session`` and ``mark_events_injected`` methods
+    match the production ``RuntimeTaskStore`` interface so that the runner's
+    background-event injection path works correctly — it just finds no
+    events to inject.
+    """
+
+    def __init__(self, journal: CallJournal) -> None:
+        self._journal = journal
+
+    def get_events_for_session(
+        self, source_session_id: str, uninjected_only: bool = False,
+    ) -> list[Any]:
+        self._journal.record(
+            "runtime_store", "get_events_for_session",
+            {
+                "source_session_id": source_session_id,
+                "uninjected_only": uninjected_only,
+            },
+        )
+        return []
+
+    def mark_events_injected(self, event_ids: list[str], now: Any) -> None:
+        self._journal.record(
+            "runtime_store", "mark_events_injected",
+            {"event_ids": event_ids},
+            kind="effect",
+        )
+
+
+# ======================================================================
+# Recording MCP pool
+# ======================================================================
+
+# Hardcoded MCP filesystem tool schemas matching the production
+# @modelcontextprotocol/server-filesystem tools.  These schemas are
+# stable and rarely change; they ensure the LLM sees the same tool
+# contracts in evaluation as in production.  Calls are recorded but
+# never touch the filesystem.
+_MCP_FS_TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "name": "read_text_file",
+        "description": "Read the complete contents of a text file (UTF-8). "
+                       "Supports optional head/tail line limits.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the file to read."},
+                "head": {"type": "integer", "description": "Return first N lines only."},
+                "tail": {"type": "integer", "description": "Return last N lines only."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "read_media_file",
+        "description": "Read a media file (image/audio/video) and return it as base64.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the media file."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "read_multiple_files",
+        "description": "Read the contents of multiple files simultaneously.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of file paths to read.",
+                },
+            },
+            "required": ["paths"],
+        },
+    },
+    {
+        "name": "write_file",
+        "description": "Create a new file or overwrite an existing file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path where the file will be written."},
+                "content": {"type": "string", "description": "Content to write to the file."},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "edit_file",
+        "description": "Make line-based edits to a text file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the file to edit."},
+                "edits": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "oldText": {"type": "string", "description": "Text to replace."},
+                            "newText": {"type": "string", "description": "Replacement text."},
+                        },
+                        "required": ["oldText", "newText"],
+                    },
+                    "description": "List of edit operations.",
+                },
+                "dryRun": {"type": "boolean", "description": "Preview changes without applying."},
+            },
+            "required": ["path", "edits"],
+        },
+    },
+    {
+        "name": "create_directory",
+        "description": "Create a new directory or ensure a directory exists.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path of the directory to create."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "list_directory",
+        "description": "Get a list of files and directories in a given directory.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path of the directory to list."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "list_directory_with_sizes",
+        "description": "Get a detailed listing with file sizes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path of the directory to list."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "directory_tree",
+        "description": "Get a recursive tree view of files and directories as JSON.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to start the tree from."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "move_file",
+        "description": "Move or rename files and directories.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "description": "Source path."},
+                "destination": {"type": "string", "description": "Destination path."},
+            },
+            "required": ["source", "destination"],
+        },
+    },
+    {
+        "name": "search_files",
+        "description": "Recursively search for files and directories matching a pattern.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Starting directory for the search."},
+                "pattern": {"type": "string", "description": "Glob pattern to match."},
+                "excludePatterns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Glob patterns to exclude.",
+                },
+            },
+            "required": ["path", "pattern"],
+        },
+    },
+    {
+        "name": "get_file_info",
+        "description": "Retrieve detailed metadata about a file or directory.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the file or directory."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "list_allowed_directories",
+        "description": "List the directories that the server is allowed to access.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+]
+
+
+class RecordingMcpPool:
+    """Recording MCP pool that returns hardcoded filesystem tool schemas.
+
+    Tool schemas match the production ``@modelcontextprotocol/server-filesystem``
+    tools so the LLM sees the same tool contracts.  ``call_tool_sync`` records
+    the call to the journal and returns a synthetic success string without
+    touching the filesystem.
+
+    Only the 13 tools listed in ``_MCP_CHAT_TOOLS`` are exposed; the
+    deprecated ``read_file`` alias is excluded, matching the production runner.
+    """
+
+    SERVER_NAME = "filesystem"
+
+    def __init__(self, journal: CallJournal) -> None:
+        self._journal = journal
+        self.server_names = [self.SERVER_NAME]
+
+    def get_tools(
+        self, server_name: str | None = None,
+    ) -> list[tuple[str, Any]]:
+        """Return hardcoded filesystem tool schemas as ``(server_name, McpToolInfo)``."""
+        from hello_agents.tools.mcp.client import McpToolInfo
+
+        result: list[tuple[str, Any]] = []
+        for schema in _MCP_FS_TOOL_SCHEMAS:
+            if server_name is not None and server_name != self.SERVER_NAME:
+                continue
+            result.append((
+                self.SERVER_NAME,
+                McpToolInfo(
+                    name=schema["name"],
+                    description=schema["description"],
+                    input_schema=schema["input_schema"],
+                ),
+            ))
+        return result
+
+    def call_tool_sync(
+        self,
+        server_name: str,
+        tool_name: str,
+        arguments: dict,
+        timeout: float = 30.0,
+    ) -> object:
+        """Record the call and return a synthetic success response."""
+        self._journal.record(
+            "mcp",
+            f"call_{tool_name}",
+            {"server": server_name, "arguments": arguments},
+        )
+        return f"[eval] {tool_name} executed successfully (recording mode)"
+
+    async def call_tool(
+        self, server_name: str, tool_name: str, arguments: dict,
+    ) -> object:
+        """Async path — delegates to ``call_tool_sync`` in recording mode."""
+        return self.call_tool_sync(server_name, tool_name, arguments)
+
+    async def start_all(self) -> dict[str, bool]:
+        return {self.SERVER_NAME: True}
+
+    async def stop_all(self) -> None:
+        pass
+
 
 # ======================================================================
 # Factory
@@ -609,7 +990,7 @@ def create_recording_dependencies(
         tavily=RecordingTavilyAdapter(call_journal),
         memory_store=RecordingMemoryStore(call_journal),
         download_automation=RecordingDownloadAutomation(fixture, call_journal),
-        task_management=None,
-        runtime_task_store=None,
-        mcp_pool=None,
+        task_management=RecordingTaskManagement(call_journal),
+        runtime_task_store=RecordingRuntimeTaskStore(call_journal),
+        mcp_pool=RecordingMcpPool(call_journal),
     )

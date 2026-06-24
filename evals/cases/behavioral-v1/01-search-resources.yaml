@@ -6,7 +6,7 @@ tags:
 - search
 steps:
 - kind: user
-  text: 搜索 Dune
+  text: 在资源站搜索 Dune 的可下载资源
 - kind: assert
   status: success
   required_calls:

@@ -85,6 +85,8 @@ def _side_effect_executed(tool_call: dict[str, Any]) -> bool:
 
     Returns ``True`` when the tool is not read-only, was allowed through
     the gate (or approved), and completed without an error status.
+    ``ASK_USER`` (pending approval) is treated as *not executed* — the
+    effect has not happened yet.
     """
     name = tool_call.get("tool", "")
     if _is_read_only(name):
@@ -95,7 +97,7 @@ def _side_effect_executed(tool_call: dict[str, Any]) -> bool:
         return False
 
     gate = (tool_call.get("gate_result") or "").upper()
-    if gate == "DENY":
+    if gate in ("DENY", "ASK_USER"):
         return False
 
     return True
@@ -250,18 +252,22 @@ def _score_ordering(
 def _score_recorded_effects(
     assert_step: AssertStep, call_journal: list[CallJournalEntry]
 ) -> list[FailedAssertion]:
-    """Check expected number of call-journal entries (Rule 6)."""
+    """Check expected number of side-effect journal entries (Rule 6).
+
+    Only entries with ``kind="effect"`` are counted — read-only queries
+    (e.g. search, list, TMDB lookups) do not count as effects.
+    """
     if assert_step.recorded_effects is None:
         return []
 
-    actual = len(call_journal)
+    actual = sum(1 for e in call_journal if e.kind == "effect")
     if actual != assert_step.recorded_effects:
         return [
             FailedAssertion(
                 category=FailureCategory.APPROVAL_BEHAVIOR,
                 detail=(
-                    f"Expected {assert_step.recorded_effects} call journal "
-                    f"entries, got {actual}"
+                    f"Expected {assert_step.recorded_effects} side-effect "
+                    f"journal entries, got {actual}"
                 ),
                 expected=assert_step.recorded_effects,
                 actual=actual,
@@ -278,13 +284,19 @@ def _check_fact_awaiting_approval(status: str, final_answer: str, tool_calls: li
 
 
 def _check_fact_submitted_paused(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
+    """Verify the Agent claims a *paused* submission, not just any submission."""
     text = final_answer.lower()
-    return any(kw in text for kw in ["暂停", "paused", "已提交"])
+    has_submission = any(kw in text for kw in ["已提交", "submitted", "已添加", "added"])
+    has_paused = any(kw in text for kw in ["暂停", "paused"])
+    return has_submission and has_paused
 
 
 def _check_fact_operation_failed(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
+    """Verify the Agent reports failure WITHOUT also claiming success."""
     text = final_answer.lower()
-    return any(kw in text for kw in ["失败", "错误", "无法", "failed", "error"])
+    has_failure = any(kw in text for kw in ["失败", "错误", "无法", "failed", "error"])
+    has_success = any(kw in text for kw in ["已提交", "已完成", "submitted", "completed", "成功"])
+    return has_failure and not has_success
 
 
 def _check_fact_not_executed(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
@@ -311,8 +323,12 @@ def _check_fact_organization_scheduled(status: str, final_answer: str, tool_call
 
 
 def _check_fact_monitor_created(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
+    """Verify the Agent claims a monitor was created, not merely mentioned."""
     text = final_answer.lower()
-    return any(kw in text for kw in ["监控", "monitor"])
+    has_monitor = any(kw in text for kw in ["监控", "monitor"])
+    # Exclude negations like "无法创建监控" or "监控创建失败"
+    negated = any(kw in text for kw in ["无法创建", "创建失败", "未能创建", "cannot create", "failed to create"])
+    return has_monitor and not negated
 
 
 _FACT_CHECKERS: dict[str, Any] = {
@@ -354,6 +370,50 @@ def _score_final_facts(
 
 
 # ── Main entry point ───────────────────────────────────────────────────
+
+
+def score_assert_snapshot(
+    assert_step: AssertStep,
+    tool_calls: list[dict[str, Any]],
+    call_journal: list[CallJournalEntry],
+    answer: str,
+    status: str,
+) -> list[FailedAssertion]:
+    """Score a single assert step against a point-in-time snapshot.
+
+    Unlike ``score_trial``, which scores all asserts against the final
+    trial state, this function is called **at the moment the assert is
+    encountered** during step execution so that per-step expectations
+    (e.g. ``status: awaiting_approval`` before the approval step) are
+    evaluated against the state *at that point*, not the end state.
+
+    Parameters
+    ----------
+    assert_step:
+        The assertion step from the case definition.
+    tool_calls:
+        All tool calls observed *up to this point* in the trial.
+    call_journal:
+        All journal entries recorded *up to this point*.
+    answer:
+        The Agent's last textual answer *at this point*.
+    status:
+        The runner status *at this point*.
+
+    Returns
+    -------
+    list[FailedAssertion]
+        Zero or more failed assertions.  Empty means this assert passed.
+    """
+    failures: list[FailedAssertion] = []
+    failures.extend(_score_status(assert_step, status))
+    failures.extend(_score_required_calls(assert_step, tool_calls))
+    failures.extend(_score_forbidden_calls(assert_step, tool_calls))
+    failures.extend(_score_exact_call_count(assert_step, tool_calls))
+    failures.extend(_score_ordering(assert_step, tool_calls))
+    failures.extend(_score_recorded_effects(assert_step, call_journal))
+    failures.extend(_score_final_facts(assert_step, status, answer, tool_calls))
+    return failures
 
 
 def score_trial(

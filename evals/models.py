@@ -12,13 +12,15 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 
 # ── Step models (discriminated union via `kind`) ──────────────────────
 
 class UserStep(BaseModel):
     """A user message that enters the conversation history and calls runner.run()."""
+
+    model_config = ConfigDict(extra="forbid")
 
     kind: Literal["user"] = "user"
     text: str = Field(..., description="User message text (Chinese).")
@@ -27,6 +29,8 @@ class UserStep(BaseModel):
 class ApproveStep(BaseModel):
     """Harness deterministically approves the current pending approval."""
 
+    model_config = ConfigDict(extra="forbid")
+
     kind: Literal["approve"] = "approve"
     target: Literal["pending"] = "pending"
     decision: Literal["approve_once", "approve_and_grant_session"] = "approve_once"
@@ -34,6 +38,8 @@ class ApproveStep(BaseModel):
 
 class DenyStep(BaseModel):
     """Harness deterministically denies the current pending approval."""
+
+    model_config = ConfigDict(extra="forbid")
 
     kind: Literal["deny"] = "deny"
     target: Literal["pending"] = "pending"
@@ -45,12 +51,16 @@ class AdvanceTimeStep(BaseModel):
     Must NOT be implemented via real sleep.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     kind: Literal["advance_time"] = "advance_time"
     hours: float = Field(..., gt=0, description="Hours to advance the logical clock.")
 
 
 class RequiredCall(BaseModel):
     """A tool call that MUST appear in the trial."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     arguments: dict[str, Any] | None = Field(
@@ -62,12 +72,16 @@ class RequiredCall(BaseModel):
 class OrderingConstraint(BaseModel):
     """Ordering constraint between two tool calls."""
 
+    model_config = ConfigDict(extra="forbid")
+
     before: str
     after: str
 
 
 class AssertStep(BaseModel):
     """Deterministic assertions consumed by the harness (never enter model context)."""
+
+    model_config = ConfigDict(extra="forbid")
 
     kind: Literal["assert"] = "assert"
     status: str | None = Field(
@@ -126,6 +140,8 @@ EvalStep = Annotated[
 class EvalCase(BaseModel):
     """One behavioral evaluation scenario."""
 
+    model_config = ConfigDict(extra="forbid")
+
     id: str = Field(
         ...,
         pattern=r"^[a-z0-9][a-z0-9-]*[a-z0-9]$",
@@ -160,6 +176,8 @@ class EvalCase(BaseModel):
 class FixtureResource(BaseModel):
     """A synthetic M-Team search result."""
 
+    model_config = ConfigDict(extra="forbid")
+
     torrent_id: str
     title: str
     size: str
@@ -175,6 +193,8 @@ class FixtureResource(BaseModel):
 class FixtureQbTask(BaseModel):
     """A synthetic qBittorrent download task."""
 
+    model_config = ConfigDict(extra="forbid")
+
     hash: str
     name: str
     size_bytes: int
@@ -187,6 +207,8 @@ class FixtureQbTask(BaseModel):
 class FixtureBackgroundTask(BaseModel):
     """A synthetic background runtime task."""
 
+    model_config = ConfigDict(extra="forbid")
+
     task_id: str
     kind: str
     status: str
@@ -196,6 +218,8 @@ class FixtureBackgroundTask(BaseModel):
 class DownloadSubmitResult(BaseModel):
     """A synthetic download submission result."""
 
+    model_config = ConfigDict(extra="forbid")
+
     torrent_id: str
     outcome: Literal["success", "error", "timeout"] = "success"
     code: str | None = None
@@ -204,6 +228,8 @@ class DownloadSubmitResult(BaseModel):
 
 class Fixture(BaseModel):
     """A self-contained, anonymous test world for evaluation."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     description: str = ""
@@ -224,6 +250,10 @@ class CallJournalEntry(BaseModel):
     """One recorded dependency call during a trial."""
 
     sequence: int
+    kind: Literal["read", "effect"] = Field(
+        default="read",
+        description="'read' for queries, 'effect' for state-changing mutations.",
+    )
     dependency: str = Field(..., description="e.g. 'mteam', 'qb', 'tmdb', 'tavily'.")
     operation: str = Field(..., description="e.g. 'search_torrents', 'add_torrent_url'.")
     arguments: dict[str, Any] = Field(default_factory=dict)

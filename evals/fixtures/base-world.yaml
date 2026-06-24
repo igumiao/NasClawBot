@@ -22,7 +22,7 @@ resources:
     labels_new: []
 
   - torrent_id: "102"
-    title: "SomeShow.S01.1080p.WEB-DL.AAC.H264"
+    title: "Dune.2021.1080p.BluRay.x264.DTS-HD.MA"
     size: "8.0 GiB"
     size_bytes: 8589934592
     seeders: 20
@@ -33,7 +33,7 @@ resources:
     labels_new: ["国语中字"]
 
   - torrent_id: "103"
-    title: "AnimeTitle.S01.720p.BluRay.x264"
+    title: "Dune.2021.720p.WEB-DL.AAC.H264"
     size: "2.0 GiB"
     size_bytes: 2147483648
     seeders: 5
@@ -54,11 +54,11 @@ qb_tasks:
     tags: []
 
   - hash: "def456"
-    name: "SomeShow.S01.1080p"
+    name: "Dune.2021.1080p"
     size_bytes: 32212254720
     progress: 0.45
     state: downloading
-    category: tv
+    category: movie
     tags: []
 
 # ── Synthetic background runtime tasks ───────────────────────────────────
@@ -71,7 +71,7 @@ background_tasks:
   - task_id: "task-2"
     kind: organize_download
     status: FAILED
-    title: "Organize failed: SomeShow.S01.1080p"
+    title: "Organize failed: Dune.2021.1080p"
 
 # ── Filesystem path constraints ──────────────────────────────────────────
 allowed_paths:
