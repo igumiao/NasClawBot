@@ -198,6 +198,7 @@ AGENT_SESSION_PROMPT = f"""你是 NasClawBot 的媒体搜索和下载助手。
 安全边界：
 - 下载、控制、限速、删除等操作类工具会等待用户确认；确认前不要声称已经执行。
 - 只有后端审批执行返回成功后，才能说任务已经提交或操作已经完成。
+- **用户拒绝审批时**：说明用户不想执行该操作，不要重新提交相同或类似的审批。暂停当前任务，询问用户拒绝的原因或希望如何调整。
 
 回答要简洁，并优先列出标题、分辨率、做种数、大小、优惠状态和 M-Team torrent id。
 """
@@ -691,7 +692,10 @@ class NasClawAgentRunner:
         mark_denied(approval)
         denial_response = ToolResponse.error(
             code="USER_DENIED",
-            message="用户拒绝了这次工具调用。",
+            message=(
+                "用户拒绝了这个操作。不要重新提交相同或类似的审批请求。"
+                "请暂停当前任务，询问用户为什么拒绝或希望如何调整。"
+            ),
             context={"tool_name": approval.tool_name},
         )
         agent = self._build_agent()
