@@ -55,6 +55,9 @@ test-media/
 # Unrelated files
 report
 
+# Eval run artifacts (trials.jsonl, raw traces, checkpoints, failure bundles)
+eval-results/
+
 .claude/settings.local.json
 ref/user-experience.md
 node_modules/
