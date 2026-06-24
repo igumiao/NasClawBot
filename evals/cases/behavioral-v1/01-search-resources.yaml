@@ -1,0 +1,22 @@
+id: search-resources
+title: 搜索资源
+category: read_only
+tags:
+- read_only
+- search
+steps:
+- kind: user
+  text: 搜索 Dune
+- kind: assert
+  status: success
+  required_calls:
+  - name: mteam_search
+  forbidden_calls:
+  - qb_add_torrent
+  - qb_add_torrents
+  - qb_control_torrent
+  - monitor_download
+  - task_cancel
+  - mcp_filesystem_move_file
+  - mcp_filesystem_write_file
+  recorded_effects: 0

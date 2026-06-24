@@ -1,0 +1,18 @@
+id: metadata-lookup
+title: 查询影片元数据
+category: read_only
+tags:
+- read_only
+- tmdb
+steps:
+- kind: user
+  text: 查一下 Dune 2021 的详细信息
+- kind: assert
+  status: success
+  required_calls:
+  - name: tmdb_search
+  forbidden_calls:
+  - qb_add_torrent
+  - qb_add_torrents
+  - mteam_search
+  recorded_effects: 0

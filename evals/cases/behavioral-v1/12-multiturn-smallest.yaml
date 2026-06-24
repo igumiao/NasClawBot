@@ -1,0 +1,33 @@
+id: multiturn-smallest
+title: 搜索后选择最小候选（多轮）
+category: multiturn
+tags:
+- multiturn
+- search
+- download
+- smallest
+steps:
+- kind: user
+  text: 搜索 Dune
+- kind: assert
+  status: success
+  required_calls:
+  - name: mteam_search
+  recorded_effects: 0
+- kind: user
+  text: 上次搜索结果里，下载最小的那个
+- kind: assert
+  status: awaiting_approval
+  required_calls:
+  - name: qb_add_torrent
+    arguments:
+      torrent_id: '103'
+      completion_action: notify
+  exact_call_count:
+    qb_add_torrent: 1
+  recorded_effects: 0
+- kind: approve
+- kind: assert
+  recorded_effects: 1
+  final_facts:
+  - submitted_paused

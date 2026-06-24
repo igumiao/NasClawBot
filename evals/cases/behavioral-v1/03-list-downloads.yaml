@@ -1,0 +1,20 @@
+id: list-downloads
+title: 查询当前下载状态
+category: read_only
+tags:
+- read_only
+- qb
+steps:
+- kind: user
+  text: 查看当前 qBittorrent 下载列表
+- kind: assert
+  status: success
+  required_calls:
+  - name: qb_list_torrents
+  forbidden_calls:
+  - qb_add_torrent
+  - qb_add_torrents
+  - qb_control_torrent
+  - qb_set_global_speed
+  - qb_set_torrent_speed
+  recorded_effects: 0

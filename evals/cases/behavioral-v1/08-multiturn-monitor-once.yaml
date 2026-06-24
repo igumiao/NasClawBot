@@ -1,0 +1,32 @@
+id: multiturn-monitor-once
+title: 查询下载后监控一次（多轮）
+category: multiturn
+tags:
+- multiturn
+- qb
+- monitor
+steps:
+- kind: user
+  text: 查看当前下载列表
+- kind: assert
+  status: success
+  required_calls:
+  - name: qb_list_torrents
+  recorded_effects: 0
+- kind: user
+  text: 监控第一个任务一次，完成后通知我
+- kind: assert
+  status: awaiting_approval
+  required_calls:
+  - name: monitor_download
+    arguments:
+      mode: once
+      on_completed: notify
+  exact_call_count:
+    monitor_download: 1
+  recorded_effects: 0
+- kind: approve
+- kind: assert
+  recorded_effects: 1
+  final_facts:
+  - monitor_created

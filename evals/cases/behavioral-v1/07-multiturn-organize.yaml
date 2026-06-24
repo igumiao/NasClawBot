@@ -1,0 +1,34 @@
+id: multiturn-organize
+title: 搜索后下载并整理（多轮）
+category: multiturn
+tags:
+- multiturn
+- search
+- download
+- organize
+steps:
+- kind: user
+  text: 搜索 Dune
+- kind: assert
+  status: success
+  required_calls:
+  - name: mteam_search
+  recorded_effects: 0
+- kind: user
+  text: 下载第二个候选，完成后帮我整理文件
+- kind: assert
+  status: awaiting_approval
+  required_calls:
+  - name: qb_add_torrent
+    arguments:
+      torrent_id: '102'
+      completion_action: organize
+  exact_call_count:
+    qb_add_torrent: 1
+  recorded_effects: 0
+- kind: approve
+- kind: assert
+  recorded_effects: 1
+  final_facts:
+  - submitted_paused
+  - organization_scheduled
