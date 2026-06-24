@@ -124,6 +124,8 @@ class TMDBDetailsTool(Tool):
             detail["original_title"] = raw.get("original_title")
             detail["release_date"] = raw.get("release_date")
             detail["runtime"] = raw.get("runtime")
+            # Expose collection info so library-audit can detect series gaps
+            detail["belongs_to_collection"] = raw.get("belongs_to_collection")
         else:
             detail["title"] = raw.get("name") or "未知标题"
             detail["original_title"] = raw.get("original_name")
