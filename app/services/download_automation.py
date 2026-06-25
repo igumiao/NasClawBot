@@ -175,7 +175,9 @@ class DownloadAutomation:
 
         snapshot: dict | None = None
         if request.on_completed == "organize":
-            source_path = str(task.payload.get("save_path") or "").strip()
+            source_path = self._translate_path(
+                str(task.payload.get("save_path") or "").strip()
+            )
             if not source_path:
                 torrent = self._get_torrent(str(task.payload.get("qb_hash") or ""))
                 source_path = self._torrent_source_path(torrent)
