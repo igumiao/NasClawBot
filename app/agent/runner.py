@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
+import logging
 from functools import wraps
 import json
 from pathlib import Path
@@ -16,6 +17,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 current_agent_session_id: ContextVar[str | None] = ContextVar(
     "current_agent_session_id", default=None,
 )
+
+logger = logging.getLogger(__name__)
 
 from hello_agents.observability import TraceLogger
 
@@ -452,6 +455,10 @@ class NasClawAgentRunner:
             )
             if uninjected_events:
                 extra_system_text = self._format_background_events(uninjected_events)
+                logger.info(
+                    "Session %s: injecting background events into system prompt:\n%s",
+                    session_id, extra_system_text,
+                )
 
         agent = self._build_agent(extra_system_text=extra_system_text)
         agent.trace_logger = _get_or_create_trace_logger(session_id, output_dir=str(self.trace_root))
