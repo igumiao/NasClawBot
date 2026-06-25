@@ -58,7 +58,7 @@ class TaskListTool(Tool):
         except Exception as exc:
             return ToolResponse.error(
                 code="LIST_FAILED",
-                message=f"查询任务列表失败：{exc}",
+                message=f"查询任务列表失败{f'：{exc}' if str(exc) else ''}",
             )
 
         if not tasks:

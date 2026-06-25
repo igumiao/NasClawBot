@@ -6,6 +6,8 @@ export type ToolActivity = {
   status?: string;
   arguments?: Record<string, unknown> | null;
   gate_result?: string | null;
+  /** Tool error message when status is "error". */
+  error?: string;
 };
 
 type ToolActivityCardProps = {
@@ -68,6 +70,10 @@ export function ToolActivityCard({ toolCall }: ToolActivityCardProps) {
       ) : (
         <p className="chat-card-summary">无参数</p>
       )}
+
+      {toolCall.error && status === "error" ? (
+        <p className="tool-activity-error">{toolCall.error}</p>
+      ) : null}
     </section>
   );
 }

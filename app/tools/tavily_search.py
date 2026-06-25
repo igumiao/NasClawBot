@@ -75,14 +75,16 @@ class TavilySearchTool(Tool):
                 time_range=time_range,
             )
         except TavilyError as exc:
+            detail = f": {exc}" if str(exc) else ""
             return ToolResponse.error(
                 code="TAVILY_ERROR",
-                message=f"Tavily 搜索失败: {exc}",
+                message=f"Tavily 搜索失败{detail}",
             )
         except Exception as exc:
+            detail = f": {exc}" if str(exc) else ""
             return ToolResponse.error(
                 code="INTERNAL_ERROR",
-                message=f"网络搜索时发生内部错误: {exc}",
+                message=f"网络搜索时发生内部错误{detail}",
             )
 
         results = raw.get("results", [])

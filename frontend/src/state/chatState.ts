@@ -74,14 +74,14 @@ function uniqueToken(): string {
 }
 
 function chatAssistantText(response: ChatResponse): string {
-  if (response.error) return response.error;
   if (response.message) return response.message;
+  if (response.error) return response.error;
   return response.status || "请求完成。";
 }
 
 function approvalAssistantText(response: AgentApprovalResponse): string {
-  if (response.error) return response.error;
   if (response.message) return response.message;
+  if (response.error) return response.error;
   return response.status || "审批请求已处理。";
 }
 
@@ -134,6 +134,11 @@ function appendChatResponse(messages: ChatMessage[], response: ChatResponse): Ch
     }
   }
 
+  // Show tool error before LLM response when both are present, so the
+  // user sees what went wrong and then the Agent's analysis of it.
+  if (response.error) {
+    next.push({ id: id("error"), kind: "error", title: "工具错误", detail: response.error });
+  }
   next.push({ id: id("assistant"), kind: "assistant", text: chatAssistantText(response) });
 
   for (const approval of response.pending_approvals) {
@@ -326,6 +331,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         action.response.approval_id,
         approvalStatus(action.response.status)
       );
+      // Show tool error before LLM response when both are present
+      if (action.response.error) {
+        messages.push({
+          id: id("error"),
+          kind: "error",
+          title: "工具错误",
+          detail: action.response.error,
+        });
+      }
       messages.push({
         id: id("assistant"),
         kind: "assistant",

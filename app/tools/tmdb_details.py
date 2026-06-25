@@ -60,14 +60,16 @@ class TMDBDetailsTool(Tool):
             else:
                 raw = self._adapter.tv_details(tmdb_id)
         except TMDBError as exc:
+            detail = f": {exc}" if str(exc) else ""
             return ToolResponse.error(
                 code="TMDB_ERROR",
-                message=f"TMDB 查询失败: {exc}",
+                message=f"TMDB 查询失败{detail}",
             )
         except Exception as exc:
+            detail = f": {exc}" if str(exc) else ""
             return ToolResponse.error(
                 code="INTERNAL_ERROR",
-                message=f"查询时发生内部错误: {exc}",
+                message=f"查询时发生内部错误{detail}",
             )
 
         if not raw or not raw.get("id"):

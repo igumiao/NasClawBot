@@ -61,14 +61,16 @@ class TMDBTrendingTool(Tool):
         try:
             raw = self._adapter.trending_all(time_window)
         except TMDBError as exc:
+            detail = f": {exc}" if str(exc) else ""
             return ToolResponse.error(
                 code="TMDB_ERROR",
-                message=f"TMDB 趋势获取失败: {exc}",
+                message=f"TMDB 趋势获取失败{detail}",
             )
         except Exception as exc:
+            detail = f": {exc}" if str(exc) else ""
             return ToolResponse.error(
                 code="INTERNAL_ERROR",
-                message=f"获取趋势时发生内部错误: {exc}",
+                message=f"获取趋势时发生内部错误{detail}",
             )
 
         results = raw.get("results", [])

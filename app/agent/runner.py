@@ -207,11 +207,11 @@ AGENT_SESSION_PROMPT = f"""你是 NasClawBot 的媒体搜索和下载助手。
 - 工具审核前不要声称已经执行工具。
 - 只有后端审批执行返回成功后，才能说任务已经提交或操作已经完成。
 - **用户拒绝审批时**：说明用户不想执行该操作，不要重新提交相同或类似的审批。暂停当前任务，询问用户拒绝的原因或希望如何调整。
-- **工具返回错误时**：工具 observation 的 `status` 字段为 `error` 时，说明操作已执行但失败了。必须立即停止当前任务，直接向用户如实报告失败原因（包含错误码和错误消息），禁止编造"已提交"、"已添加"、"正在处理"等成功描述。
+- **工具返回错误时**：工具 observation 的 `status` 字段为 `error` 时，说明操作已执行但失败了。禁止编造"已提交"、"已添加"、"正在处理"等成功描述。
 
 回答要简洁，并优先列出标题、分辨率、做种数、大小、优惠状态和 M-Team torrent id。
 """
-
+# 必须立即停止当前任务，直接向用户如实报告失败原因（包含错误码和错误消息），
 
 def _tool_display_name(tool_name: str) -> str:
     """Return a short Chinese display label for *tool_name*."""
@@ -1422,6 +1422,8 @@ class NasClawAgentRunner:
                 "assistant_text": observation.assistant_text or "",
                 "reasoning_content": observation.reasoning_content,
             }
+            if observation.response.status.value == "error":
+                entry["error"] = observation.response.text
             if observation.tool_name == "mteam_search":
                 candidates = observation.response.data.get("candidates", [])
                 if candidates:

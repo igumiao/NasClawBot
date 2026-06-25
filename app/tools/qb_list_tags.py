@@ -24,7 +24,14 @@ class QBListTagsTool(Tool):
         return []
 
     def run(self, parameters: dict[str, Any]) -> ToolResponse:
-        tags = self._qb.list_tags()
+        try:
+            tags = self._qb.list_tags()
+        except Exception as exc:
+            detail = f": {exc}" if str(exc) else ""
+            return ToolResponse.error(
+                code="QB_ERROR",
+                message=f"获取 qB 标签列表失败{detail}",
+            )
         if not tags:
             return ToolResponse.success(
                 text="qBittorrent 中暂无标签。",

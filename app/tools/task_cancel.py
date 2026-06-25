@@ -54,7 +54,7 @@ class TaskCancelTool(Tool):
         except Exception as exc:
             return ToolResponse.error(
                 code="CANCEL_FAILED",
-                message=f"取消任务失败：{exc}",
+                message=f"取消任务失败{f'：{exc}' if str(exc) else ''}",
             )
 
         return ToolResponse.success(

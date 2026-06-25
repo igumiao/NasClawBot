@@ -31,6 +31,8 @@ export type AgentToolCall = {
   results?: ResourceCandidate[];
   assistant_text?: string;
   reasoning_content?: string | null;
+  /** Present when status is "error" — the tool's error message. */
+  error?: string;
 };
 
 export type ApprovalRisk = {

@@ -84,14 +84,16 @@ class TMDBDiscoverTool(Tool):
             else:
                 raw = self._adapter.discover_tv(**filters)
         except TMDBError as exc:
+            detail = f": {exc}" if str(exc) else ""
             return ToolResponse.error(
                 code="TMDB_ERROR",
-                message=f"TMDB 发现失败: {exc}",
+                message=f"TMDB 发现失败{detail}",
             )
         except Exception as exc:
+            detail = f": {exc}" if str(exc) else ""
             return ToolResponse.error(
                 code="INTERNAL_ERROR",
-                message=f"发现时发生内部错误: {exc}",
+                message=f"发现时发生内部错误{detail}",
             )
 
         results = raw.get("results", [])

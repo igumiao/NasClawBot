@@ -60,14 +60,16 @@ class TMDBSearchTool(Tool):
         try:
             raw = self._adapter.search_multi(query)
         except TMDBError as exc:
+            detail = f": {exc}" if str(exc) else ""
             return ToolResponse.error(
                 code="TMDB_ERROR",
-                message=f"TMDB 搜索失败: {exc}",
+                message=f"TMDB 搜索失败{detail}",
             )
         except Exception as exc:
+            detail = f": {exc}" if str(exc) else ""
             return ToolResponse.error(
                 code="INTERNAL_ERROR",
-                message=f"搜索时发生内部错误: {exc}",
+                message=f"搜索时发生内部错误{detail}",
             )
 
         media_type_filter = parameters.get("media_type")

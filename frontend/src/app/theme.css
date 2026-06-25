@@ -906,6 +906,19 @@ textarea {
   box-shadow: none;
 }
 
+.tool-activity-error {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.08);
+  border-left: 3px solid var(--color-danger, #ef4444);
+  color: var(--color-danger, #c53030);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .memory-activity-card {
   border-left: 3px solid #f59e0b;
   background: linear-gradient(
