@@ -2,7 +2,6 @@
 
 import time
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -106,8 +105,7 @@ def _tmdb_network_store() -> TMDBNetworkSettingsStore:
     return TMDBNetworkSettingsStore(_SETTINGS_DIR)
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+from app.domain.runtime_tasks import app_now as _app_now
 
 
 def _uuid_hex() -> str:
@@ -154,12 +152,12 @@ def _build_download_automation_factory(
         ensure_schema(task_db_path)
         store = RuntimeTaskStore(
             db_path=task_db_path,
-            clock=_utc_now,
+            clock=_app_now,
             id_factory=_uuid_hex,
         )
         scheduler = TaskScheduler(
             store=store,
-            clock=_utc_now,
+            clock=_app_now,
             id_factory=_uuid_hex,
         )
         policy_store = OrganizationAuthorizationPolicyStore(_SETTINGS_DIR)
@@ -177,7 +175,7 @@ def _build_download_automation_factory(
             qb_adapter=qb,
             scheduler=scheduler,
             policy_store=policy_store,
-            clock=_utc_now,
+            clock=_app_now,
             id_factory=_uuid_hex,
             mcp_allowed_dirs=allowed_dirs,
             path_mapping=parse_path_mapping(
@@ -209,12 +207,12 @@ def _build_task_management_service_factory() -> Callable[[], Any]:
     def factory() -> TaskManagementService:
         store = RuntimeTaskStore(
             db_path=task_db_path,
-            clock=_utc_now,
+            clock=_app_now,
             id_factory=_uuid_hex,
         )
         scheduler = TaskScheduler(
             store=store,
-            clock=_utc_now,
+            clock=_app_now,
             id_factory=_uuid_hex,
         )
         return TaskManagementService(scheduler=scheduler)
@@ -234,7 +232,7 @@ def _build_agent_runner() -> NasClawAgentRunner:
     ensure_schema(task_db_path)
     runtime_store = RuntimeTaskStore(
         db_path=task_db_path,
-        clock=_utc_now,
+        clock=_app_now,
         id_factory=_uuid_hex,
     )
     return NasClawAgentRunner(

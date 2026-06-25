@@ -45,16 +45,16 @@ def _build_curator_llm():
 
 
 def _build_prompt(entries: list[dict], user_profile: str, knowledge: str, sections: dict) -> str:
-    from datetime import datetime, timezone
+    from app.domain.runtime_tasks import app_now_iso
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now = app_now_iso().split("T")[0]
 
     entries_text = "\n\n---\n\n".join(
         f"[索引 {e['index']}] {e['timestamp']}\n{e['text']}" for e in entries
     )
     knowledge_sections = "\n".join(f"- {s}" for s in sections.get("knowledge", []))
 
-    return f"""当前日期：{now}（UTC）。用这个日期判断信息是否过时。
+    return f"""当前日期：{now}。用这个日期判断信息是否过时。
 
 你是 NasClawBot 的记忆整理助手。分析收件箱条目和已有记忆，判断每条应该保留、丢弃、修改还是删除。
 

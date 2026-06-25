@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.domain.runtime_tasks import app_now
 
 
 DOWNLOAD_AUTHORIZATION_POLICY_ID = "download-add-torrents-v1"
@@ -94,7 +95,7 @@ def create_session_grant(
     ok, reason, _ = _arguments_match_policy(policy, tool_name, arguments, default_save_path)
     if not ok:
         raise ValueError(reason)
-    created_at = (now or datetime.now(timezone.utc)).isoformat()
+    created_at = (now or app_now()).isoformat()
     return {
         "id": f"grant_{uuid4().hex}",
         "policy_id": DOWNLOAD_AUTHORIZATION_POLICY_ID,

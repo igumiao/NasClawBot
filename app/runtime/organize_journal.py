@@ -14,11 +14,10 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from app.domain.runtime_tasks import FilesystemOperationRecord
+from app.domain.runtime_tasks import FilesystemOperationRecord, app_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +72,7 @@ class OperationJournal:
             tool_name=tool_name,
             arguments=arguments,
             status="started",
-            started_at=datetime.now(timezone.utc).isoformat(),
+            started_at=app_now_iso(),
         )
         self._append(record)
         logger.debug("Journal record_start: %s (%s)", operation_id, tool_name)
@@ -192,7 +191,7 @@ class OperationJournal:
         result: dict[str, Any] | None = None,
     ) -> None:
         """Update the status of an existing record under lock."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = app_now_iso()
         with self._lock:
             records = self._load()
             for i, r in enumerate(records):

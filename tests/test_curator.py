@@ -160,19 +160,16 @@ def test_curator_suggestion_delete_accepts_new_fields():
 
 
 def test_build_prompt_includes_current_date_and_evolution_rules(monkeypatch):
-    """Verify the curator prompt includes the current UTC date and evolution instructions."""
+    """Verify the curator prompt includes the current date and evolution instructions."""
     from app.services.curator import _build_prompt
     from unittest.mock import MagicMock
-    import datetime as dt
 
-    frozen_date = dt.datetime(2026, 6, 15, 12, 0, 0, tzinfo=dt.timezone.utc)
+    frozen_date = "2026-06-15"
 
-    # Patch datetime.datetime (the class) at the stdlib level, since _build_prompt
-    # does a local "from datetime import datetime" inside the function.
-    mock_class = MagicMock()
-    mock_class.now.return_value = frozen_date
-    mock_class.timezone = dt.timezone
-    monkeypatch.setattr("datetime.datetime", mock_class)
+    monkeypatch.setattr(
+        "app.domain.runtime_tasks.app_now_iso",
+        MagicMock(return_value=f"{frozen_date}T12:00:00+08:00"),
+    )
 
     prompt = _build_prompt(
         entries=[{"index": 0, "timestamp": "2026-06-15", "text": "test"}],
@@ -181,7 +178,6 @@ def test_build_prompt_includes_current_date_and_evolution_rules(monkeypatch):
         sections={"user_profile": [], "knowledge": ["TMDB"]},
     )
     assert "当前日期：2026-06-15" in prompt
-    assert "UTC" in prompt
     assert "modify" in prompt.lower()
     assert "delete" in prompt.lower()
     assert "existing_text" in prompt

@@ -8,20 +8,38 @@ post-download automation plan (SS6, SS7, SS13).
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Any, Literal, Union
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
-# Timestamp helper
+# Timestamp helpers — 统一使用 APP_TIMEZONE 时区
 # ---------------------------------------------------------------------------
 
-def utc_now_iso() -> str:
-    """Return the current UTC time as an ISO-8601 string."""
-    return datetime.now(timezone.utc).isoformat()
+def _app_tz() -> ZoneInfo:
+    try:
+        return ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Shanghai"))
+    except (ZoneInfoNotFoundError, KeyError):
+        return ZoneInfo("Asia/Shanghai")
+
+
+def app_now() -> datetime:
+    """Return the current datetime in the configured app timezone."""
+    return datetime.now(_app_tz())
+
+
+def app_now_iso() -> str:
+    """Return the current time as an ISO-8601 string in the configured app timezone."""
+    return app_now().isoformat()
+
+
+# Backward-compat alias — used by existing Pydantic default_factory references.
+utc_now_iso = app_now_iso
 
 
 # ---------------------------------------------------------------------------

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 
 from app.domain.memory import MemoryContextLine, MemoryDocument, MemoryHit, MemoryKind
+from app.domain.runtime_tasks import app_now, app_now_iso
 
 
 DEFAULT_MARKDOWN_MEMORY_ROOT = Path(__file__).resolve().parents[2] / "memory" / "agent-memory"
@@ -112,7 +112,7 @@ class MarkdownMemoryStore:
             raise ValueError("section must be a non-empty string")
 
         target_heading = f"## {section.strip()}"
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = app_now().strftime("%Y-%m-%d")
         clean_text = _strip_date_prefix(text)
         entry_line = f"- [{today}] {clean_text}"
 
@@ -142,7 +142,7 @@ class MarkdownMemoryStore:
 
     def append_user_profile_entry(self, text: str) -> None:
         """Append a dated entry to user_profile.md without section headings."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = app_now().strftime("%Y-%m-%d")
         clean_text = _strip_date_prefix(text)
         entry_line = f"- [{today}] {clean_text}"
 
@@ -282,7 +282,7 @@ class MarkdownMemoryStore:
     def append_to_inbox(self, text: str) -> str:
         """Append a dated entry to the memory inbox file.  Returns the entry text."""
 
-        now = datetime.now(timezone.utc)
+        now = app_now()
         entry = (
             f"## {now.strftime('%Y-%m-%d %H:%M')} | 知识\n"
             f"\n"

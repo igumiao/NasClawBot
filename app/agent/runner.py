@@ -3,7 +3,7 @@
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from functools import wraps
 import json
 from pathlib import Path
@@ -94,7 +94,7 @@ from app.domain.authorization import (
     granted_item_count,
 )
 from app.domain.models import ResourceCandidate
-from app.domain.runtime_tasks import TaskEvent
+from app.domain.runtime_tasks import TaskEvent, app_now
 from app.runtime.store import RuntimeTaskStore
 from app.services.download_authorization_store import DownloadAuthorizationPolicyStore
 from app.services.download_automation import DownloadAutomation
@@ -474,7 +474,7 @@ class NasClawAgentRunner:
         if uninjected_events and rt_store is not None:
             rt_store.mark_events_injected(
                 [e.event_id for e in uninjected_events],
-                now=datetime.now(timezone.utc),
+                now=app_now(),
             )
 
         # 为 API 响应注入默认存储路径（仅展示用，不修改 checkpoint）
@@ -957,7 +957,7 @@ class NasClawAgentRunner:
         latest_archive = archives[-1] if archives else None
 
         # ── 持久化 ──
-        now = datetime.now(timezone.utc).isoformat()
+        now = app_now().isoformat()
         checkpoint.history = [m.to_dict() for m in agent.history_manager.get_history()]
         checkpoint.archives = [a for a in archives]
         checkpoint.saved_at = now
@@ -1165,7 +1165,7 @@ class NasClawAgentRunner:
         assistant_message: str,
         last_status: str,
     ) -> ConversationCheckpoint:
-        now = datetime.now(timezone.utc).isoformat()
+        now = app_now().isoformat()
         checkpoint.history.append(Message(assistant_message, "assistant").to_dict())
         checkpoint.saved_at = now
         checkpoint.metadata["last_status"] = last_status
@@ -1198,7 +1198,7 @@ class NasClawAgentRunner:
         approval: ApprovalRecord,
         last_status: str,
     ) -> ConversationCheckpoint:
-        now = datetime.now(timezone.utc).isoformat()
+        now = app_now().isoformat()
         checkpoint.history = [message.to_dict() for message in agent.get_history()]
         checkpoint.saved_at = now
         checkpoint.archives = list(getattr(agent, "_conversation_archives", checkpoint.archives))
@@ -1354,7 +1354,7 @@ class NasClawAgentRunner:
         prior_checkpoint: ConversationCheckpoint | None,
         pending_approvals: list[dict[str, Any]],
     ) -> ConversationCheckpoint:
-        now = datetime.now(timezone.utc).isoformat()
+        now = app_now().isoformat()
         history = [message.to_dict() for message in agent.get_history()]
         archives = list(getattr(agent, "_conversation_archives", prior_checkpoint.archives if prior_checkpoint else []))
         metadata = dict(getattr(agent, "_session_metadata", prior_checkpoint.metadata if prior_checkpoint else {}))

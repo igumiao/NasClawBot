@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timezone
 from typing import Any
 
 from app.agent.approvals import ApprovalRecord, ApprovalStatus
+from app.domain.runtime_tasks import app_now_iso
 from hello_agents.loop import ToolCallingLoopResult
 
 
@@ -128,4 +128,4 @@ def _decision_type(approval: ApprovalRecord) -> str:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return app_now_iso()

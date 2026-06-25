@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.domain.runtime_tasks import utc_now_iso
+from app.domain.runtime_tasks import app_now, app_now_iso, _app_tz
 
 
 MonitorMode = Literal["once", "until_complete"]
@@ -42,7 +42,7 @@ class DownloadSubmissionResult(BaseModel):
     status: SubmissionStatus
     watch_task_id: str | None = None
     submission_receipt: dict[str, Any] | None = None
-    submitted_at: str = Field(default_factory=utc_now_iso)
+    submitted_at: str = Field(default_factory=app_now_iso)
     error: str | None = None
 
 
@@ -182,19 +182,19 @@ def build_download_monitor_payload(
     return payload
 
 
-def normalize_to_utc(value: str) -> str:
-    """Normalize an aware ISO-8601 timestamp to canonical UTC."""
+def normalize_to_app_tz(value: str) -> str:
+    """Normalize an aware ISO-8601 timestamp to the configured app timezone."""
 
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError(f"timestamp must include a timezone offset: {value!r}")
-    return parsed.astimezone(timezone.utc).isoformat()
+    return parsed.astimezone(_app_tz()).isoformat()
 
 
-def is_future_time(value_utc: str, *, now: datetime | None = None) -> bool:
+def is_future_time(value_tz: str, *, now: datetime | None = None) -> bool:
     """Return whether a canonical aware timestamp is strictly in the future."""
 
-    current = now or datetime.now(timezone.utc)
+    current = now or app_now()
     if current.tzinfo is None or current.utcoffset() is None:
-        current = current.replace(tzinfo=timezone.utc)
-    return datetime.fromisoformat(value_utc) > current.astimezone(timezone.utc)
+        current = current.replace(tzinfo=_app_tz())
+    return datetime.fromisoformat(value_tz) > current.astimezone(_app_tz())

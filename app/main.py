@@ -5,7 +5,6 @@ This module wires routes and static frontend assets into a single app instance.
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 import logging
 import time
 from pathlib import Path
@@ -24,6 +23,7 @@ from app.mcp_pool import init_mcp_pool, shutdown_mcp_pool
 from app.runtime.handlers.download_watch import DownloadWatchConfig
 from app.runtime.worker import TaskWorkerConfig
 from app.storage.db import ensure_schema
+from app.domain.runtime_tasks import app_now
 from app.task_runtime import (
     create_task_runtime,
     setup_download_watch_handler,
@@ -60,7 +60,7 @@ async def _app_lifespan(_app: FastAPI):
             event_consumed_purge_seconds=settings.event_consumed_purge_seconds,
             event_max_age_seconds=settings.event_max_age_seconds,
         ),
-        clock=lambda: datetime.now(timezone.utc),
+        clock=app_now,
     )
 
     # qB adapter for the download-watch handler.

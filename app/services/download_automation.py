@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Callable, Iterable
 
 from app.adapters.qbittorrent import QBittorrentAdapter
@@ -20,7 +20,7 @@ from app.domain.downloads import (
     build_download_monitor_payload,
     download_monitor_exclusive_key,
     is_future_time,
-    normalize_to_utc,
+    normalize_to_app_tz,
     parse_download_monitor,
 )
 from app.domain.organization import (
@@ -28,7 +28,7 @@ from app.domain.organization import (
     OrganizationAuthorizationSnapshot,
 )
 from app.domain.path_mapping import translate_path
-from app.domain.runtime_tasks import RuntimeTask, TaskStatus
+from app.domain.runtime_tasks import RuntimeTask, TaskStatus, _app_tz
 from app.runtime.scheduler import TaskScheduler
 from app.services.download_submission import DownloadSubmission
 from app.services.organization_policy_store import OrganizationAuthorizationPolicyStore
@@ -383,12 +383,12 @@ class DownloadAutomation:
 
     def _normalize_future_time(self, value: str, *, field: str) -> str:
         try:
-            normalized = normalize_to_utc(value)
+            normalized = normalize_to_app_tz(value)
         except ValueError as exc:
             raise DownloadAutomationError("INVALID_START_AT", str(exc)) from exc
         now = self._clock()
         if now.tzinfo is None or now.utcoffset() is None:
-            now = now.replace(tzinfo=timezone.utc)
+            now = now.replace(tzinfo=_app_tz())
         if not is_future_time(normalized, now=now):
             raise DownloadAutomationError(
                 "START_AT_NOT_FUTURE", f"{field} must be in the future"

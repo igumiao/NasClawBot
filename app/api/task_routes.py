@@ -279,7 +279,7 @@ def build_task_router() -> APIRouter:
         Safe to call multiple times.
         """
         store = _get_runtime_store(request)
-        now = _utc_now()
+        now = _app_now()
         try:
             updated = store.acknowledge_event(event_id, now=now)
         except ValueError:
@@ -297,9 +297,4 @@ def build_task_router() -> APIRouter:
 # Module-level helpers
 # ---------------------------------------------------------------------------
 
-from datetime import datetime, timezone
-
-
-def _utc_now() -> datetime:
-    """Return the current UTC datetime."""
-    return datetime.now(timezone.utc)
+from app.domain.runtime_tasks import app_now as _app_now

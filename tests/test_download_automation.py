@@ -263,14 +263,16 @@ def test_create_and_atomic_update_monitor(automation):
         "approval-create",
     )
     assert created.start_at is None
-    future = (NOW + timedelta(hours=2)).isoformat()
+    future = NOW + timedelta(hours=2)
     updated = service.update_monitor(DownloadMonitorUpdate(
         task_id=created.task_id,
-        start_at=future,
+        start_at=future.isoformat(),
         mode="until_complete",
         on_completed="organize",
     ))
-    assert updated.start_at == future
+    # Timestamps are normalized to the app timezone; compare instants, not strings.
+    assert updated.start_at is not None
+    assert datetime.fromisoformat(updated.start_at) == future
     assert updated.mode == "until_complete"
     assert updated.on_completed == "organize"
     task = scheduler.get(created.task_id)
