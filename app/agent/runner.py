@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 import logging
+import time as _time
 from functools import wraps
 import json
 from pathlib import Path
@@ -133,7 +134,7 @@ from hello_agents.core.config import Config
 from hello_agents.core.llm import HelloAgentsLLM
 from hello_agents.core.message import Message
 from hello_agents.tools import Filter, Gate, ToolRegistry
-from hello_agents.tools.mcp.bridge import register_mcp_tools
+from hello_agents.tools.mcp.bridge import McpBridgeTool, register_mcp_tools
 from hello_agents.tools.response import ToolResponse
 
 
@@ -466,7 +467,13 @@ class NasClawAgentRunner:
             self._restore_history(agent, checkpoint)
         self._install_authorization_hook(agent, checkpoint)
 
+        _t0 = _time.monotonic()
         answer = agent.run(message)
+        _elapsed = _time.monotonic() - _t0
+        logger.info(
+            "Session %s: agent.run() took %.1fs (LLM call + tool execution)",
+            session_id, _elapsed,
+        )
         pending_approvals = self._agent_pending_approvals(agent, session_id)
         saved_checkpoint = self._checkpoint_from_agent(
             session_id=session_id,
@@ -706,11 +713,11 @@ class NasClawAgentRunner:
         _EXECUTABLE_TOOLS = {
             "qb_add_torrent",
             "qb_control_torrent",
-            "qb_set_global_speed",
-            "qb_set_torrent_speed",
             "monitor_download",
             "task_cancel",
             "update_download_monitor",
+            "mcp_filesystem_write_file",
+            "mcp_filesystem_edit_file",
         }
         if approval.tool_name not in _EXECUTABLE_TOOLS:
             raise ValueError(f"Tool '{approval.tool_name}' cannot be executed via approval")
@@ -1073,6 +1080,18 @@ class NasClawAgentRunner:
                     "cannot execute task management approvals."
                 )
             tool = TaskCancelTool(tms)
+        elif tool_name.startswith("mcp_"):
+            mcp_pool = get_mcp_pool()
+            if mcp_pool is None:
+                raise RuntimeError("MCP pool is not available — cannot execute MCP tool approvals.")
+            bridge: McpBridgeTool | None = None
+            for server_name, tool_info in mcp_pool.get_tools():
+                if f"mcp_{server_name}_{tool_info.name}" == tool_name:
+                    bridge = McpBridgeTool(mcp_pool, server_name, tool_info)
+                    break
+            if bridge is None:
+                raise ValueError(f"MCP tool not found in pool: {tool_name}")
+            tool = bridge
         else:
             qb_adapter = self._get_qb_adapter()
             if tool_name == "qb_control_torrent":

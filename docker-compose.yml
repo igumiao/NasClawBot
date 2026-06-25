@@ -14,4 +14,6 @@ services:
       - ./nas_media_agent.db:/app/nas_media_agent.db
       # NAS 影视目录 → 容器内统一路径 (filesystem MCP 操作目标)
       - /vol1/1000/影视:/影视
+      # NAS 文档目录 → 容器内统一路径 (filesystem MCP 操作目标)
+      - /vol1/1000/文档:/文档
     restart: unless-stopped
