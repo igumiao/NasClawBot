@@ -43,6 +43,20 @@ async def _app_lifespan(_app: FastAPI):
     settings = get_settings()
     await init_mcp_pool()
 
+    # -- Warm OS page cache for frequently-read files (NAS HDD cold start) ---
+    _warmup_memory_dir = Path(__file__).resolve().parents[1] / "memory"
+    for _warmup_path in [
+        _warmup_memory_dir / "agent-memory" / "user_profile.md",
+        _warmup_memory_dir / "agent-memory" / "knowledge.md",
+        _warmup_memory_dir / "settings" / "tmdb-network.json",
+        _warmup_memory_dir / "settings" / "download-authorization.json",
+        _warmup_memory_dir / "settings" / "organization-authorization.json",
+    ]:
+        try:
+            _warmup_path.read_bytes()
+        except Exception:
+            pass
+
     # -- Build task runtime --------------------------------------------------
     _task_db_path = settings.task_db_path
     ensure_schema(_task_db_path)
