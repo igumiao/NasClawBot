@@ -6,7 +6,7 @@ not in this loop.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from uuid import uuid4
@@ -708,7 +708,7 @@ class ToolCallingLoop:
             "arguments": arguments,
             "status": "pending",
             "reason": reason,
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
     @staticmethod
