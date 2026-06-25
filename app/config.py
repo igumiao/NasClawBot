@@ -90,7 +90,7 @@ class Settings(BaseModel):
         default_factory=lambda: _get_env("DOWNLOAD_DEFAULT_SAVE_PATH", ""),
     )
     qb_add_paused: bool = Field(
-        default_factory=lambda: _get_bool_env("QB_ADD_PAUSED", True),
+        default_factory=lambda: _get_bool_env("QB_ADD_PAUSED", False),
     )
     mcp_fs_enabled: bool = Field(
         default_factory=lambda: _get_bool_env("MCP_FS_ENABLED", True),

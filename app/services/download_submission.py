@@ -33,7 +33,7 @@ class DownloadSubmission:
         qb_adapter: QBittorrentAdapter,
         default_save_path: str | None = None,
         default_tags: list[str] | None = None,
-        paused: bool = True,
+        paused: bool = False,
     ) -> None:
         self._mteam = mteam_adapter
         self._qb = qb_adapter

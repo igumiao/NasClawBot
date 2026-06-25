@@ -151,7 +151,7 @@ class TestSubmitSuccess:
     def test_submit_passes_paused_flag(self, submission: DownloadSubmission, qb: FakeQBAdapter) -> None:
         submission.submit(make_request())
         assert qb.captured_kwargs is not None
-        assert qb.captured_kwargs["paused"] is True
+        assert qb.captured_kwargs["paused"] is False
 
     def test_submit_generates_torrent_name(self, submission: DownloadSubmission, qb: FakeQBAdapter) -> None:
         submission.submit(make_request())
