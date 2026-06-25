@@ -40,6 +40,7 @@ class FakeSettings:
     tmdb_api_key = ""
     tavily_api_key = ""
     download_default_save_path = "/tmp/test-downloads"
+    qb_add_paused = True
     context_window = 128000
     # Use an isolated DB so tests don't pollute the production task DB.
     task_db_path = "/tmp/test-nasclawbot-tasks.db"

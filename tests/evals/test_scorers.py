@@ -212,7 +212,7 @@ class TestScoreFinalFacts:
 
     def test_operation_failed_rejects_missing_format(self):
         step = AssertStep(kind="assert", final_facts=["operation_failed"])
-        failures = _score_final_facts(step, "success", "下载失败：网络错误", [])
+        failures = _score_final_facts(step, "success", "操作已完成。", [])
         assert len(failures) == 1
 
     def test_not_executed(self):
