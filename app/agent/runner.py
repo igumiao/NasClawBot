@@ -1501,29 +1501,28 @@ class NasClawAgentRunner:
 
     @staticmethod
     def _format_background_events(events: list[TaskEvent]) -> str:
-        """Format uninjected task events as a compact system-context block.
+        """Format uninjected task events as an attention-grabbing system block.
 
-        The output is injected into the Agent's system prompt (not as a
-        role=user message) so the LLM is aware of background completions
-        without being confused by a fake user message.
-
-        Format per plan Section 15.3:
-        [BackgroundTaskEvent] task_id, kind, title, summary
-        "This action has already completed. Do not repeat it."
+        Injected at the TOP of the system prompt (via prepend in _build_agent)
+        so the LLM cannot overlook it — a bottom-append on a long prompt is
+        too easy to skim past.  The 【系统通知】 marker and explicit reporting
+        instruction further reduce the chance of the LLM ignoring the block.
         """
         lines = [
-            "## 后台任务事件通知",
+            "【系统通知】后台任务状态更新",
             "",
-            "以下后台任务已在本次对话之前自动完成。",
-            "你可以直接使用其结果，不要重复执行已完成的操作。",
+            "以下后台任务已在本次对话之前自动完成。请在回复的开头简要告知用户这些任务的完成情况，",
+            "然后继续处理用户的请求。不要重复执行这些已完成的任务。",
             "",
         ]
         for event in events:
-            lines.append("[BackgroundTaskEvent]")
-            lines.append(f"  task_id: {event.task_id}")
-            lines.append(f"  kind: {event.kind}")
-            lines.append(f"  title: {event.title}")
-            lines.append(f"  summary: {event.summary}")
-            lines.append("  该操作已自动完成，请勿重复执行。")
+            emoji = {
+                "download_completed": "📥",
+                "download_completed_no_path": "📥",
+                "download_check_incomplete": "⏳",
+                "organize_completed": "📁",
+                "task_failed": "⚠️",
+            }.get(event.kind, "📌")
+            lines.append(f"{emoji} **{event.title}** — {event.summary}")
             lines.append("")
         return "\n".join(lines)
