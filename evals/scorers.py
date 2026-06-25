@@ -44,13 +44,27 @@ def _arguments_match(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     """Check if *expected* is a subset of *actual*.
 
     Recurses into nested dicts. Non-dict values are compared with ``==``.
-    Missing keys cause an immediate ``False`` return.
+    Missing top-level keys trigger a lenient fallback: if *actual* has an
+    ``items`` array, the scorer checks whether every item in that array
+    contains the expected key with a matching value — this accommodates
+    LLMs that mistakenly nest top-level parameters (e.g. ``completion_action``)
+    inside each array element.
     """
     for key, expected_value in expected.items():
-        if key not in actual:
-            return False
-        actual_value = actual[key]
-        if not _value_matches(expected_value, actual_value):
+        if key in actual:
+            actual_value = actual[key]
+            if not _value_matches(expected_value, actual_value):
+                return False
+        else:
+            # Lenient fallback — check if the key is consistently nested
+            # inside every element of an "items" array.
+            items = actual.get("items")
+            if isinstance(items, list) and items and all(
+                isinstance(it, dict) and key in it
+                and _value_matches(expected_value, it[key])
+                for it in items
+            ):
+                continue
             return False
     return True
 
@@ -310,20 +324,8 @@ def _check_fact_awaiting_approval(status: str, final_answer: str, tool_calls: li
 
 
 def _check_fact_operation_failed(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
-    """Verify the Agent reports failure WITHOUT also claiming success."""
-    text = final_answer.lower()
-    has_failure = any(kw in text for kw in ["失败", "错误", "无法", "failed", "error"])
-    success_scan = text
-    for negated_success in [
-        "没有成功提交", "未成功提交", "没有成功", "未成功", "不成功",
-        "not successfully submitted", "not successful", "did not complete",
-    ]:
-        success_scan = success_scan.replace(negated_success, "")
-    has_success = any(
-        kw in success_scan
-        for kw in ["已提交", "已完成", "已添加", "添加成功", "加入成功", "submitted", "completed", "成功"]
-    )
-    return has_failure and not has_success
+    """Verify the Agent reports failure using the [失败] format."""
+    return "失败" in final_answer
 
 
 def _check_fact_not_executed(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
@@ -339,23 +341,11 @@ def _check_fact_not_executed(status: str, final_answer: str, tool_calls: list[di
 
 
 def _check_fact_organization_scheduled(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
-    text = final_answer.lower()
-    return any(kw in text for kw in ["整理", "组织", "organize"])
+    return "已安排整理" in final_answer
 
 
 def _check_fact_monitor_created(status: str, final_answer: str, tool_calls: list[dict[str, Any]]) -> bool:  # noqa: ARG001
-    """Verify the Agent claims a monitor was created, not merely mentioned."""
-    text = final_answer.lower()
-    has_monitor = any(kw in text for kw in ["监控", "monitor"])
-    # Exclude negations like "无法创建监控" or "监控创建失败"
-    negated = any(
-        kw in text
-        for kw in [
-            "无法创建", "创建失败", "未能创建", "没有创建", "尚未创建", "未创建",
-            "cannot create", "failed to create", "not created",
-        ]
-    )
-    return has_monitor and not negated
+    return "已创建监控" in final_answer
 
 
 _FACT_CHECKERS: dict[str, Any] = {

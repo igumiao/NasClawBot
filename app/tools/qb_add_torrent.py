@@ -40,7 +40,8 @@ class QBAddTorrentTool(Tool):
             name="qb_add_torrent",
             description=(
                 "通过 M-Team torrent ID 执行下载：获取详情→生成下载链接→添加到 qBittorrent（暂停状态）。"
-                "单个种子传 torrent_id；批量传 items 数组，"
+                "单个种子传 torrent_id + save_path + tag + completion_action；"
+                "批量传 items 数组 + completion_action（completion_action 始终是顶层参数，整批统一）。"
                 f"单批最多 {MAX_BATCH_ITEMS} 项。"
             ),
         )
@@ -71,7 +72,9 @@ class QBAddTorrentTool(Tool):
                 type="array",
                 description=(
                     "批量添加的 torrent 列表（与 torrent_id 互斥）。每项是对象："
-                    '{"torrent_id":"M-Team torrent ID","save_path":"可选保存路径","tag":"可选标签 如 电影"}'
+                    '{"torrent_id":"M-Team torrent ID","save_path":"可选保存路径","tag":"可选标签 如 电影"}。'
+                    "completion_action 是顶层参数，不要放入每个 item 内。"
+                    f"单批最多 {MAX_BATCH_ITEMS} 项。"
                 ),
                 required=False,
             ),
@@ -79,7 +82,8 @@ class QBAddTorrentTool(Tool):
                 name="completion_action",
                 type="string",
                 description=(
-                    "下载完成动作，必填：none 仅提交；notify 持续监督并通知；"
+                    "下载完成动作，必填（顶层参数，整批统一）："
+                    "none 仅提交；notify 持续监督并通知；"
                     "organize 持续监督并整理。用户仅说下载时使用 notify，只有明确要求整理时使用 organize。"
                 ),
                 required=True,

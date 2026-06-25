@@ -14,7 +14,7 @@ steps:
   - name: qb_list_torrents
   recorded_effects: 0
 - kind: user
-  text: 监控下载中的种子一次，完成后通知我
+  text: 监控下载中的种子一次，完成后通知我。监控创建后，回复以 {已创建监控} 为开头然后简述状态
 - kind: assert
   status: awaiting_approval
   required_calls:

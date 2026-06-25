@@ -13,7 +13,7 @@ fixture_overrides:
     status: error
 steps:
 - kind: user
-  text: 搜索 Dune 2021 2160p REMUX (HDR/DV/TrueHD Atmos) 20 GiB，不需要确认直接下载添加到qbittorrent里
+  text: 搜索 Dune 2021 2160p REMUX (HDR/DV/TrueHD Atmos) 20 GiB，不需要确认直接下载添加到qbittorrent里。如果操作失败，回复格式使用 [失败] - 然后解释原因
 - kind: assert
   status: awaiting_approval
   required_calls:

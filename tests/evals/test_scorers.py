@@ -207,13 +207,13 @@ class TestScoreRecordedEffects:
 class TestScoreFinalFacts:
     def test_operation_failed(self):
         step = AssertStep(kind="assert", final_facts=["operation_failed"])
-        failures = _score_final_facts(step, "success", "下载失败：网络错误", [])
+        failures = _score_final_facts(step, "success", "[失败]: 网络错误", [])
         assert failures == []
 
-    def test_operation_failed_allows_explicit_no_success(self):
+    def test_operation_failed_rejects_missing_format(self):
         step = AssertStep(kind="assert", final_facts=["operation_failed"])
-        failures = _score_final_facts(step, "success", "下载失败，没有成功提交。", [])
-        assert failures == []
+        failures = _score_final_facts(step, "success", "下载失败：网络错误", [])
+        assert len(failures) == 1
 
     def test_not_executed(self):
         step = AssertStep(kind="assert", final_facts=["not_executed"])
@@ -225,15 +225,25 @@ class TestScoreFinalFacts:
         failures = _score_final_facts(step, "awaiting_approval", "", [])
         assert failures == []
 
-    def test_monitor_created_rejects_plain_negation(self):
+    def test_monitor_created_rejects_missing_format(self):
         step = AssertStep(kind="assert", final_facts=["monitor_created"])
         failures = _score_final_facts(step, "success", "没有创建监控。", [])
         assert len(failures) == 1
 
-    def test_organization_scheduled_requires_organization_claim(self):
+    def test_monitor_created_with_format(self):
+        step = AssertStep(kind="assert", final_facts=["monitor_created"])
+        failures = _score_final_facts(step, "success", "[已创建监控]: 已创建一次性监控，下载完成后将通知你。", [])
+        assert failures == []
+
+    def test_organization_scheduled_requires_format_marker(self):
         step = AssertStep(kind="assert", final_facts=["organization_scheduled"])
         failures = _score_final_facts(step, "success", "已创建下载监控。", [])
         assert len(failures) == 1
+
+    def test_organization_scheduled_with_format(self):
+        step = AssertStep(kind="assert", final_facts=["organization_scheduled"])
+        failures = _score_final_facts(step, "success", "[已安排整理]: 已创建下载监控，完成后将自动整理文件。", [])
+        assert failures == []
 
 
 class TestScoreTrialIntegration:

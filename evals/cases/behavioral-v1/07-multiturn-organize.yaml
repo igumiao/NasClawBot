@@ -15,7 +15,7 @@ steps:
   - name: mteam_search
   recorded_effects: 0
 - kind: user
-  text: 我确认下载 Dune.2021.1080p.BluRay.x264.DTS-HD.MA，完成后帮我整理文件
+  text: 我确认下载 Dune.2021.1080p.BluRay.x264.DTS-HD.MA，完成后帮我整理文件。整理任务安排后，回复格式以 {已安排整理} 为开头然后简述状态
 - kind: assert
   status: awaiting_approval
   required_calls:

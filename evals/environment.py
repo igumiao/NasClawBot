@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from app.agent.runner import NasClawAgentRunner
 from app.config import Settings, get_settings
+from hello_agents.tools import Filter
 from evals.loader import get_fixture
 from evals.models import EvalCase, Fixture
 from evals.recording import CallJournal, create_recording_dependencies
@@ -136,13 +137,40 @@ def create_trial_environment(
     parsed = datetime.strptime(fixed_date_str, "%Y-%m-%d")
     fixed_now = parsed.replace(hour=12, tzinfo=tz)
 
-    # ── 9. Runner ────────────────────────────────────────────────────────
+    # ── 9. Eval tool filter (same as default minus remember_this) ──────────
+    _EVAL_TOOL_FILTER = Filter(allow=[
+        "current_time",
+        "memory_search",
+        "mteam_search",
+        "member_profile",
+        "qb_add_torrent",
+        "qb_list_torrents",
+        "qb_get_torrent",
+        "qb_list_tags",
+        "qb_control_torrent",
+        "qb_set_global_speed",
+        "qb_set_torrent_speed",
+        "tavily_search",
+        "tmdb_search",
+        "tmdb_details",
+        "tmdb_discover",
+        "tmdb_trending",
+        "skill_load",
+        "monitor_download",
+        "task_list",
+        "task_cancel",
+        "update_download_monitor",
+        "list_task_events",
+    ])
+
+    # ── 10. Runner ────────────────────────────────────────────────────────
     runner = NasClawAgentRunner(
         checkpoint_store=checkpoint_store,
         settings=eval_settings,
         fixed_now=fixed_now,
         trace_root=work_dir / "traces",
         dependencies=deps,
+        tool_filter=_EVAL_TOOL_FILTER,
         memory_root=work_dir / "memory",
         download_automation_factory=None,
         runtime_task_store=None,
@@ -156,7 +184,7 @@ def create_trial_environment(
         }
     )
 
-    # ── 10. Return ───────────────────────────────────────────────────────
+    # ── 11. Return ───────────────────────────────────────────────────────
     return EvalEnvironment(
         run_id=run_id,
         suite=suite,
