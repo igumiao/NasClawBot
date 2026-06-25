@@ -173,6 +173,11 @@ export function ChatPanel({
                   return null;
               }
             })}
+            {state.isSubmitting && (
+              <div className="thinking-indicator" aria-label="Agent 思考中">
+                <span /><span /><span />
+              </div>
+            )}
             <div ref={endRef} />
           </div>
         )}

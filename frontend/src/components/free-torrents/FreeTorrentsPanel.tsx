@@ -86,7 +86,6 @@ export function FreeTorrentsPanel({ id, labelledBy }: Props) {
                 value={state.savePath}
                 onChange={e => dispatch({ type: "save_path_changed", value: e.target.value })}
                 className="free-torrents-filter-input"
-                style={{ width: 200 }}
               />
             </label>
           </div>

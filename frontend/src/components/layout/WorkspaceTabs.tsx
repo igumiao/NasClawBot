@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { WorkspaceTab } from "../../state/uiState";
 
 const tabs: Array<{ id: WorkspaceTab; label: string }> = [
@@ -23,6 +24,29 @@ export function WorkspaceTabs({
   activeTab: WorkspaceTab;
   onTabChange: (tab: WorkspaceTab) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number; ready: boolean }>({ left: 0, width: 0, ready: false });
+
+  // Measure active tab position for the sliding indicator.
+  useEffect(() => {
+    function measure() {
+      const container = containerRef.current;
+      if (!container) return;
+      const activeEl = container.querySelector<HTMLElement>(`#${getWorkspaceTabId(activeTab)}`);
+      if (!activeEl) return;
+      const containerRect = container.getBoundingClientRect();
+      const tabRect = activeEl.getBoundingClientRect();
+      setIndicatorStyle({
+        left: tabRect.left - containerRect.left,
+        width: tabRect.width,
+        ready: true,
+      });
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [activeTab]);
+
   function moveToTab(nextTab: WorkspaceTab, tablist: HTMLDivElement) {
     onTabChange(nextTab);
     tablist.querySelector<HTMLButtonElement>(`#${getWorkspaceTabId(nextTab)}`)?.focus();
@@ -52,7 +76,12 @@ export function WorkspaceTabs({
   }
 
   return (
-    <div className="workspace-tabs" role="tablist" aria-label="Workspace">
+    <div className="workspace-tabs" role="tablist" aria-label="Workspace" ref={containerRef}>
+      <div
+        className="workspace-tabs-indicator"
+        data-ready={indicatorStyle.ready}
+        style={{ left: indicatorStyle.left, width: indicatorStyle.width }}
+      />
       {tabs.map((tab) => (
         <button
           key={tab.id}

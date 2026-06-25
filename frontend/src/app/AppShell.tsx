@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Menu, X } from "lucide-react";
 import { chatApi } from "../api/chatApi";
 import { ChatPanel } from "../components/chat/ChatPanel";
 import { DownloadsPanel } from "../components/downloads/DownloadsPanel";
@@ -41,6 +42,7 @@ export function AppShell() {
   const [isLoadingAgentSessions, setIsLoadingAgentSessions] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => readStoredSidebarCollapsed());
   const [downloadRefreshSignal, setDownloadRefreshSignal] = useState(0);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [backendState, setBackendState] = useState<BackendState>("checking");
 
   useEffect(() => {
@@ -56,6 +58,27 @@ export function AppShell() {
   useEffect(() => {
     persistSidebarCollapsed(isSidebarCollapsed);
   }, [isSidebarCollapsed]);
+
+  // Close mobile sidebar overlay when resizing past the breakpoint.
+  useEffect(() => {
+    function handleResize() {
+      if (window.innerWidth > 768) {
+        setIsMobileSidebarOpen(false);
+      }
+    }
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Close mobile sidebar overlay on Escape.
+  useEffect(() => {
+    if (!isMobileSidebarOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setIsMobileSidebarOpen(false);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileSidebarOpen]);
 
   const refreshAgentSessions = useCallback(async (signal?: AbortSignal) => {
     setIsLoadingAgentSessions(true);
@@ -129,7 +152,18 @@ export function AppShell() {
     "online-dot checking-dot";
 
   return (
-    <div className="app-shell" data-sidebar-collapsed={isSidebarCollapsed}>
+    <div
+      className="app-shell"
+      data-sidebar-collapsed={isSidebarCollapsed}
+      data-mobile-sidebar-open={isMobileSidebarOpen}
+    >
+      {/* Backdrop for mobile sidebar overlay */}
+      <div
+        className="sidebar-backdrop"
+        onClick={() => setIsMobileSidebarOpen(false)}
+        aria-hidden="true"
+      />
+
       <ConversationSidebar
         activeSessionId={activeAgentSessionId}
         sessions={agentSessions}
@@ -138,10 +172,12 @@ export function AppShell() {
         onNewConversation={() => {
           setActiveAgentSessionId(null);
           setActiveTab("chat");
+          setIsMobileSidebarOpen(false);
         }}
         onSelectSession={(sessionId) => {
           setActiveAgentSessionId(sessionId);
           setActiveTab("chat");
+          setIsMobileSidebarOpen(false);
         }}
         onToggleCollapsed={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
         onRenameSession={handleRenameSession}
@@ -149,6 +185,14 @@ export function AppShell() {
       />
       <main className="workspace-shell">
         <header className="workspace-topbar">
+          <button
+            className="sidebar-hamburger"
+            type="button"
+            aria-label={isMobileSidebarOpen ? "关闭菜单" : "打开菜单"}
+            onClick={() => setIsMobileSidebarOpen((open) => !open)}
+          >
+            {isMobileSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
           <WorkspaceTabs activeTab={activeTab} onTabChange={setActiveTab} />
           <div className="backend-status">
             <span className={dotClass} aria-hidden="true" />
