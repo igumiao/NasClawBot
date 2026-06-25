@@ -59,5 +59,7 @@ report
 eval-results/
 
 .claude/settings.local.json
+ref/mteam-api-reference.md
 ref/user-experience.md
+docs/
 node_modules/
