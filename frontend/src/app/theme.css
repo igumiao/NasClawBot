@@ -485,6 +485,7 @@ textarea {
   min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
+  position: relative;
 }
 
 .chat-thread {
@@ -1098,15 +1099,41 @@ textarea {
 /* ── Task Events (background task notifications) ── */
 
 .task-events-section {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 20;
   display: grid;
-  gap: 10px;
-  margin-bottom: 8px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: var(--background);
+  gap: 8px;
+  max-width: 340px;
+  width: 100%;
+  pointer-events: none;
+}
+
+.task-events-section > * {
+  pointer-events: auto;
+}
+
+/* Slide-in from the right, staggered per card */
+.task-events-section > .task-event-card {
+  animation: toast-slide-in 0.28s ease-out both;
+}
+
+.task-events-section > .task-event-card:nth-child(1) { animation-delay: 0s; }
+.task-events-section > .task-event-card:nth-child(2) { animation-delay: 0.06s; }
+.task-events-section > .task-event-card:nth-child(3) { animation-delay: 0.12s; }
+.task-events-section > .task-event-card:nth-child(4) { animation-delay: 0.18s; }
+.task-events-section > .task-event-card:nth-child(5) { animation-delay: 0.24s; }
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .task-events-header {
@@ -1139,11 +1166,16 @@ textarea {
   color: var(--text);
 }
 
-/* Task Event Card */
+/* Task Event Card — toast overlay */
 
 .task-event-card {
-  box-shadow: none;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.06);
   padding: 12px 14px;
+  background: var(--surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
 }
 
 .task-event-card .chat-card-header {

@@ -100,33 +100,6 @@ export function ChatPanel({
   return (
     <section className="chat-panel" id={id} role="tabpanel" aria-labelledby={labelledBy}>
       <div className="chat-thread">
-        {/* Task events always render when present, regardless of message count.
-            Background tasks (download/org complete) are asynchronous — they may
-            fire long after the user's last message, and the session may be
-            re-opened with an empty message list. */}
-        {taskEvents != null && taskEvents.length > 0 && (
-          <div className="task-events-section" role="feed" aria-label="后台任务事件">
-            <div className="task-events-header">
-              <span className="task-events-heading">后台任务</span>
-              {taskEvents.length > 1 && (
-                <button
-                  className="task-events-dismiss-all"
-                  onClick={acknowledgeAllEvents}
-                  aria-label="忽略所有事件"
-                >
-                  全部忽略
-                </button>
-              )}
-            </div>
-            {taskEvents.map((event) => (
-              <TaskEventCard
-                key={event.event_id}
-                event={event}
-                onAcknowledge={acknowledgeEvent}
-              />
-            ))}
-          </div>
-        )}
         {state.messages.length === 0 ? (
           <div className="chat-empty">
             <h1>今天想看什么？</h1>
@@ -204,6 +177,31 @@ export function ChatPanel({
           </div>
         )}
       </div>
+      {/* Task events rendered as a toast overlay in the top-right corner,
+          outside the chat-thread scroll flow so they never obscure messages. */}
+      {taskEvents != null && taskEvents.length > 0 && (
+        <div className="task-events-section" role="feed" aria-label="后台任务事件">
+          <div className="task-events-header">
+            <span className="task-events-heading">后台任务</span>
+            {taskEvents.length > 1 && (
+              <button
+                className="task-events-dismiss-all"
+                onClick={acknowledgeAllEvents}
+                aria-label="忽略所有事件"
+              >
+                全部忽略
+              </button>
+            )}
+          </div>
+          {taskEvents.map((event) => (
+            <TaskEventCard
+              key={event.event_id}
+              event={event}
+              onAcknowledge={acknowledgeEvent}
+            />
+          ))}
+        </div>
+      )}
       {state.contextUsage && (
         <ContextBar usage={state.contextUsage} sessionUsage={state.sessionUsage} />
       )}
