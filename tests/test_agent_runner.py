@@ -605,9 +605,9 @@ def test_nasclaw_agent_runner_approve_can_pause_for_next_gated_tool(tmp_path, mo
             content=None,
             tool_calls=[
                 ToolCall(
-                    id="call-resume",
+                    id="call-delete",
                     name="qb_control_torrent",
-                    arguments='{"torrent_hash":"fake-hash","action":"resume"}',
+                    arguments='{"torrent_hash":"fake-hash","action":"delete"}',
                 )
             ],
             model="fake-model",
@@ -627,17 +627,17 @@ def test_nasclaw_agent_runner_approve_can_pause_for_next_gated_tool(tmp_path, mo
 
     assert result.status == "approved"
     assert result.pending_approvals[0]["tool_name"] == "qb_control_torrent"
-    assert result.pending_approvals[0]["arguments"] == {"torrent_hash": "fake-hash", "action": "resume"}
+    assert result.pending_approvals[0]["arguments"] == {"torrent_hash": "fake-hash", "action": "delete"}
     assert FakeLLM.tool_choices == ["auto", "auto"]
     checkpoint = store.load("session-resume-next-approval")
     assert checkpoint is not None
     assert checkpoint.metadata["pending_approvals"][0]["tool_name"] == "qb_control_torrent"
-    assert checkpoint.metadata["paused_loop"]["pending_tool_call"]["id"] == "call-resume"
+    assert checkpoint.metadata["paused_loop"]["pending_tool_call"]["id"] == "call-delete"
     assert checkpoint.metadata["approvals"][0]["tool_name"] == "qb_add_torrent"
     assert checkpoint.metadata["runtime_state"]["pending_action"] == {
         "approval_id": result.pending_approvals[0]["approval_id"],
         "tool_name": "qb_control_torrent",
-        "arguments": {"torrent_hash": "fake-hash", "action": "resume"},
+        "arguments": {"torrent_hash": "fake-hash", "action": "delete"},
     }
 
 

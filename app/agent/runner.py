@@ -370,9 +370,9 @@ class NasClawAgentRunner:
         ])
         self.tool_gate = tool_gate or Gate(confirm=[
             lambda call: call.tool_name == "qb_add_torrent",
-            lambda call: call.tool_name == "qb_control_torrent",
-            lambda call: call.tool_name == "qb_set_global_speed",
-            lambda call: call.tool_name == "qb_set_torrent_speed",
+            # qb_control_torrent: only gate delete; pause/resume/recheck are free
+            lambda call: call.tool_name == "qb_control_torrent"
+            and str((call.params or {}).get("action") or "") == "delete",
             lambda call: call.tool_name == "monitor_download",
             lambda call: call.tool_name == "task_cancel",
             lambda call: call.tool_name == "update_download_monitor",
