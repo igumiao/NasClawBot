@@ -18,6 +18,17 @@ from hello_agents.tools.mcp.client import McpConnectionError, McpPool, McpToolIn
 logger = logging.getLogger(__name__)
 
 
+def _summarize_params(params: dict) -> str:
+    """Return a compact parameter summary, truncating large values."""
+    parts: list[str] = []
+    for k, v in params.items():
+        s = str(v)
+        if len(s) > 120:
+            s = s[:117] + "..."
+        parts.append(f"{k}={s}")
+    return " ".join(parts) if parts else "(no args)"
+
+
 class McpBridgeTool(Tool):
     """把单个 MCP 工具包装成 HelloAgents Tool。
 
@@ -54,6 +65,8 @@ class McpBridgeTool(Tool):
 
     async def arun(self, parameters: dict) -> ToolResponse:
         """异步原生路径 — FastAPI 上下文走这条。"""
+        logger.info("MCP call: %s/%s %s", self._server, self._tool_info.name,
+                     _summarize_params(parameters))
         try:
             result = await self._pool.call_tool(
                 self._server, self._tool_info.name, parameters
@@ -77,6 +90,8 @@ class McpBridgeTool(Tool):
         FastAPI 在线程池中运行同步路由，MCP transport streams 绑定在主 loop。
         call_tool_sync 使用 run_coroutine_threadsafe 跨越线程边界。
         """
+        logger.info("MCP call: %s/%s %s", self._server, self._tool_info.name,
+                     _summarize_params(parameters))
         try:
             result = self._pool.call_tool_sync(
                 self._server, self._tool_info.name, parameters
