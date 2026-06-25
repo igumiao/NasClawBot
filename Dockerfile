@@ -18,9 +18,8 @@ RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.tuna.tsinghua.edu.cn/
 # Install system deps (Node.js required for MCP filesystem server via npx)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    curl \
-    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONPATH=/app
