@@ -46,8 +46,8 @@ frontend/vite.config.d.ts
 .superpowers
 skills-lock.json
 
-# Probe outputs
-probes/mteam/output_*
+# Internal dev probes (M-Team API testing)
+probes/
 
 # MCP filesystem test workspace
 test-media/
