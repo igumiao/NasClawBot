@@ -33,11 +33,13 @@ class DownloadSubmission:
         qb_adapter: QBittorrentAdapter,
         default_save_path: str | None = None,
         default_tags: list[str] | None = None,
+        paused: bool = True,
     ) -> None:
         self._mteam = mteam_adapter
         self._qb = qb_adapter
         self._default_save_path = (default_save_path or "").strip() or None
         self._default_tags = list(default_tags) if default_tags else ["mteam"]
+        self._paused = paused
 
     # ------------------------------------------------------------------
     # Public API
@@ -134,7 +136,7 @@ class DownloadSubmission:
             "category": request.qb_category or "",
             "rename": rename,
             "tags": tags,
-            "paused": True,
+            "paused": self._paused,
         }
         save_path = self.resolve_save_path(request)
         if save_path:

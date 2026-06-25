@@ -172,8 +172,10 @@ class QBAddTorrentTool(Tool):
             if result.status == "accepted":
                 receipt = result.submission_receipt or {}
                 title = str(receipt.get("resource_title") or torrent_id)
+                is_paused = receipt.get("status") == "submitted_paused"
+                state_label = " (paused)" if is_paused else ""
                 return ToolResponse.success(
-                    text=f"Download submitted (paused): {title}",
+                    text=f"Download submitted{state_label}: {title}",
                     data={
                         "receipt": receipt,
                         "watch_task_id": result.watch_task_id,
@@ -241,12 +243,12 @@ class QBAddTorrentTool(Tool):
 
         if succeeded == len(requests):
             return ToolResponse.success(
-                text=f"Batch download submitted (paused): {succeeded}/{len(requests)} items.",
+                text=f"Batch download submitted: {succeeded}/{len(requests)} items.",
                 data=data,
             )
         if succeeded > 0:
             return ToolResponse.partial(
-                text=f"Batch download partially submitted (paused): {succeeded}/{len(requests)} items.",
+                text=f"Batch download partially submitted: {succeeded}/{len(requests)} items.",
                 data=data,
             )
         return ToolResponse.error(

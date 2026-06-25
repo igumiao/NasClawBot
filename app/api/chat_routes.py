@@ -147,6 +147,7 @@ def _build_download_automation_factory(
             mteam, qb,
             default_save_path=settings.download_default_save_path,
             default_tags=default_tags,
+            paused=settings.qb_add_paused,
         )
         # Ensure the task schema exists before the store is used.
         task_db_path = _get_task_db_path()

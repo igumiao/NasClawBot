@@ -249,7 +249,7 @@ class DownloadAutomation:
             return self._replayed_submission_result(receipt_id, request, task)
 
         submission = self._submission.submit(request, correlation_tag=task.task_id)
-        if submission.get("status") != "submitted_paused":
+        if submission.get("status") not in ("submitted", "submitted_paused"):
             error_msg = str(submission.get("error") or "Unknown submission error")
             error_code = str(submission.get("error_code") or "SUBMISSION_FAILED")
             self._scheduler.fail_initialization(
@@ -341,7 +341,7 @@ class DownloadAutomation:
         *,
         watch_task_id: str | None,
     ) -> DownloadSubmissionResult:
-        if submission.get("status") == "submitted_paused":
+        if submission.get("status") in ("submitted", "submitted_paused"):
             return DownloadSubmissionResult(
                 receipt_id=receipt_id,
                 torrent_id=request.torrent_id,

@@ -1293,7 +1293,8 @@ class NasClawAgentRunner:
         if receipt:
             title = receipt.get("resource_title") or torrent_id
             status = receipt.get("status") or "submitted_paused"
-            return f"下载请求已提交到 qBittorrent（暂停状态）：{title}。torrent_id={torrent_id}, category={category}, status={status}。"
+            state = "暂停状态" if status == "submitted_paused" else "下载中"
+            return f"下载请求已提交到 qBittorrent（{state}）：{title}。torrent_id={torrent_id}, category={category}, status={status}。"
         return f"下载请求已提交到 qBittorrent（暂停状态）。torrent_id={torrent_id}, category={category}。"
 
     def _summarize_approval_success(
