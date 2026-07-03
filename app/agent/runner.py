@@ -428,7 +428,7 @@ class NasClawAgentRunner:
     @_serialize_session
     def run(self, session_id: str, message: str) -> AgentRunResult:
         current_agent_session_id.set(session_id)
-        _req_t0 = _time.monotonic()
+        # _req_t0 = _time.monotonic()  # request_end temporarily hidden
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint:
             checkpoint = self._expire_pending_approvals(checkpoint)
@@ -515,17 +515,17 @@ class NasClawAgentRunner:
             pending_approvals, default_save_path=self.settings.download_default_save_path,
         )
 
-        # ── 记录完整 HTTP handler 耗时到 trace ──
-        if agent.trace_logger:
-            _req_elapsed = _time.monotonic() - _req_t0
-            agent.trace_logger.log_event(
-                "request_end",
-                {
-                    "latency_ms": int(_req_elapsed * 1000),
-                    "latency_s": round(_req_elapsed, 3),
-                    "status": agent.last_result.status if agent.last_result else "success",
-                },
-            )
+        # # ── request_end temporarily hidden ──
+        # if agent.trace_logger:
+        #     _req_elapsed = _time.monotonic() - _req_t0
+        #     agent.trace_logger.log_event(
+        #         "request_end",
+        #         {
+        #             "latency_ms": int(_req_elapsed * 1000),
+        #             "latency_s": round(_req_elapsed, 3),
+        #             "status": agent.last_result.status if agent.last_result else "success",
+        #         },
+        #     )
 
         return AgentRunResult(
             session_id=session_id,
@@ -721,7 +721,7 @@ class NasClawAgentRunner:
         decision: str = "approve_once",
     ) -> AgentApprovalResult:
         current_agent_session_id.set(session_id)
-        _req_t0 = _time.monotonic()
+        # _req_t0 = _time.monotonic()  # request_end temporarily hidden
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint is None:
             raise KeyError("Agent session not found")
@@ -820,16 +820,16 @@ class NasClawAgentRunner:
         )
         self.checkpoint_store.save(saved_checkpoint)
 
-        # ── 记录完整 HTTP handler 耗时到 trace ──
-        _req_elapsed = _time.monotonic() - _req_t0
-        agent.trace_logger.log_event(
-            "request_end",
-            {
-                "latency_ms": int(_req_elapsed * 1000),
-                "latency_s": round(_req_elapsed, 3),
-                "status": status,
-            },
-        )
+        # # ── request_end temporarily hidden ──
+        # _req_elapsed = _time.monotonic() - _req_t0
+        # agent.trace_logger.log_event(
+        #     "request_end",
+        #     {
+        #         "latency_ms": int(_req_elapsed * 1000),
+        #         "latency_s": round(_req_elapsed, 3),
+        #         "status": status,
+        #     },
+        # )
 
         return AgentApprovalResult(
             session_id=session_id,
@@ -851,7 +851,7 @@ class NasClawAgentRunner:
     @_serialize_session
     def deny(self, session_id: str, approval_id: str) -> AgentApprovalResult:
         current_agent_session_id.set(session_id)
-        _req_t0 = _time.monotonic()
+        # _req_t0 = _time.monotonic()  # request_end temporarily hidden
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint is None:
             raise KeyError("Agent session not found")
@@ -924,16 +924,16 @@ class NasClawAgentRunner:
         )
         self.checkpoint_store.save(saved_checkpoint)
 
-        # ── 记录完整 HTTP handler 耗时到 trace ──
-        _req_elapsed = _time.monotonic() - _req_t0
-        agent.trace_logger.log_event(
-            "request_end",
-            {
-                "latency_ms": int(_req_elapsed * 1000),
-                "latency_s": round(_req_elapsed, 3),
-                "status": "denied",
-            },
-        )
+        # # ── request_end temporarily hidden ──
+        # _req_elapsed = _time.monotonic() - _req_t0
+        # agent.trace_logger.log_event(
+        #     "request_end",
+        #     {
+        #         "latency_ms": int(_req_elapsed * 1000),
+        #         "latency_s": round(_req_elapsed, 3),
+        #         "status": "denied",
+        #     },
+        # )
 
         return AgentApprovalResult(
             session_id=session_id,
