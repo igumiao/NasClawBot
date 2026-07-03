@@ -45,6 +45,7 @@ class Config(BaseModel):
     trace_dir: str = "memory/traces"  # Trace 文件保存目录
     trace_sanitize: bool = True  # 是否脱敏敏感信息
     trace_html_include_raw_response: bool = False  # HTML 是否包含原始响应
+    trace_include_messages: bool = False  # 是否在 Trace 中记录 LLM 输入消息（通常较大）
 
     # Skills 知识外化配置
     skills_enabled: bool = True  # 是否启用 Skills 系统

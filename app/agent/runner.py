@@ -45,13 +45,15 @@ def _reset_module_qb_adapter() -> None:
 def _get_or_create_trace_logger(
     session_id: str,
     output_dir: str = "memory/traces",
+    trace_include_messages: bool = False,
 ) -> TraceLogger:
-    key = (session_id, output_dir)
+    key = (session_id, output_dir, trace_include_messages)
     with _trace_loggers_lock:
         if key not in _trace_loggers:
             _trace_loggers[key] = TraceLogger(
                 output_dir=output_dir,
                 session_id=session_id,
+                trace_include_messages=trace_include_messages,
             )
         return _trace_loggers[key]
 
@@ -344,7 +346,7 @@ class NasClawAgentRunner:
         self.mteam_adapter_factory = mteam_adapter_factory or MTeamAdapter
         self.qb_adapter_factory = qb_adapter_factory or QBittorrentAdapter
         self.max_steps = max_steps
-        self.agent_config_overrides = agent_config_overrides or {}
+        self.agent_config_overrides = agent_config_overrides or {"trace_include_messages": True}
         self.tool_filter = tool_filter or Filter(allow=[
             "current_time",
             "memory_search",
@@ -464,7 +466,14 @@ class NasClawAgentRunner:
                 )
 
         agent = self._build_agent(extra_system_text=extra_system_text)
-        agent.trace_logger = _get_or_create_trace_logger(session_id, output_dir=str(self.trace_root))
+        trace_include_messages = bool(
+            self.agent_config_overrides.get("trace_include_messages", False)
+        )
+        agent.trace_logger = _get_or_create_trace_logger(
+            session_id,
+            output_dir=str(self.trace_root),
+            trace_include_messages=trace_include_messages,
+        )
         if checkpoint:
             self._restore_history(agent, checkpoint)
         self._install_authorization_hook(agent, checkpoint)
@@ -780,7 +789,14 @@ class NasClawAgentRunner:
             error = None
 
         agent = self._build_agent()
-        agent.trace_logger = _get_or_create_trace_logger(session_id, output_dir=str(self.trace_root))
+        trace_include_messages = bool(
+            self.agent_config_overrides.get("trace_include_messages", False)
+        )
+        agent.trace_logger = _get_or_create_trace_logger(
+            session_id,
+            output_dir=str(self.trace_root),
+            trace_include_messages=trace_include_messages,
+        )
 
         # ── 记录审批等待时间到 trace（不计入系统性能） ──
         approval_wait_ms = compute_approval_wait_ms(approval)
@@ -884,7 +900,14 @@ class NasClawAgentRunner:
             context={"tool_name": approval.tool_name},
         )
         agent = self._build_agent()
-        agent.trace_logger = _get_or_create_trace_logger(session_id, output_dir=str(self.trace_root))
+        trace_include_messages = bool(
+            self.agent_config_overrides.get("trace_include_messages", False)
+        )
+        agent.trace_logger = _get_or_create_trace_logger(
+            session_id,
+            output_dir=str(self.trace_root),
+            trace_include_messages=trace_include_messages,
+        )
 
         # ── 记录审批等待时间到 trace（不计入系统性能） ──
         approval_wait_ms = compute_approval_wait_ms(approval)

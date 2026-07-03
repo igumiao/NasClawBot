@@ -29,11 +29,14 @@ class TraceLogger:
         logger.finalize()  # 生成最终 HTML
     """
     
+    _HTML_MSG_MAX_CHARS: int = 2000  # HTML 中每条提示消息的最大展示字符数
+
     def __init__(
         self,
         output_dir: str = "memory/traces",
         sanitize: bool = True,
         html_include_raw_response: bool = False,
+        trace_include_messages: bool = False,
         session_id: Optional[str] = None,
     ):
         """Initialize TraceLogger
@@ -42,11 +45,16 @@ class TraceLogger:
             output_dir: 输出目录
             sanitize: 是否脱敏敏感信息
             html_include_raw_response: HTML 是否包含原始响应
+            trace_include_messages: 是否在 model_output 事件中记录 LLM 输入消息
             session_id: 指定会话ID（用于多轮对话聚合）。不传则自动生成。
         """
         self.output_dir = Path(output_dir)
         self.sanitize = sanitize
         self.html_include_raw = html_include_raw_response
+        self.trace_include_messages = trace_include_messages
+
+        # 最新一次 LLM 调用的输入消息（用于 live prompt 面板）
+        self._latest_input_messages: list[dict[str, Any]] | None = None
 
         # 使用传入的 session_id，否则自动生成
         self.session_id = session_id or self._generate_session_id()
@@ -115,10 +123,20 @@ class TraceLogger:
         self.jsonl_file.write(json.dumps(event_obj, ensure_ascii=False) + "\n")
         self.jsonl_file.flush()
         
+        # 检测最新 prompt 消息（用于 live 面板）
+        if (
+            self.trace_include_messages
+            and event == "model_output"
+            and isinstance(payload.get("input_messages"), list)
+        ):
+            self._latest_input_messages = payload["input_messages"]
+
         # 增量写入 HTML 事件片段
         self._write_html_event(event_obj)
         # 增量更新 live stats 面板
         self._write_live_stats()
+        # 增量更新 live prompt 面板
+        self._write_live_prompt()
 
     def _write_live_stats(self):
         """增量写入 live stats 面板（每次事件后用 script 更新页面顶部面板）"""
@@ -129,6 +147,96 @@ class TraceLogger:
         script = f'\n<script>var p=document.getElementById("live-stats-panel");if(p){{p.innerHTML={js_str};}}</script>\n'
         self.html_file.write(script)
         self.html_file.flush()
+
+    def _write_live_prompt(self):
+        """增量写入 live prompt 面板（当有新的 LLM 输入消息时更新）"""
+        if not self.trace_include_messages:
+            return
+        panel_html = self._build_prompt_panel_html()
+        js_str = json.dumps(panel_html)
+        script = (
+            '\n<script>'
+            'var pp=document.getElementById("live-prompt-panel");'
+            f'if(pp){{pp.innerHTML={js_str};}}'
+            '</script>\n'
+        )
+        self.html_file.write(script)
+        self.html_file.flush()
+
+    def _build_prompt_panel_html(self) -> str:
+        """构建 live prompt 面板 HTML。
+
+        始终返回完整面板 — 即使没有数据也显示占位信息。
+        """
+        import html as _html_mod
+
+        messages = self._latest_input_messages
+        if not messages:
+            return """<div class="prompt-panel">
+            <h2>💬 最新 LLM 输入 (Prompt)</h2>
+            <p style="color:#888">尚无数据 — 等待首次 LLM 调用…</p>
+            </div>"""
+
+        msg_count = len(messages)
+        # 统计各 role 数量
+        role_counts: dict[str, int] = {}
+        for msg in messages:
+            role = str(msg.get("role") or "unknown")
+            role_counts[role] = role_counts.get(role, 0) + 1
+        role_summary = " / ".join(
+            f"{role}: {cnt}" for role, cnt in sorted(role_counts.items())
+        )
+
+        cards: list[str] = []
+        for msg in messages:
+            role = str(msg.get("role") or "unknown")
+            content = msg.get("content") or ""
+            if content is None:
+                content = ""
+            content = str(content)
+
+            truncated = False
+            display_content = content
+            if len(display_content) > self._HTML_MSG_MAX_CHARS:
+                display_content = content[:self._HTML_MSG_MAX_CHARS] + "..."
+                truncated = True
+
+            card_parts: list[str] = [
+                f'<div class="message-card message-role-{role}">',
+                f'<span class="msg-role-badge {role}">{_html_mod.escape(role)}</span>',
+                f'<pre class="msg-content">{_html_mod.escape(display_content)}</pre>',
+            ]
+            if truncated:
+                card_parts.append(
+                    '<div class="msg-truncated-note">'
+                    '[Truncated — full content in JSONL]</div>',
+                )
+            if role == "tool" and msg.get("tool_call_id"):
+                card_parts.append(
+                    f'<div class="msg-metadata">'
+                    f'tool_call_id: {_html_mod.escape(str(msg["tool_call_id"]))}</div>',
+                )
+            if role == "assistant":
+                tcs = msg.get("tool_calls")
+                if isinstance(tcs, list) and tcs:
+                    names = ", ".join(
+                        str(tc.get("function", {}).get("name", "?"))
+                        for tc in tcs
+                    )
+                    card_parts.append(
+                        f'<div class="msg-metadata">'
+                        f'tool_calls: {len(tcs)} ({_html_mod.escape(names)})</div>',
+                    )
+            card_parts.append("</div>")
+            cards.append("\n".join(card_parts))
+
+        return f"""<div class="prompt-panel">
+        <h2>💬 最新 LLM 输入 (Prompt)</h2>
+        <p style="color:#888">消息总数: {msg_count} ({role_summary})</p>
+        <div style="max-height:60vh;overflow-y:auto">
+        {''.join(cards)}
+        </div>
+        </div>"""
 
     def _sanitize_event(self, event: Dict) -> Dict:
         """脱敏敏感信息
@@ -342,7 +450,7 @@ class TraceLogger:
             margin: 0 0 10px 0;
             color: #4af626;
         }}
-        .stats-panel {{
+        .stats-panel, .prompt-panel {{
             background: #2a2a2a;
             padding: 20px;
             border-radius: 8px;
@@ -459,6 +567,53 @@ class TraceLogger:
         .model-output {{
             border-left: 3px solid #00bfff;
         }}
+        /* === Prompt message cards === */
+        .messages-section {{
+            margin-top: 10px;
+        }}
+        .message-card {{
+            margin: 8px 0;
+            padding: 10px;
+            border-radius: 5px;
+            border-left: 3px solid #555;
+            background: #0d0d0d;
+        }}
+        .message-role-system {{ border-left-color: #888; }}
+        .message-role-user {{ border-left-color: #4a9eff; }}
+        .message-role-assistant {{ border-left-color: #4af626; }}
+        .message-role-tool {{ border-left-color: #ffd700; }}
+        .msg-role-badge {{
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }}
+        .msg-role-badge.system {{ background: #444; color: #ccc; }}
+        .msg-role-badge.user {{ background: #1a3a6e; color: #4a9eff; }}
+        .msg-role-badge.assistant {{ background: #1a3a1a; color: #4af626; }}
+        .msg-role-badge.tool {{ background: #3a3a1a; color: #ffd700; }}
+        .msg-content {{
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 13px;
+            line-height: 1.4;
+        }}
+        .msg-truncated-note {{
+            color: #888;
+            font-style: italic;
+            font-size: 11px;
+            margin-top: 4px;
+        }}
+        .msg-metadata {{
+            color: #888;
+            font-size: 11px;
+            margin-top: 4px;
+        }}
     </style>
     <script>
         function toggleDetails(id) {{
@@ -479,6 +634,7 @@ class TraceLogger:
 
     <div id="live-stats-panel"></div>
 
+    <div id="live-prompt-panel"></div>
     <div class="events-container">
         <h2>📋 事件列表</h2>
 """
@@ -506,8 +662,15 @@ class TraceLogger:
         # 生成唯一 ID
         details_id = f"details-{len(self._events)}"
 
-        # 格式化 payload
-        payload_json = json.dumps(payload, indent=2, ensure_ascii=False)
+        # 从 JSON details 中移除 input_messages（当特性开启时在独立面板中展示）
+        if self.trace_include_messages and "input_messages" in payload:
+            display_payload = {
+                k: v for k, v in payload.items()
+                if k != "input_messages"
+            }
+        else:
+            display_payload = dict(payload)
+        payload_json = json.dumps(display_payload, indent=2, ensure_ascii=False)
 
         # 生成事件 HTML
         event_html = f"""
@@ -516,7 +679,7 @@ class TraceLogger:
                 <span class="step">Step {step if step else '-'}</span>
                 <span class="timestamp">{timestamp}</span>
                 <span class="event-type">{event_type}</span>
-                <span class="expandable" onclick="toggleDetails('{details_id}')">[▼ 详情]</span>
+                <span class="expandable" onclick="toggleDetails('{details_id}')">[Details]</span>
             </div>
             <div id="{details_id}" class="details">
                 <pre>{payload_json}</pre>
@@ -666,11 +829,14 @@ class TraceLogger:
         </div>"""
 
     def _write_html_footer(self, stats: Dict[str, Any]):
-        """写入 HTML 尾部（统计面板 + 关闭标签）"""
+        """写入 HTML 尾部（统计面板 + prompt 面板 + 关闭标签）"""
+        prompt_html = self._build_prompt_panel_html()
         footer = f"""
     </div>
 
 {self._build_stats_html(stats)}
+
+{prompt_html}
 
 </body>
 </html>

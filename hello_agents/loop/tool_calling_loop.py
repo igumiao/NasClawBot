@@ -120,7 +120,7 @@ class ToolCallingLoop:
                 tool_choice="auto",
                 **kwargs,
             )
-            self._log_model_output(step, response)
+            self._log_model_output(step, response, messages=messages)
 
             tool_calls = response.tool_calls or []
             if not tool_calls:
@@ -353,7 +353,7 @@ class ToolCallingLoop:
                 tool_choice="auto",
                 **kwargs,
             )
-            self._log_model_output(step, response)
+            self._log_model_output(step, response, messages=messages)
 
             tool_calls = response.tool_calls or []
             if not tool_calls:
@@ -812,7 +812,7 @@ class ToolCallingLoop:
                 print(f"达到最大步数后的最终总结失败: {exc}")
             return self.max_steps_message
 
-        self._log_model_output(self.max_steps + 1, response)
+        self._log_model_output(self.max_steps + 1, response, messages=final_messages)
         if response.tool_calls:
             return self.max_steps_message
         return response.content or self.max_steps_message
@@ -835,12 +835,17 @@ class ToolCallingLoop:
                 print(f"审批恢复后的最终总结失败: {exc}")
             return "审批结果已记录，但生成最终回复失败。"
 
-        self._log_model_output(0, response)
+        self._log_model_output(0, response, messages=messages)
         if response.tool_calls:
             return "审批结果已记录。"
         return response.content or "审批结果已记录。"
 
-    def _log_model_output(self, step: int, response: Any) -> None:
+    def _log_model_output(
+        self,
+        step: int,
+        response: Any,
+        messages: list[dict[str, Any]] | None = None,
+    ) -> None:
         usage = response.usage or {}
 
         # 记录上次模型请求的输入上下文用量，供前端指示器使用。
@@ -882,14 +887,22 @@ class ToolCallingLoop:
         if not self.agent.trace_logger:
             return
 
+        model_output_payload: dict[str, Any] = {
+            "content": response.content or "",
+            "tool_calls": len(response.tool_calls or []),
+            "usage": dict(usage),
+            "latency_ms": int(getattr(response, "latency_ms", 0) or 0),
+        }
+
+        # Conditionally include input messages (prompt) when feature is enabled
+        if messages is not None and getattr(
+            self.agent.config, "trace_include_messages", False
+        ):
+            model_output_payload["input_messages"] = messages
+
         self.agent.trace_logger.log_event(
             "model_output",
-            {
-                "content": response.content or "",
-                "tool_calls": len(response.tool_calls or []),
-                "usage": dict(usage),
-                "latency_ms": int(getattr(response, "latency_ms", 0) or 0),
-            },
+            model_output_payload,
             step=step,
         )
 

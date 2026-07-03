@@ -74,7 +74,8 @@ class Agent(ABC):
             self.trace_logger = TraceLogger(
                 output_dir=self.config.trace_dir,
                 sanitize=self.config.trace_sanitize,
-                html_include_raw_response=self.config.trace_html_include_raw_response
+                html_include_raw_response=self.config.trace_html_include_raw_response,
+                trace_include_messages=self.config.trace_include_messages,
             )
             # 记录会话开始
             self.trace_logger.log_event(
