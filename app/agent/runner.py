@@ -428,6 +428,7 @@ class NasClawAgentRunner:
     @_serialize_session
     def run(self, session_id: str, message: str) -> AgentRunResult:
         current_agent_session_id.set(session_id)
+        _req_t0 = _time.monotonic()
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint:
             checkpoint = self._expire_pending_approvals(checkpoint)
@@ -476,19 +477,19 @@ class NasClawAgentRunner:
             session_id, _elapsed,
         )
 
-        # ── 记录轮次端到端延迟到 trace ──
+        # ── 记录 Loop 连续执行段耗时到 trace ──
         if agent.trace_logger:
-            turn_status = (
+            loop_status = (
                 agent.last_result.status
                 if agent.last_result and getattr(agent.last_result, "status", None)
                 else "success"
             )
             agent.trace_logger.log_event(
-                "turn_end",
+                "loop_end",
                 {
                     "latency_ms": int(_elapsed * 1000),
                     "latency_s": round(_elapsed, 3),
-                    "status": turn_status,
+                    "status": loop_status,
                 },
             )
 
@@ -513,6 +514,18 @@ class NasClawAgentRunner:
         display_approvals = self._enrich_approvals_for_display(
             pending_approvals, default_save_path=self.settings.download_default_save_path,
         )
+
+        # ── 记录完整 HTTP handler 耗时到 trace ──
+        if agent.trace_logger:
+            _req_elapsed = _time.monotonic() - _req_t0
+            agent.trace_logger.log_event(
+                "request_end",
+                {
+                    "latency_ms": int(_req_elapsed * 1000),
+                    "latency_s": round(_req_elapsed, 3),
+                    "status": agent.last_result.status if agent.last_result else "success",
+                },
+            )
 
         return AgentRunResult(
             session_id=session_id,
@@ -708,6 +721,7 @@ class NasClawAgentRunner:
         decision: str = "approve_once",
     ) -> AgentApprovalResult:
         current_agent_session_id.set(session_id)
+        _req_t0 = _time.monotonic()
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint is None:
             raise KeyError("Agent session not found")
@@ -768,23 +782,36 @@ class NasClawAgentRunner:
         agent = self._build_agent()
         agent.trace_logger = _get_or_create_trace_logger(session_id, output_dir=str(self.trace_root))
 
-        # ── 记录审批等待时间到 trace（不算入系统性能） ──
+        # ── 记录审批等待时间到 trace（不计入系统性能） ──
         approval_wait_ms = compute_approval_wait_ms(approval)
         agent.trace_logger.log_event(
-            "approval_resolved",
+            "approval_wait",
             {
                 "approval_id": approval.approval_id,
                 "tool_name": approval.tool_name,
                 "tool_call_id": approval.tool_call_id,
-                "status": status,
-                "decision": decision,
                 "wait_ms": approval_wait_ms,
                 "wait_s": round(approval_wait_ms / 1000, 3),
+                "decision": decision,
             },
         )
 
         self._restore_history(agent, checkpoint)
+
+        _loop_t0 = _time.monotonic()
         message = agent.resume_tool_call(paused_loop, response)
+        _loop_elapsed = _time.monotonic() - _loop_t0
+
+        # ── 记录 Loop 连续执行段耗时到 trace ──
+        agent.trace_logger.log_event(
+            "loop_end",
+            {
+                "latency_ms": int(_loop_elapsed * 1000),
+                "latency_s": round(_loop_elapsed, 3),
+                "status": "success" if status == ApprovalStatus.APPROVED.value else "tool_error",
+            },
+        )
+
         saved_checkpoint = self._checkpoint_from_resumed_agent(
             checkpoint=checkpoint,
             agent=agent,
@@ -792,6 +819,18 @@ class NasClawAgentRunner:
             last_status="success" if status == ApprovalStatus.APPROVED.value else "tool_error",
         )
         self.checkpoint_store.save(saved_checkpoint)
+
+        # ── 记录完整 HTTP handler 耗时到 trace ──
+        _req_elapsed = _time.monotonic() - _req_t0
+        agent.trace_logger.log_event(
+            "request_end",
+            {
+                "latency_ms": int(_req_elapsed * 1000),
+                "latency_s": round(_req_elapsed, 3),
+                "status": status,
+            },
+        )
+
         return AgentApprovalResult(
             session_id=session_id,
             approval_id=approval_id,
@@ -812,6 +851,7 @@ class NasClawAgentRunner:
     @_serialize_session
     def deny(self, session_id: str, approval_id: str) -> AgentApprovalResult:
         current_agent_session_id.set(session_id)
+        _req_t0 = _time.monotonic()
         checkpoint = self.checkpoint_store.load(session_id)
         if checkpoint is None:
             raise KeyError("Agent session not found")
@@ -846,23 +886,36 @@ class NasClawAgentRunner:
         agent = self._build_agent()
         agent.trace_logger = _get_or_create_trace_logger(session_id, output_dir=str(self.trace_root))
 
-        # ── 记录审批等待时间到 trace（不算入系统性能） ──
+        # ── 记录审批等待时间到 trace（不计入系统性能） ──
         approval_wait_ms = compute_approval_wait_ms(approval)
         agent.trace_logger.log_event(
-            "approval_resolved",
+            "approval_wait",
             {
                 "approval_id": approval.approval_id,
                 "tool_name": approval.tool_name,
                 "tool_call_id": approval.tool_call_id,
-                "status": "denied",
-                "decision": "deny",
                 "wait_ms": approval_wait_ms,
                 "wait_s": round(approval_wait_ms / 1000, 3),
+                "decision": "deny",
             },
         )
 
         self._restore_history(agent, checkpoint)
+
+        _loop_t0 = _time.monotonic()
         message = agent.resume_tool_call(paused_loop, denial_response)
+        _loop_elapsed = _time.monotonic() - _loop_t0
+
+        # ── 记录 Loop 连续执行段耗时到 trace ──
+        agent.trace_logger.log_event(
+            "loop_end",
+            {
+                "latency_ms": int(_loop_elapsed * 1000),
+                "latency_s": round(_loop_elapsed, 3),
+                "status": "approval_denied",
+            },
+        )
+
         saved_checkpoint = self._checkpoint_from_resumed_agent(
             checkpoint=checkpoint,
             agent=agent,
@@ -870,6 +923,18 @@ class NasClawAgentRunner:
             last_status="approval_denied",
         )
         self.checkpoint_store.save(saved_checkpoint)
+
+        # ── 记录完整 HTTP handler 耗时到 trace ──
+        _req_elapsed = _time.monotonic() - _req_t0
+        agent.trace_logger.log_event(
+            "request_end",
+            {
+                "latency_ms": int(_req_elapsed * 1000),
+                "latency_s": round(_req_elapsed, 3),
+                "status": "denied",
+            },
+        )
+
         return AgentApprovalResult(
             session_id=session_id,
             approval_id=approval_id,

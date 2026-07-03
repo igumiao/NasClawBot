@@ -223,12 +223,15 @@ class TraceLogger:
             "last_llm_latency_ms": 0,
             "total_tool_latency_ms": 0,
             "last_tool_latency_ms": 0,
-            "total_turn_latency_ms": 0,
-            "last_turn_latency_ms": 0,
-            "turn_count": 0,
+            "total_loop_latency_ms": 0,
+            "last_loop_latency_ms": 0,
+            "loop_count": 0,
             "total_approval_wait_ms": 0,
             "last_approval_wait_ms": 0,
-            "avg_turn_latency_ms": 0.0,
+            "avg_loop_latency_ms": 0.0,
+            "total_request_latency_ms": 0,
+            "last_request_latency_ms": 0,
+            "request_count": 0,
         }
 
         session_start = None
@@ -276,18 +279,25 @@ class TraceLogger:
                 stats["total_tool_latency_ms"] += tool_lat
                 stats["last_tool_latency_ms"] = tool_lat
 
-            # 轮次端到端延迟聚合
-            if event["event"] == "turn_end":
-                turn_lat = event["payload"].get("latency_ms", 0) or 0
-                stats["total_turn_latency_ms"] += turn_lat
-                stats["last_turn_latency_ms"] = turn_lat
-                stats["turn_count"] += 1
+            # Loop 连续执行段延迟聚合
+            if event["event"] == "loop_end":
+                loop_lat = event["payload"].get("latency_ms", 0) or 0
+                stats["total_loop_latency_ms"] += loop_lat
+                stats["last_loop_latency_ms"] = loop_lat
+                stats["loop_count"] += 1
 
             # 审批等待时间聚合
-            if event["event"] == "approval_resolved":
+            if event["event"] == "approval_wait":
                 wait_ms = event["payload"].get("wait_ms", 0) or 0
                 stats["total_approval_wait_ms"] += wait_ms
                 stats["last_approval_wait_ms"] = wait_ms
+
+            # 完整 HTTP handler 延迟聚合
+            if event["event"] == "request_end":
+                req_lat = event["payload"].get("latency_ms", 0) or 0
+                stats["total_request_latency_ms"] += req_lat
+                stats["last_request_latency_ms"] = req_lat
+                stats["request_count"] += 1
 
             # 错误统计
             if event["event"] == "error":
@@ -301,9 +311,9 @@ class TraceLogger:
         if session_start and session_end:
             stats["duration_seconds"] = (session_end - session_start).total_seconds()
 
-        # 计算平均轮次延迟
-        if stats["turn_count"] > 0:
-            stats["avg_turn_latency_ms"] = stats["total_turn_latency_ms"] / stats["turn_count"]
+        # 计算平均 Loop 延迟
+        if stats["loop_count"] > 0:
+            stats["avg_loop_latency_ms"] = stats["total_loop_latency_ms"] / stats["loop_count"]
 
         return stats
 
@@ -573,29 +583,40 @@ class TraceLogger:
         latency_items = []
         if stats["total_llm_latency_ms"] > 0:
             latency_items.append(f"""<div class="stat-item">
-                <span class="stat-label">LLM 总延迟</span>
+                <span class="stat-label">LLM 总耗时</span>
                 <span class="stat-value">{stats["total_llm_latency_ms"] / 1000:.1f}s</span>
             </div>""")
         if stats["total_tool_latency_ms"] > 0:
             latency_items.append(f"""<div class="stat-item">
-                <span class="stat-label">工具执行总时间</span>
+                <span class="stat-label">工具执行总耗时</span>
                 <span class="stat-value">{stats["total_tool_latency_ms"] / 1000:.1f}s</span>
             </div>""")
-        if stats["total_turn_latency_ms"] > 0:
+        if stats["total_loop_latency_ms"] > 0:
             latency_items.append(f"""<div class="stat-item">
-                <span class="stat-label">轮次总时间</span>
-                <span class="stat-value">{stats["total_turn_latency_ms"] / 1000:.1f}s</span>
+                <span class="stat-label">Loop 总耗时</span>
+                <span class="stat-value">{stats["total_loop_latency_ms"] / 1000:.1f}s</span>
             </div>""")
-            if stats["turn_count"] > 1:
+            if stats["loop_count"] > 1:
                 latency_items.append(f"""<div class="stat-item">
-                    <span class="stat-label">平均轮次时间</span>
-                    <span class="stat-value">{stats["avg_turn_latency_ms"] / 1000:.1f}s</span>
+                    <span class="stat-label">平均 Loop 耗时</span>
+                    <span class="stat-value">{stats["avg_loop_latency_ms"] / 1000:.1f}s</span>
                 </div>""")
         if stats["total_approval_wait_ms"] > 0:
             latency_items.append(f"""<div class="stat-item">
                 <span class="stat-label">审批等待总时间</span>
                 <span class="stat-value">{stats["total_approval_wait_ms"] / 1000:.1f}s</span>
             </div>""")
+        if stats["total_request_latency_ms"] > 0:
+            latency_items.append(f"""<div class="stat-item">
+                <span class="stat-label">HTTP Handler 总耗时</span>
+                <span class="stat-value">{stats["total_request_latency_ms"] / 1000:.1f}s</span>
+            </div>""")
+            if stats["request_count"] > 1:
+                avg_req = stats["total_request_latency_ms"] / stats["request_count"]
+                latency_items.append(f"""<div class="stat-item">
+                    <span class="stat-label">平均 Handler 耗时</span>
+                    <span class="stat-value">{avg_req / 1000:.1f}s</span>
+                </div>""")
         latency_html = ""
         if latency_items:
             latency_html = f"""
