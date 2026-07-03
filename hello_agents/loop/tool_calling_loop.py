@@ -888,6 +888,7 @@ class ToolCallingLoop:
                 "content": response.content or "",
                 "tool_calls": len(response.tool_calls or []),
                 "usage": dict(usage),
+                "latency_ms": int(getattr(response, "latency_ms", 0) or 0),
             },
             step=step,
         )
@@ -899,6 +900,8 @@ class ToolCallingLoop:
     ) -> None:
         if not self.agent.trace_logger:
             return
+
+        tool_latency_ms = (observation.response.stats or {}).get("time_ms", 0)
 
         self.agent.trace_logger.log_event(
             "tool_call",
@@ -925,6 +928,7 @@ class ToolCallingLoop:
                 "gate_result": observation.gate_result,
                 "gate_reason": observation.gate_reason,
                 "approval_id": observation.approval_id,
+                "latency_ms": tool_latency_ms,
             },
             step=step,
         )

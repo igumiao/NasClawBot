@@ -78,6 +78,7 @@ from app.agent.dependencies import AgentToolDependencies
 from app.agent.approvals import (
     ApprovalRecord,
     ApprovalStatus,
+    compute_approval_wait_ms,
     create_pending_approval,
     mark_approved,
     mark_denied,
@@ -474,6 +475,23 @@ class NasClawAgentRunner:
             "Session %s: agent.run() took %.1fs (LLM call + tool execution)",
             session_id, _elapsed,
         )
+
+        # ── 记录轮次端到端延迟到 trace ──
+        if agent.trace_logger:
+            turn_status = (
+                agent.last_result.status
+                if agent.last_result and getattr(agent.last_result, "status", None)
+                else "success"
+            )
+            agent.trace_logger.log_event(
+                "turn_end",
+                {
+                    "latency_ms": int(_elapsed * 1000),
+                    "latency_s": round(_elapsed, 3),
+                    "status": turn_status,
+                },
+            )
+
         pending_approvals = self._agent_pending_approvals(agent, session_id)
         saved_checkpoint = self._checkpoint_from_agent(
             session_id=session_id,
@@ -749,6 +767,22 @@ class NasClawAgentRunner:
 
         agent = self._build_agent()
         agent.trace_logger = _get_or_create_trace_logger(session_id, output_dir=str(self.trace_root))
+
+        # ── 记录审批等待时间到 trace（不算入系统性能） ──
+        approval_wait_ms = compute_approval_wait_ms(approval)
+        agent.trace_logger.log_event(
+            "approval_resolved",
+            {
+                "approval_id": approval.approval_id,
+                "tool_name": approval.tool_name,
+                "tool_call_id": approval.tool_call_id,
+                "status": status,
+                "decision": decision,
+                "wait_ms": approval_wait_ms,
+                "wait_s": round(approval_wait_ms / 1000, 3),
+            },
+        )
+
         self._restore_history(agent, checkpoint)
         message = agent.resume_tool_call(paused_loop, response)
         saved_checkpoint = self._checkpoint_from_resumed_agent(
@@ -811,6 +845,22 @@ class NasClawAgentRunner:
         )
         agent = self._build_agent()
         agent.trace_logger = _get_or_create_trace_logger(session_id, output_dir=str(self.trace_root))
+
+        # ── 记录审批等待时间到 trace（不算入系统性能） ──
+        approval_wait_ms = compute_approval_wait_ms(approval)
+        agent.trace_logger.log_event(
+            "approval_resolved",
+            {
+                "approval_id": approval.approval_id,
+                "tool_name": approval.tool_name,
+                "tool_call_id": approval.tool_call_id,
+                "status": "denied",
+                "decision": "deny",
+                "wait_ms": approval_wait_ms,
+                "wait_s": round(approval_wait_ms / 1000, 3),
+            },
+        )
+
         self._restore_history(agent, checkpoint)
         message = agent.resume_tool_call(paused_loop, denial_response)
         saved_checkpoint = self._checkpoint_from_resumed_agent(

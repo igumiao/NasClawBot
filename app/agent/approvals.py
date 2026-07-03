@@ -266,3 +266,15 @@ def _parse_datetime(value: str) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=_app_tz())
     return dt
+
+
+def compute_approval_wait_ms(record: ApprovalRecord) -> int:
+    """Compute wall-clock wait time between approval creation and decision.
+
+    Returns milliseconds. If decided_at is not set (unresolved), returns 0.
+    """
+    created = datetime.fromisoformat(record.created_at)
+    if record.decided_at:
+        decided = datetime.fromisoformat(record.decided_at)
+        return int((decided - created).total_seconds() * 1000)
+    return 0
