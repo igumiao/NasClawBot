@@ -1,8 +1,29 @@
+<p align="center">
+  <img src="resources/brand-logo-small.png" alt="NasClawBot" width="160">
+</p>
+
 # NasClawBot
 
-面向单用户、自托管 NAS/PT 场景的自然语言媒体助手，也是一个用于打磨 Agent 工程能力的本地 Harness。
+<p align="center">
+  <strong>自然语言驱动的 NAS/PT 媒体助手 · Agent 工程实践平台</strong>
+</p>
 
-它的目标不是替代人工管理 NAS，而是把“想看什么、怎么找、哪个版本合适、是否提交下载、后续怎么整理”这些分散动作收进一个可恢复、可审批、可观察的 Agent 对话循环里。当前主入口是 `/chat/agent`，旧的 `/chat` 和 `/confirm` 流程已不再作为活跃路径。
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
+  <img src="https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=white" alt="React 19">
+  <img src="https://img.shields.io/badge/fastapi-0.115+-009688?logo=fastapi&logoColor=white" alt="FastAPI">
+</p>
+
+> **声明 Disclaimer**
+>
+> 本项目是一个**个人学习与 Agent 工程实验项目**，主要用于探索 LLM Agent 的工具安全、人在回路审批、后台任务调度等工程问题。
+>
+> - 当前仅适配 **飞牛 OS (Debian)** 部署环境与 **M-Team** 种子站。
+> - **不适配**其他 PT 站点，也不提供任何影视资源或违反当地法律法规的获取方式。
+> - 所有下载功能默认暂停，需要用户明确审批后才能开始。
+> - 本项目不包含任何内置影视内容、种子文件或资源链接。
 
 ## 截图
 
@@ -10,19 +31,21 @@
 
 ![会话管理与下载审批](resources/screenshot-2.png)
 
-## 当前能力
+## 功能特性
 
 - **自然语言媒体搜索**：Agent 会在 Tavily、TMDB、M-Team 之间选择合适工具，先澄清模糊/近期/系列问题，再搜索具体 PT 资源。
 - **结构化候选结果**：M-Team 候选会显示标题、体积、分辨率、做种/下载人数、优惠状态、中文字幕信号等关键判断信息。
 - **人在回路下载审批**：qB 下载、批量下载、限速和控制类动作必须审批；所有下载提交到 qBittorrent 时默认暂停。
-- **会话级下载授权**：符合 Settings 策略的下载审批可以选择“本会话内允许”，后续同会话、同约束内的下载无需重复确认。
+- **会话级下载授权**：符合 Settings 策略的下载审批可以选择"本会话内允许"，后续同会话、同约束内的下载无需重复确认。
 - **Agent 驱动的下载监督**：Agent 可明确创建一次检查或持续监督，并在审批卡中声明完成后通知或整理；任务意图持久化到 SQLite，服务重启后继续执行。
 - **自动下载后整理**：完成动作选择整理时，系统捕获不可扩张的授权快照，下载完成后再由受限 WorkerAgent 加载命名规则并执行整理。
 - **多会话工作区**：支持会话列表、刷新恢复、重命名、删除、新建对话；每个会话都有独立 checkpoint。
 - **长对话上下文管理**：128K 默认上下文窗口，70% 压力触发智能压缩，保留最近 4 轮活跃消息并归档被压缩原文。
-- **上下文与缓存可视化**：聊天输入区展示当前上下文压力，并区分“上次”和“累计”的缓存命中率。
+- **上下文与缓存可视化**：聊天输入区展示当前上下文压力，并区分"上次"和"累计"的缓存命中率。
 - **长期记忆**：Agent 可记录用户偏好与项目知识，记忆进入 inbox 后由 Memory 面板审阅、整理、应用到 markdown 存储。
 - **按需加载 Skills**：项目支持把领域规范写成 `skills/*/SKILL.md`，Agent 先看到技能摘要，需要执行具体任务时再用 `skill_load` 加载完整指导。
+- **Agent Trace 可观测性**：每次 Agent 会话自动生成双格式 trace（JSONL + 自包含 HTML），包含 token 消耗、缓存命中、延迟分解、LLM prompt 面板和完整事件时间线。
+- **行为评估框架**：12 个 YAML 驱动的 behavioral case，Recording Adapter 实现零副作用隔离，7 条确定性评分规则，支持 A/B 对比和 baseline 管理。
 - **Settings 面板**：支持下载授权策略、后台整理授权、TMDB 专用代理和 TMDB 独立连通性测试；Settings 只授予整理权限，不隐式创建任务或决定完成动作。
 - **刷流辅助**：`/mteam/free-topped` 提供置顶免费资源浏览，用于 ratio boosting。
 - **文件系统 MCP**：可选接入 `@modelcontextprotocol/server-filesystem`，让 Agent 在受限目录内辅助媒体文件整理。
@@ -41,7 +64,7 @@
 
 常见工作流：
 
-1. 在聊天里描述想看的作品，例如“最近那部蜘蛛侠动画电影是哪一部，帮我找 1080p 有中文字幕的版本”。
+1. 在聊天里描述想看的作品，例如"最近那部蜘蛛侠动画电影是哪一部，帮我找 1080p 有中文字幕的版本"。
 2. Agent 先用 Tavily/TMDB 澄清作品，再用 M-Team 搜索资源候选。
 3. 你从候选里选择，或让 Agent 按体积、做种、字幕继续筛选。
 4. 下载前弹出审批卡；批准后 qB 任务以暂停状态加入下载器。
@@ -94,6 +117,7 @@ NasClawBot 的核心工程边界在 `hello_agents/` 与 `app/agent/runner.py`：
 | `hello_agents/tools/gate.py` | 执行前 Gate：deny、confirm、allow，支持参数感知规则 |
 | `hello_agents/context/window_manager.py` | 上下文窗口预检、智能压缩、summary 与 archives 管理 |
 | `hello_agents/checkpoints/` | checkpoint 协议与 JSON 文件实现 |
+| `hello_agents/observability/` | TraceLogger：双格式（JSONL + HTML）Agent 会话 trace |
 | `app/agent/approvals.py` | pending/resolved approval 生命周期 |
 | `app/domain/authorization.py` | Settings-backed 下载授权策略与 session grant |
 | `app/agent/runner.py` | 会话生命周期、工具注册、MCP/skill 注入、路由响应整理 |
@@ -108,7 +132,7 @@ NasClawBot 的核心工程边界在 `hello_agents/` 与 `app/agent/runner.py`：
 
 ## 工具集
 
-当前基础工具共 23 个，另有 14 个 filesystem MCP 工具在启用时动态注册。
+当前基础工具共 23 个，另有 13 个 filesystem MCP 工具在启用时动态注册。
 
 | 类型 | 工具 |
 | --- | --- |
@@ -117,7 +141,7 @@ NasClawBot 的核心工程边界在 `hello_agents/` 与 `app/agent/runner.py`：
 | PT/站点信息 | `member_profile` |
 | qB 只读 | `qb_list_torrents`, `qb_get_torrent`, `qb_list_tags` |
 | qB 动作 | `qb_add_torrent`, `qb_control_torrent`, `qb_set_global_speed`, `qb_set_torrent_speed` |
-| 后台任务 | `monitor_download`, `update_download_monitor`, `task_list`, `task_cancel` |
+| 后台任务 | `monitor_download`, `update_download_monitor`, `task_list`, `task_cancel`, `list_task_events` |
 | 技能 | `skill_load` |
 | MCP filesystem | `mcp_filesystem_read_text_file`, `write_file`, `edit_file`, `list_directory`, `move_file`, `search_files`, `get_file_info` 等 |
 
@@ -125,7 +149,7 @@ M-Team Agent-facing contract 保持刻意收窄：`keyword`、`sort_by`、`imdb`
 
 ## Skill 系统
 
-Skill 用来把“领域流程和规范”外化成可维护的 markdown，而不是塞进长期 system prompt 或重新 fine-tuning。NasClawBot 启动时扫描 `skills/` 目录，把每个 skill 的名称和简介注入 Agent prompt；当 Agent 判断某个任务需要详细规则时，再调用 `skill_load` 获取完整 `SKILL.md` 正文。
+Skill 用来把"领域流程和规范"外化成可维护的 markdown，而不是塞进长期 system prompt 或重新 fine-tuning。NasClawBot 启动时扫描 `skills/` 目录，把每个 skill 的名称和简介注入 Agent prompt；当 Agent 判断某个任务需要详细规则时，再调用 `skill_load` 获取完整 `SKILL.md` 正文。
 
 当前机制是三级渐进披露：
 
@@ -194,6 +218,55 @@ description: 影视文件重命名与目录结构规范。
 | `frontend/src/components/memory/MemoryPanel.tsx` | inbox/curation 审阅 UI |
 
 `user_profile.md` 是无标题的时间戳 bullet log；`knowledge.md` 保持分节结构；`MEMORY.md` 是路由索引，默认检索会避开索引正文，除非明确需要。
+
+## Agent Trace 系统
+
+每次 Agent 会话自动生成可观测性 trace，由 `hello_agents/observability/trace_logger.py` 实现。Trace 写入 `memory/traces/` 目录，每次会话产出两个文件：
+
+| 格式 | 文件名 | 用途 |
+| --- | --- | --- |
+| JSONL | `trace-s-YYYYMMDD-HHMMSS-xxxx.jsonl` | 机器分析（`jq`、脚本聚合） |
+| HTML | `trace-s-YYYYMMDD-HHMMSS-xxxx.html` | 自包含可视化页面，深色主题 |
+
+HTML trace 页面包含：
+
+- **Stats 面板**：总 token 消耗、费用估算、缓存命中/未命中、延迟分解（LLM / tool / loop / approval-wait / HTTP handler）。
+- **Prompt 面板**：展示最后一次 LLM 调用的完整输入 messages，带 role 标签和截断提示。
+- **事件时间线**：每次 tool call、tool result、model output、error 的可展开详情。
+- **自动脱敏**：`sk-...` API key、Bearer token、含用户名的文件路径会自动过滤。
+
+TraceLogger 按 session ID 管理生命周期，支持 `request_start`、`request_end`、`tool_call_start`、`tool_call_end`、`error` 等事件类型，延迟数据在事件闭合时自动计算。
+
+## 行为评估系统
+
+`evals/` 目录包含一套面向 `NasClawAgentRunner` 的可重复 Agent 行为评测闭环（V1）。
+
+**核心设计：**
+
+| 维度 | 实现 |
+| --- | --- |
+| 隔离 | 每次 trial 独立 temp 目录 + Settings 快照 + Recording Adapter（零真实副作用） |
+| 场景 | 12 个 YAML case，覆盖只读意图、下载意图、多轮决策、空闲与拒绝 |
+| 步骤 | `user` → `approve`/`deny` → `advance_time` → `assert` 的声明式执行序列 |
+| 评分 | 7 条确定性规则：工具选择、参数匹配、禁止调用、调用次数、顺序约束、副作用计数、语义事实 |
+| 输出 | `summary.json`、`summary.md`、`trials.jsonl`、`manifest.json` |
+
+**CLI 命令：**
+
+```bash
+# 运行全部 12 个 case
+.venv/bin/python -m evals run --suite behavioral-v1 --repetitions 1
+
+# 调试单个 case
+.venv/bin/python -m evals run --suite behavioral-v1 --case multiturn-smallest --repetitions 1
+
+# A/B 对比两个分支
+.venv/bin/python -m evals compare \
+  --baseline eval-results/{run-a}/summary.json \
+  --candidate eval-results/{run-b}/summary.json
+```
+
+评测**仅覆盖**主 Conversation Agent（`NasClawAgentRunner.run / approve / deny`），不包含 OrganizeWorkerAgent、Memory Curator、Adapter 集成正确性或真实文件操作。
 
 ## 技术栈
 
@@ -292,10 +365,11 @@ Settings 面板中的下载授权策略写入 `memory/settings/download-authoriz
 | `POST` | `/chat/agent/sessions/{session_id}/approvals/{approval_id}/approve` | 批准待审批工具调用 |
 | `POST` | `/chat/agent/sessions/{session_id}/approvals/{approval_id}/deny` | 拒绝待审批工具调用 |
 | `POST` | `/download` | 显式提交下载到 qB，默认暂停 |
-| `GET` | `/tasks` | 列出安全的后台任务视图 |
-| `GET` | `/tasks/{task_id}` | 获取后台任务安全详情 |
+| `GET` | `/tasks` | 列出后台任务（安全视图） |
+| `GET` | `/tasks/{task_id}` | 获取后台任务详情 |
 | `POST` | `/tasks/{task_id}/cancel` | 取消尚未运行的任务 |
-| `PATCH` | `/tasks/{task_id}/download-monitor` | 原子修改下载监控 |
+| `GET` | `/task-events` | 列出任务事件 |
+| `POST` | `/task-events/{event_id}/acknowledge` | 确认任务事件 |
 | `GET` | `/qb/torrents` | 列出 qB 任务 |
 | `GET` | `/qb/torrents/{hash}` | 获取 qB 任务详情 |
 | `POST` | `/qb/torrents/{hash}/actions` | 控制 qB 任务 |
@@ -310,8 +384,8 @@ Settings 面板中的下载授权策略写入 `memory/settings/download-authoriz
 | `GET` | `/settings/tmdb-network` | 读取 TMDB 网络设置 |
 | `PUT` | `/settings/tmdb-network` | 更新 TMDB 网络设置 |
 | `GET` | `/health` | 基础健康检查 |
-| `GET` | `/health/services` | 多服务健康检查 |
-| `GET` | `/health/services/tmdb` | TMDB 独立健康检查 |
+| `GET` | `/health/services` | 多服务健康检查（TMDB, Tavily, M-Team, qB） |
+| `GET` | `/health/services/tmdb` | TMDB 独立连通性测试 |
 
 ## 项目结构
 
@@ -319,10 +393,11 @@ Settings 面板中的下载授权策略写入 `memory/settings/download-authoriz
 NasClawBot/
 ├── app/
 │   ├── adapters/                 # M-Team, qBittorrent, TMDB, Tavily 边界
-│   ├── agent/                    # NasClawAgentRunner, approvals, runtime state
-│   ├── api/                      # chat, qb, mteam, memory routes
+│   ├── agent/                    # NasClawAgentRunner, approvals, organize worker
+│   ├── api/                      # chat, qb, mteam, memory, task routes
 │   ├── domain/                   # 授权、记忆、TMDB 网络、共享模型
-│   ├── services/                 # memory/settings/free-torrent/curator services
+│   ├── runtime/                  # 后台任务：store, scheduler, worker, handlers
+│   ├── services/                 # memory/settings/download automation services
 │   ├── tools/                    # Agent 工具实现
 │   └── main.py                   # FastAPI 入口
 ├── hello_agents/
@@ -330,19 +405,23 @@ NasClawBot/
 │   ├── checkpoints/              # checkpoint 协议与 JSON 实现
 │   ├── context/                  # ContextWindowManager
 │   ├── loop/                     # ToolCallingLoop
+│   ├── observability/            # TraceLogger (JSONL + HTML)
 │   ├── skills/                   # SkillLoader
 │   └── tools/                    # Tool, Filter, Gate, MCP bridge
+├── evals/                        # Agent 行为评估框架
+│   ├── cases/behavioral-v1/      # 12 个 YAML 评测场景
+│   ├── fixtures/                 # Recording Adapter 数据
+│   ├── scorers.py                # 7 条确定性评分规则
+│   └── runner.py                 # 隔离 trial 执行器
 ├── frontend/
 │   └── src/
 │       ├── app/                  # AppShell, theme
 │       ├── api/                  # HTTP client
 │       ├── components/           # chat, layout, downloads, settings, memory
 │       ├── hooks/                # useAgentChatSession
-│       └── state/                # session/download/free-torrent state
+│       └── state/                # session/download/free-torrent/task-events state
 ├── skills/                       # Agent domain skills
-├── memory/                       # runtime data: sessions, settings, memories
-├── docs/                         # design notes, specs, archive
-├── ref/                          # M-Team API reference
+├── memory/                       # runtime data: sessions, settings, memories (gitignored)
 ├── tests/                        # backend tests
 └── resources/                    # README screenshots
 ```
@@ -376,29 +455,3 @@ npm run dev
 - Agent-facing schema 保持语义化和小表面，不把原始 API knob 暴露给 LLM。
 - destructive 文件操作不进入开放 Agent loop；filesystem MCP 依赖 allowed dirs 约束。
 - 长期记忆不保存工作状态；工作状态属于 checkpoint metadata。
-
-## 路线图
-
-### 已完成或可用
-
-- [x] Agent-native 聊天入口 `/chat/agent`
-- [x] 多会话 checkpoint、恢复、重命名、删除
-- [x] M-Team / Tavily / TMDB 媒体搜索工具
-- [x] qB 下载、批量下载、任务查询、任务控制、速度限制工具
-- [x] 人在回路审批与 paused-loop resume
-- [x] Settings-backed 会话下载授权
-- [x] 上下文压缩、上下文压力与缓存指标展示
-- [x] markdown 长期记忆、inbox、curation 面板
-- [x] filesystem MCP 集成
-- [x] 刷流资源浏览
-- [x] SQLite 持久化下载监督、任务事件与自动下载后整理
-
-### 后续方向
-
-- [ ] 媒体库整理增强：字幕/刮削状态检查与幂等重试对账
-- [ ] 缺集与重复版本检测
-- [ ] 订阅与追更提醒
-- [ ] 基于长期记忆的推荐
-- [ ] 更强的跨进程审批/副作用幂等保护
-
-未定型的 Agent loop 改进想法记录在 `docs/design/agent-loop-improvement-notes.md`，不要把临时想法提前固化进运行时接口。

@@ -1,5 +1,7 @@
 # AGENTS.md
 
+This file provides guidance to AI coding assistants and doubles as architecture documentation for human contributors.
+
 ## Project Summary
 
 NasClawBot is a single-user, self-hosted NAS/PT media assistant and an Agent engineering playground.

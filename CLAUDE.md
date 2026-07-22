@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working in this repository.
+This file provides guidance to Claude Code when working in this repository. It also serves as detailed architecture documentation for human contributors.
 
 ## Project Overview
 
