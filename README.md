@@ -27,9 +27,18 @@
 
 ## 截图
 
-![聊天与搜索结果](resources/screenshot-1.png)
+<p align="center">
+  <img src="resources/screenshot-3.png" alt="聊天与搜索结果" width="50%">
+</p>
 
-![会话管理与下载审批](resources/screenshot-2.png)
+<p align="center">
+  <img src="resources/screenshot-2.png" alt="会话管理与下载审批" width="50%">
+</p>
+
+<p align="center">
+  <img src="resources/screenshot-5.png" alt="下载后整理" width="50%">
+</p>
+
 
 ## 功能特性
 
