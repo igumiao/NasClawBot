@@ -28,7 +28,7 @@
 ## 截图
 
 <p align="center">
-  <img src="resources/screenshot-3.png" alt="聊天与搜索结果" width="50%">
+  <img src="resources/screenshot-3.png" alt="聊天与搜索结果" width="100%">
 </p>
 
 <p align="center">
@@ -36,7 +36,7 @@
 </p>
 
 <p align="center">
-  <img src="resources/screenshot-5.png" alt="下载后整理" width="50%">
+  <img src="resources/screenshot-5.png" alt="下载后整理" width="70%">
 </p>
 
 
