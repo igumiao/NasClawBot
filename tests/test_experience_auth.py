@@ -198,7 +198,7 @@ def test_client_address_resolver_ignores_forwarded_header_from_untrusted_peer():
         _request("203.0.113.25", forwarded_for="192.168.1.2")
     )
 
-    assert resolved is None
+    assert resolved == ip_address("203.0.113.25")
 
 
 def test_proxy_mode_without_forwarded_client_never_treats_proxy_as_local():

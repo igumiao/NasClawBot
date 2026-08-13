@@ -83,11 +83,11 @@ class ClientAddressResolver:
         peer = _parse_ip(request.client.host if request.client else None)
         if not self._trust_proxy_headers:
             return peer
-        # Proxy mode is fail-closed for local-session eligibility. Falling
-        # back to an untrusted private peer could classify a public visitor's
-        # reverse proxy address as the visitor's own LAN address.
+        # Only explicitly trusted proxies may supply the effective client
+        # address. Direct clients keep their TCP peer address and any spoofed
+        # forwarding headers are ignored.
         if not _in_networks(peer, self._trusted_proxies):
-            return None
+            return peer
 
         forwarded: list[IPAddress] = []
         for value in request.headers.get("x-forwarded-for", "").split(","):
