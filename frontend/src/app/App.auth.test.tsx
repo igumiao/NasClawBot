@@ -51,7 +51,7 @@ describe("experience authentication gate", () => {
       const url = String(input);
       if (url === "/auth/session") return Promise.resolve(jsonResponse(unauthenticatedSession()));
       if (url === "/auth/login") {
-        expect(init?.body).toBe(JSON.stringify({ code: "12345" }));
+        expect(init?.body).toBe(JSON.stringify({ code: "J4125" }));
         return Promise.resolve(jsonResponse(authenticatedSession()));
       }
       return Promise.resolve(workspaceResponse(url));
@@ -59,8 +59,8 @@ describe("experience authentication gate", () => {
 
     render(<App />);
     const input = await screen.findByLabelText("体验代码");
-    await user.type(input, "12a3456");
-    expect(input).toHaveValue("12345");
+    await user.type(input, "J4-1256");
+    expect(input).toHaveValue("J4125");
     await user.click(screen.getByRole("button", { name: "进入体验" }));
 
     expect(await screen.findByText("NasClawBot")).toBeInTheDocument();

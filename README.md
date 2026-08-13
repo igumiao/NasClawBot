@@ -355,7 +355,7 @@ docker compose up -d --build
 | `DOWNLOAD_DEFAULT_SAVE_PATH` | Agent 下载默认保存路径 | 空字符串 |
 | `MCP_FS_ENABLED` | 是否启用 filesystem MCP | `true` |
 | `MCP_FS_ALLOWED_DIRS` | MCP 允许访问目录，逗号分隔 | 空字符串 |
-| `EXPERIENCE_ACCESS_CODE` | 可选 Web 体验码，配置后启用登录；必须为 5 位数字 | 空字符串（不启用） |
+| `EXPERIENCE_ACCESS_CODE` | 可选 Web 体验码；必须为 5 位 ASCII 字母或数字，区分大小写 | 空字符串（不启用） |
 | `EXPERIENCE_TRUST_PROXY_HEADERS` | 是否信任反代传入的客户端地址头，用于登录限速 | `false` |
 | `APP_PORT` | Docker 宿主机端口 | `18000` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |

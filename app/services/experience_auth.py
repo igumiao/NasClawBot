@@ -60,9 +60,14 @@ class ExperienceAuth:
     ) -> None:
         if access_code and (
             len(access_code) != 5
-            or any(char < "0" or char > "9" for char in access_code)
+            or any(
+                not (char.isascii() and char.isalnum())
+                for char in access_code
+            )
         ):
-            raise ValueError("Experience access code must be exactly five ASCII digits.")
+            raise ValueError(
+                "Experience access code must be exactly five ASCII letters or digits."
+            )
         self._access_code = access_code
         self._clock = clock
         self._sessions: dict[str, float] = {}

@@ -67,10 +67,15 @@ def _get_log_level_env(name: str, default: str = "INFO") -> str:
 
 
 def _get_experience_code_env(name: str = "EXPERIENCE_ACCESS_CODE") -> str:
-    """Load an optional five-digit experience access code."""
+    """Load an optional five-character ASCII alphanumeric access code."""
     value = _get_env(name).strip()
-    if value and (len(value) != 5 or any(char < "0" or char > "9" for char in value)):
-        raise ValueError(f"{name} must be exactly five ASCII digits when configured.")
+    if value and (
+        len(value) != 5
+        or any(not (char.isascii() and char.isalnum()) for char in value)
+    ):
+        raise ValueError(
+            f"{name} must be exactly five ASCII letters or digits when configured."
+        )
     return value
 
 

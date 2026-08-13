@@ -18,7 +18,7 @@ from app.services.experience_auth import (
 
 
 class ExperienceLoginRequest(BaseModel):
-    code: str = Field(pattern=r"^[0-9]{5}$")
+    code: str = Field(pattern=r"^[A-Za-z0-9]{5}$")
 
 
 def _iso_timestamp(timestamp: float) -> str:

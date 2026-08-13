@@ -40,15 +40,16 @@ export function ExperienceLogin({ isSubmitting, error, onSubmit }: ExperienceLog
               id="experience-code"
               name="experience-code"
               type="text"
-              inputMode="numeric"
+              inputMode="text"
               autoComplete="one-time-code"
-              pattern="[0-9]{5}"
+              pattern="[A-Za-z0-9]{5}"
               maxLength={5}
+              spellCheck={false}
               value={code}
               disabled={isSubmitting}
               aria-invalid={Boolean(error)}
               aria-describedby={error ? "experience-login-error" : undefined}
-              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 5))}
+              onChange={(event) => setCode(event.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 5))}
               placeholder="•••••"
             />
           </div>
