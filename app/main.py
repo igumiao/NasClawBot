@@ -23,7 +23,12 @@ from app.logging_config import configure_logging
 from app.mcp_pool import init_mcp_pool, shutdown_mcp_pool
 from app.runtime.handlers.download_watch import DownloadWatchConfig
 from app.runtime.worker import TaskWorkerConfig
-from app.services.experience_auth import ExperienceAuth, ExperienceAuthMiddleware
+from app.services.experience_auth import (
+    ClientAddressResolver,
+    ExperienceAuth,
+    ExperienceAuthMiddleware,
+    PersistentExperienceSessionStore,
+)
 from app.storage.db import ensure_schema
 from app.domain.runtime_tasks import app_now
 from app.task_runtime import (
@@ -131,9 +136,26 @@ def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.log_level)
     app = FastAPI(title=settings.app_name, lifespan=_app_lifespan)
-    experience_auth = ExperienceAuth(settings.experience_access_code)
+    settings_dir = Path(__file__).resolve().parents[1] / "memory" / "settings"
+    address_resolver = ClientAddressResolver(
+        trust_proxy_headers=settings.experience_trust_proxy_headers,
+        trusted_proxy_cidrs=settings.experience_trusted_proxy_cidrs,
+    )
+    experience_auth = ExperienceAuth(
+        settings.experience_access_code,
+        local_long_session=settings.experience_local_long_session,
+        local_session_days=settings.experience_local_session_days,
+        local_cidrs=settings.experience_local_cidrs,
+        persistent_store=PersistentExperienceSessionStore(
+            settings_dir / "experience-auth-sessions.json"
+        ),
+    )
     app.state.experience_auth = experience_auth
-    app.add_middleware(ExperienceAuthMiddleware, auth=experience_auth)
+    app.add_middleware(
+        ExperienceAuthMiddleware,
+        auth=experience_auth,
+        address_resolver=address_resolver,
+    )
 
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
@@ -156,7 +178,7 @@ def create_app() -> FastAPI:
     app.include_router(
         build_auth_router(
             experience_auth,
-            trust_proxy_headers=settings.experience_trust_proxy_headers,
+            address_resolver=address_resolver,
         )
     )
     app.include_router(build_mteam_router())

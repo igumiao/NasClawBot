@@ -4,6 +4,7 @@ export type AuthSession = {
   enabled: boolean;
   authenticated: boolean;
   expires_at: string | null;
+  local_long_session: boolean;
 };
 
 export const authApi = {

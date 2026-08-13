@@ -12,7 +12,7 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 function unauthenticatedSession() {
-  return { enabled: true, authenticated: false, expires_at: null };
+  return { enabled: true, authenticated: false, expires_at: null, local_long_session: false };
 }
 
 function authenticatedSession() {
@@ -20,6 +20,7 @@ function authenticatedSession() {
     enabled: true,
     authenticated: true,
     expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+    local_long_session: false,
   };
 }
 

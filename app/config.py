@@ -118,6 +118,27 @@ class Settings(BaseModel):
     experience_trust_proxy_headers: bool = Field(
         default_factory=lambda: _get_bool_env("EXPERIENCE_TRUST_PROXY_HEADERS", False),
     )
+    experience_trusted_proxy_cidrs: str = Field(
+        default_factory=lambda: _get_env(
+            "EXPERIENCE_TRUSTED_PROXY_CIDRS",
+            "127.0.0.1/32,::1/128,172.16.0.0/12",
+        ),
+    )
+    experience_local_long_session: bool = Field(
+        default_factory=lambda: _get_bool_env("EXPERIENCE_LOCAL_LONG_SESSION", True),
+    )
+    experience_local_session_days: int = Field(
+        default_factory=lambda: _get_int_env("EXPERIENCE_LOCAL_SESSION_DAYS", 180),
+    )
+    experience_local_cidrs: str = Field(
+        default_factory=lambda: _get_env(
+            "EXPERIENCE_LOCAL_CIDRS",
+            (
+                "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,"
+                "fc00::/7,fe80::/10,::1/128"
+            ),
+        ),
+    )
 
     # ------------------------------------------------------------------
     # Runtime configuration (task orchestration, download watch, organize)

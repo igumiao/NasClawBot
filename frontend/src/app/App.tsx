@@ -48,16 +48,22 @@ export function App() {
 
   useEffect(() => {
     if (authState !== "authenticated" || !expiresAt) return;
-    const remaining = new Date(expiresAt).getTime() - Date.now();
-    if (remaining <= 0) {
-      setAuthState("unauthenticated");
-      return;
-    }
-    const timer = globalThis.setTimeout(() => {
-      setAuthState("unauthenticated");
-      setExpiresAt(null);
-    }, remaining);
-    return () => globalThis.clearTimeout(timer);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const checkExpiry = () => {
+      const remaining = new Date(expiresAt).getTime() - Date.now();
+      if (remaining <= 0) {
+        setAuthState("unauthenticated");
+        setExpiresAt(null);
+        return;
+      }
+      // Browser timers overflow above roughly 24.8 days. Re-check long local
+      // sessions daily instead of scheduling the entire 180-day interval.
+      timer = globalThis.setTimeout(checkExpiry, Math.min(remaining, 86_400_000));
+    };
+    checkExpiry();
+    return () => {
+      if (timer !== undefined) globalThis.clearTimeout(timer);
+    };
   }, [authState, expiresAt]);
 
   useEffect(() => {

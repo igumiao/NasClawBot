@@ -357,11 +357,17 @@ docker compose up -d --build
 | `MCP_FS_ALLOWED_DIRS` | MCP 允许访问目录，逗号分隔 | 空字符串 |
 | `EXPERIENCE_ACCESS_CODE` | 可选 Web 体验码；必须为 5 位 ASCII 字母或数字，区分大小写 | 空字符串（不启用） |
 | `EXPERIENCE_TRUST_PROXY_HEADERS` | 是否信任反代传入的客户端地址头，用于登录限速 | `false` |
+| `EXPERIENCE_TRUSTED_PROXY_CIDRS` | 允许提供客户端地址头的反代网段 | loopback + `172.16.0.0/12` |
+| `EXPERIENCE_LOCAL_LONG_SESSION` | 本地网段登录后是否签发持久会话 | `true` |
+| `EXPERIENCE_LOCAL_SESSION_DAYS` | 本地持久会话有效天数 | `180` |
+| `EXPERIENCE_LOCAL_CIDRS` | 本地 IPv4/IPv6 网段，逗号分隔 | RFC1918 + loopback + `fc00::/7` + `fe80::/10` |
 | `APP_PORT` | Docker 宿主机端口 | `18000` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `DATABASE_PATH` | 预留 SQLite 路径 | `nas_media_agent.db` |
 
 Settings 面板中的下载授权策略写入 `memory/settings/download-authorization.json`，后台整理授权写入 `memory/settings/organization-authorization.json`；TMDB 代理设置写入 `memory/settings/tmdb-network.json`。后台整理授权不包含默认完成动作；TMDB 代理只影响 TMDB 请求，不会影响 qB、M-Team、Tavily、LLM 或本地服务。
+
+启用体验登录后，公网登录保持 1 小时。本地 CIDR 内的设备首次输入体验码后获得默认 180 天会话，令牌哈希持久化到 `memory/settings/experience-auth-sessions.json`；该 Cookie 从公网地址访问时不会通过认证。若经反向代理识别客户端地址，必须同时开启 `EXPERIENCE_TRUST_PROXY_HEADERS`、配置实际反代来源网段，并让反代覆盖而不是透传外部请求提供的转发头。代理来源不匹配或缺少有效转发地址时会 fail-closed，只签发普通短期会话。后端端口不应直接暴露到公网。
 
 ## API 概览
 

@@ -9,11 +9,11 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from app.services.experience_auth import (
+    ClientAddressResolver,
     EXPERIENCE_SESSION_COOKIE,
     ExperienceAuth,
     ExperienceLoginRateLimitedError,
     InvalidExperienceCodeError,
-    SESSION_TTL_SECONDS,
 )
 
 
@@ -25,22 +25,10 @@ def _iso_timestamp(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
 
 
-def _client_key(request: Request, *, trust_proxy_headers: bool) -> str:
-    if trust_proxy_headers:
-        forwarded_for = request.headers.get("x-forwarded-for", "")
-        addresses = [item.strip() for item in forwarded_for.split(",") if item.strip()]
-        if addresses:
-            return addresses[-1]
-        real_ip = request.headers.get("x-real-ip", "").strip()
-        if real_ip:
-            return real_ip
-    return request.client.host if request.client else "unknown"
-
-
 def build_auth_router(
     auth: ExperienceAuth,
     *,
-    trust_proxy_headers: bool,
+    address_resolver: ClientAddressResolver,
 ) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -49,7 +37,7 @@ def build_auth_router(
         try:
             session = auth.login(
                 body.code,
-                _client_key(request, trust_proxy_headers=trust_proxy_headers),
+                address_resolver.resolve(request),
             )
         except ExperienceLoginRateLimitedError as exc:
             return JSONResponse(
@@ -69,6 +57,7 @@ def build_auth_router(
                 "enabled": auth.enabled,
                 "authenticated": True,
                 "expires_at": _iso_timestamp(session.expires_at) if auth.enabled else None,
+                "local_long_session": session.local_long_session,
             },
             headers={"Cache-Control": "no-store"},
         )
@@ -76,7 +65,7 @@ def build_auth_router(
             response.set_cookie(
                 key=EXPERIENCE_SESSION_COOKIE,
                 value=session.token,
-                max_age=SESSION_TTL_SECONDS,
+                max_age=session.cookie_max_age,
                 path="/",
                 secure=True,
                 httponly=True,
@@ -86,7 +75,10 @@ def build_auth_router(
 
     @router.get("/session")
     async def session_status(request: Request) -> JSONResponse:
-        session = auth.validate(request.cookies.get(EXPERIENCE_SESSION_COOKIE))
+        session = auth.validate(
+            request.cookies.get(EXPERIENCE_SESSION_COOKIE),
+            address_resolver.resolve(request),
+        )
         return JSONResponse(
             content={
                 "enabled": auth.enabled,
@@ -96,6 +88,7 @@ def build_auth_router(
                     if auth.enabled and session is not None
                     else None
                 ),
+                "local_long_session": bool(session and session.local_long_session),
             },
             headers={"Cache-Control": "no-store"},
         )
