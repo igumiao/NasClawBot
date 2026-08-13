@@ -13,6 +13,7 @@ from app.services.experience_auth import (
     EXPERIENCE_SESSION_COOKIE,
     ExperienceAuth,
     ExperienceLoginRateLimitedError,
+    IPAddress,
     InvalidExperienceCodeError,
 )
 from app.services.public_login_audit import PublicLoginAudit
@@ -33,6 +34,15 @@ def build_auth_router(
     login_audit: PublicLoginAudit | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
+
+    def cookie_requires_secure_transport(
+        request: Request,
+        client_address: IPAddress | None,
+    ) -> bool:
+        # Permit direct LAN access over plain HTTP while keeping public and
+        # HTTPS sessions restricted to secure transport. Persistent local
+        # sessions are also rejected by ExperienceAuth outside local CIDRs.
+        return request.url.scheme != "http" or not auth.is_local(client_address)
 
     @router.post("/login")
     async def login(body: ExperienceLoginRequest, request: Request) -> JSONResponse:
@@ -73,7 +83,7 @@ def build_auth_router(
                 value=session.token,
                 max_age=session.cookie_max_age,
                 path="/",
-                secure=True,
+                secure=cookie_requires_secure_transport(request, client_address),
                 httponly=True,
                 samesite="strict",
             )
@@ -101,12 +111,13 @@ def build_auth_router(
 
     @router.post("/logout", status_code=204)
     async def logout(request: Request) -> Response:
+        client_address = address_resolver.resolve(request)
         auth.logout(request.cookies.get(EXPERIENCE_SESSION_COOKIE))
         response = Response(status_code=204, headers={"Cache-Control": "no-store"})
         response.delete_cookie(
             key=EXPERIENCE_SESSION_COOKIE,
             path="/",
-            secure=True,
+            secure=cookie_requires_secure_transport(request, client_address),
             httponly=True,
             samesite="strict",
         )
