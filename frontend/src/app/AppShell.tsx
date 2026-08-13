@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
+import { apiFetch } from "../api/apiFetch";
 import { chatApi } from "../api/chatApi";
 import { ChatPanel } from "../components/chat/ChatPanel";
 import { DownloadsPanel } from "../components/downloads/DownloadsPanel";
@@ -35,7 +36,12 @@ function persistSidebarCollapsed(collapsed: boolean): void {
   }
 }
 
-export function AppShell() {
+type AppShellProps = {
+  showLogout?: boolean;
+  onLogout?: () => void;
+};
+
+export function AppShell({ showLogout = false, onLogout }: AppShellProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("chat");
   const [activeAgentSessionId, setActiveAgentSessionId] = useState<string | null>(() => readStoredAgentSessionId());
   const [agentSessions, setAgentSessions] = useState<AgentSessionSummary[]>([]);
@@ -126,7 +132,7 @@ export function AppShell() {
 
     async function check() {
       try {
-        const response = await fetch("/health", { signal: AbortSignal.timeout(5000) });
+        const response = await apiFetch("/health", { signal: AbortSignal.timeout(5000) });
         if (!cancelled) setBackendState(response.ok ? "online" : "offline");
       } catch {
         if (!cancelled) setBackendState("offline");
@@ -198,6 +204,12 @@ export function AppShell() {
             <span className={dotClass} aria-hidden="true" />
             <span className="backend-status-text">{statusLabel}</span>
           </div>
+          {showLogout ? (
+            <button className="experience-logout-button" type="button" onClick={onLogout}>
+              <LogOut size={15} aria-hidden="true" />
+              <span>退出体验</span>
+            </button>
+          ) : null}
         </header>
         <div style={panelStyle(activeTab === "chat")}>
           <ChatPanel

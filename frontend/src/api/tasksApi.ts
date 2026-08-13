@@ -5,6 +5,7 @@ import type {
   TaskEventListResponse,
   TaskListResponse,
 } from "../types/api";
+import { apiFetch } from "./apiFetch";
 import { postJson, readJson } from "./http";
 
 export type ListTasksParams = {
@@ -36,12 +37,12 @@ function encodeQuery(params: Record<string, string | number | boolean | undefine
 export const tasksApi = {
   async listTasks(params: ListTasksParams = {}, signal?: AbortSignal): Promise<TaskListResponse> {
     const qs = encodeQuery(params);
-    const response = await fetch(`/tasks${qs}`, { signal });
+    const response = await apiFetch(`/tasks${qs}`, { signal });
     return readJson<TaskListResponse>(response);
   },
 
   async getTaskDetail(taskId: string, signal?: AbortSignal): Promise<TaskDetailResponse> {
-    const response = await fetch(`/tasks/${encodeURIComponent(taskId)}`, { signal });
+    const response = await apiFetch(`/tasks/${encodeURIComponent(taskId)}`, { signal });
     return readJson<TaskDetailResponse>(response);
   },
 
@@ -51,7 +52,7 @@ export const tasksApi = {
 
   async listTaskEvents(params: ListTaskEventsParams = {}, signal?: AbortSignal): Promise<TaskEventListResponse> {
     const qs = encodeQuery(params);
-    const response = await fetch(`/task-events${qs}`, { signal });
+    const response = await apiFetch(`/task-events${qs}`, { signal });
     return readJson<TaskEventListResponse>(response);
   },
 

@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { App } from "./App";
+import { AppShell as App } from "./AppShell";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

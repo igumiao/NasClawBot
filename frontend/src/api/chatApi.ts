@@ -6,6 +6,7 @@ import type {
   DownloadResponse,
   SessionUpdateRequest
 } from "../types/api";
+import { apiFetch } from "./apiFetch";
 import { postJson, readJson } from "./http";
 
 function sendAgentMessage(
@@ -45,12 +46,12 @@ export const chatApi = {
     sessionId: string,
     signal?: AbortSignal,
   ): Promise<AgentSessionDetailResponse> {
-    const response = await fetch(`/chat/agent/sessions/${encodeURIComponent(sessionId)}`, { signal });
+    const response = await apiFetch(`/chat/agent/sessions/${encodeURIComponent(sessionId)}`, { signal });
     return readJson<AgentSessionDetailResponse>(response);
   },
 
   async listAgentSessions(signal?: AbortSignal): Promise<AgentSessionListResponse> {
-    const response = await fetch("/chat/agent/sessions", { signal });
+    const response = await apiFetch("/chat/agent/sessions", { signal });
     return readJson<AgentSessionListResponse>(response);
   },
 
@@ -59,7 +60,7 @@ export const chatApi = {
     body: SessionUpdateRequest,
     signal?: AbortSignal,
   ): Promise<AgentSessionDetailResponse> {
-    const response = await fetch(`/chat/agent/sessions/${encodeURIComponent(sessionId)}`, {
+    const response = await apiFetch(`/chat/agent/sessions/${encodeURIComponent(sessionId)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -69,7 +70,7 @@ export const chatApi = {
   },
 
   async deleteAgentSession(sessionId: string, signal?: AbortSignal): Promise<void> {
-    const response = await fetch(`/chat/agent/sessions/${encodeURIComponent(sessionId)}`, {
+    const response = await apiFetch(`/chat/agent/sessions/${encodeURIComponent(sessionId)}`, {
       method: "DELETE",
       signal
     });
@@ -142,13 +143,13 @@ export interface CuratorApplyResponse {
 }
 
 export async function fetchInbox(): Promise<MemoryInboxResponse> {
-  const res = await fetch("/memory/inbox");
+  const res = await apiFetch("/memory/inbox");
   if (!res.ok) throw new Error("Failed to fetch inbox");
   return res.json();
 }
 
 export async function fetchCuration(): Promise<CurationResponse> {
-  const res = await fetch("/memory/curate", { method: "POST" });
+  const res = await apiFetch("/memory/curate", { method: "POST" });
   if (!res.ok) throw new Error("Failed to run curation");
   return res.json();
 }
@@ -157,7 +158,7 @@ export async function applyCuration(
   inboxEntryCount: number,
   decisions: CuratorApplyDecision[]
 ): Promise<CuratorApplyResponse> {
-  const res = await fetch("/memory/curate/apply", {
+  const res = await apiFetch("/memory/curate/apply", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ inbox_entry_count: inboxEntryCount, decisions }),

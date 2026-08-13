@@ -66,6 +66,14 @@ def _get_log_level_env(name: str, default: str = "INFO") -> str:
     return value
 
 
+def _get_experience_code_env(name: str = "EXPERIENCE_ACCESS_CODE") -> str:
+    """Load an optional five-digit experience access code."""
+    value = _get_env(name).strip()
+    if value and (len(value) != 5 or any(char < "0" or char > "9" for char in value)):
+        raise ValueError(f"{name} must be exactly five ASCII digits when configured.")
+    return value
+
+
 class Settings(BaseModel):
     """Typed configuration surface used by the application."""
 
@@ -97,6 +105,13 @@ class Settings(BaseModel):
     )
     mcp_fs_allowed_dirs: str = Field(
         default_factory=lambda: _get_env("MCP_FS_ALLOWED_DIRS", ""),
+    )
+    experience_access_code: str = Field(
+        default_factory=_get_experience_code_env,
+        repr=False,
+    )
+    experience_trust_proxy_headers: bool = Field(
+        default_factory=lambda: _get_bool_env("EXPERIENCE_TRUST_PROXY_HEADERS", False),
     )
 
     # ------------------------------------------------------------------

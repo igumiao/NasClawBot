@@ -1,4 +1,5 @@
 import type { DownloadAuthorizationPolicy, OrganizationAuthorizationPolicy, TMDBNetworkSettings } from "../types/api";
+import { apiFetch } from "./apiFetch";
 import { putJson, readJson } from "./http";
 
 const DOWNLOAD_AUTHORIZATION_URL = "/settings/download-authorization";
@@ -7,7 +8,7 @@ const ORGANIZATION_AUTHORIZATION_URL = "/settings/organization-authorization";
 
 export const settingsApi = {
   async getDownloadAuthorization(signal?: AbortSignal): Promise<DownloadAuthorizationPolicy> {
-    const response = await fetch(DOWNLOAD_AUTHORIZATION_URL, { signal });
+    const response = await apiFetch(DOWNLOAD_AUTHORIZATION_URL, { signal });
     return readJson<DownloadAuthorizationPolicy>(response);
   },
 
@@ -19,7 +20,7 @@ export const settingsApi = {
   },
 
   async getTMDBNetwork(signal?: AbortSignal): Promise<TMDBNetworkSettings> {
-    const response = await fetch(TMDB_NETWORK_URL, { signal });
+    const response = await apiFetch(TMDB_NETWORK_URL, { signal });
     return readJson<TMDBNetworkSettings>(response);
   },
 
@@ -31,7 +32,7 @@ export const settingsApi = {
   },
 
   async getOrganizationAuthorizationPolicy(signal?: AbortSignal): Promise<OrganizationAuthorizationPolicy> {
-    const response = await fetch(ORGANIZATION_AUTHORIZATION_URL, { signal });
+    const response = await apiFetch(ORGANIZATION_AUTHORIZATION_URL, { signal });
     return readJson<OrganizationAuthorizationPolicy>(response);
   },
 

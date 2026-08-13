@@ -1,3 +1,5 @@
+import { apiFetch } from "./apiFetch";
+
 type HttpError = Error & {
   status?: number;
   statusText?: string;
@@ -31,7 +33,7 @@ export async function readJson<T>(response: Response): Promise<T> {
 }
 
 export async function postJson<T>(url: string, body: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -41,7 +43,7 @@ export async function postJson<T>(url: string, body: unknown, signal?: AbortSign
 }
 
 export async function putJson<T>(url: string, body: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

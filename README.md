@@ -355,6 +355,8 @@ docker compose up -d --build
 | `DOWNLOAD_DEFAULT_SAVE_PATH` | Agent 下载默认保存路径 | 空字符串 |
 | `MCP_FS_ENABLED` | 是否启用 filesystem MCP | `true` |
 | `MCP_FS_ALLOWED_DIRS` | MCP 允许访问目录，逗号分隔 | 空字符串 |
+| `EXPERIENCE_ACCESS_CODE` | 可选 Web 体验码，配置后启用登录；必须为 5 位数字 | 空字符串（不启用） |
+| `EXPERIENCE_TRUST_PROXY_HEADERS` | 是否信任反代传入的客户端地址头，用于登录限速 | `false` |
 | `APP_PORT` | Docker 宿主机端口 | `18000` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `DATABASE_PATH` | 预留 SQLite 路径 | `nas_media_agent.db` |
@@ -365,6 +367,9 @@ Settings 面板中的下载授权策略写入 `memory/settings/download-authoriz
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
+| `POST` | `/auth/login` | 校验五位体验码并创建 1 小时登录会话 |
+| `GET` | `/auth/session` | 查询体验登录状态和过期时间 |
+| `POST` | `/auth/logout` | 撤销当前体验登录会话 |
 | `POST` | `/chat/agent` | Agent 对话入口 |
 | `GET` | `/chat/agent/sessions` | 列出会话 |
 | `GET` | `/chat/agent/sessions/{session_id}` | 获取会话详情与可渲染历史 |

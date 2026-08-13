@@ -1,4 +1,5 @@
 import { readJson } from "./http";
+import { apiFetch } from "./apiFetch";
 import type { FreeToppedResponse } from "../types/api";
 
 export const mteamApi = {
@@ -15,7 +16,7 @@ export const mteamApi = {
     }
     const qs = searchParams.toString();
     const url = `/mteam/free-topped${qs ? "?" + qs : ""}`;
-    const response = await fetch(url, { signal });
+    const response = await apiFetch(url, { signal });
     return readJson<FreeToppedResponse>(response);
   },
 };

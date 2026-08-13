@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.adapters.qbittorrent import QBittorrentAdapter
 from app.api.chat_routes import build_router
+from app.api.auth_routes import build_auth_router
 from app.api.memory_routes import build_memory_router
 from app.api.mteam_routes import build_mteam_router
 from app.api.task_routes import build_task_router
@@ -22,6 +23,7 @@ from app.logging_config import configure_logging
 from app.mcp_pool import init_mcp_pool, shutdown_mcp_pool
 from app.runtime.handlers.download_watch import DownloadWatchConfig
 from app.runtime.worker import TaskWorkerConfig
+from app.services.experience_auth import ExperienceAuth, ExperienceAuthMiddleware
 from app.storage.db import ensure_schema
 from app.domain.runtime_tasks import app_now
 from app.task_runtime import (
@@ -129,6 +131,9 @@ def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.log_level)
     app = FastAPI(title=settings.app_name, lifespan=_app_lifespan)
+    experience_auth = ExperienceAuth(settings.experience_access_code)
+    app.state.experience_auth = experience_auth
+    app.add_middleware(ExperienceAuthMiddleware, auth=experience_auth)
 
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
@@ -148,6 +153,12 @@ def create_app() -> FastAPI:
         )
         return response
 
+    app.include_router(
+        build_auth_router(
+            experience_auth,
+            trust_proxy_headers=settings.experience_trust_proxy_headers,
+        )
+    )
     app.include_router(build_mteam_router())
     app.include_router(build_router())
     app.include_router(build_memory_router())

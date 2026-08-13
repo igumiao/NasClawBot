@@ -1,14 +1,15 @@
 import type { TorrentAction, TorrentActionResponse, TorrentDetail, TorrentListResponse } from "../types/api";
+import { apiFetch } from "./apiFetch";
 import { postJson, readJson } from "./http";
 
 export const downloadsApi = {
   async listTorrents(signal?: AbortSignal): Promise<TorrentListResponse> {
-    const response = await fetch("/qb/torrents", { signal });
+    const response = await apiFetch("/qb/torrents", { signal });
     return readJson<TorrentListResponse>(response);
   },
 
   async getTorrent(hash: string, signal?: AbortSignal): Promise<TorrentDetail> {
-    const response = await fetch(`/qb/torrents/${encodeURIComponent(hash)}`, { signal });
+    const response = await apiFetch(`/qb/torrents/${encodeURIComponent(hash)}`, { signal });
     return readJson<TorrentDetail>(response);
   },
 
