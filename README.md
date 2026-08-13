@@ -361,6 +361,8 @@ docker compose up -d --build
 | `EXPERIENCE_LOCAL_LONG_SESSION` | 本地网段登录后是否签发持久会话 | `true` |
 | `EXPERIENCE_LOCAL_SESSION_DAYS` | 本地持久会话有效天数 | `180` |
 | `EXPERIENCE_LOCAL_CIDRS` | 本地 IPv4/IPv6 网段，逗号分隔 | RFC1918 + loopback + `fc00::/7` + `fe80::/10` |
+| `EXPERIENCE_LOGIN_AUDIT_ENABLED` | 是否登记成功的公网体验登录 | `true` |
+| `EXPERIENCE_LOGIN_AUDIT_RETENTION_DAYS` | 公网登录登记保留天数 | `180` |
 | `APP_PORT` | Docker 宿主机端口 | `18000` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `DATABASE_PATH` | 预留 SQLite 路径 | `nas_media_agent.db` |
@@ -368,6 +370,8 @@ docker compose up -d --build
 Settings 面板中的下载授权策略写入 `memory/settings/download-authorization.json`，后台整理授权写入 `memory/settings/organization-authorization.json`；TMDB 代理设置写入 `memory/settings/tmdb-network.json`。后台整理授权不包含默认完成动作；TMDB 代理只影响 TMDB 请求，不会影响 qB、M-Team、Tavily、LLM 或本地服务。
 
 启用体验登录后，公网登录保持 1 小时。本地 CIDR 内的设备首次输入体验码后获得默认 180 天会话，令牌哈希持久化到 `memory/settings/experience-auth-sessions.json`；该 Cookie 从公网地址访问时不会通过认证。若经反向代理识别客户端地址，必须同时开启 `EXPERIENCE_TRUST_PROXY_HEADERS`、配置实际反代来源网段，并让反代覆盖而不是透传外部请求提供的转发头。代理来源不匹配或缺少有效转发地址时会 fail-closed，只签发普通短期会话。后端端口不应直接暴露到公网。
+
+成功的公网体验码登录会以 JSONL 登记 UTC 时间和客户端 IP，写入 `memory/security/public-login-audit.jsonl`；本地 IPv4/IPv6、错误体验码、聊天内容、Cookie 和令牌均不记录。文件权限为 `0600`，默认在下一次公网成功登录时清除超过 180 天的记录，不提供前端查询接口。
 
 ## API 概览
 

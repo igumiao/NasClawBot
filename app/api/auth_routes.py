@@ -15,6 +15,7 @@ from app.services.experience_auth import (
     ExperienceLoginRateLimitedError,
     InvalidExperienceCodeError,
 )
+from app.services.public_login_audit import PublicLoginAudit
 
 
 class ExperienceLoginRequest(BaseModel):
@@ -29,15 +30,17 @@ def build_auth_router(
     auth: ExperienceAuth,
     *,
     address_resolver: ClientAddressResolver,
+    login_audit: PublicLoginAudit | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
 
     @router.post("/login")
     async def login(body: ExperienceLoginRequest, request: Request) -> JSONResponse:
+        client_address = address_resolver.resolve(request)
         try:
             session = auth.login(
                 body.code,
-                address_resolver.resolve(request),
+                client_address,
             )
         except ExperienceLoginRateLimitedError as exc:
             return JSONResponse(
@@ -51,6 +54,9 @@ def build_auth_router(
                 content={"detail": "Invalid experience code."},
                 headers={"Cache-Control": "no-store"},
             )
+
+        if auth.enabled and login_audit is not None:
+            login_audit.record_success(client_address)
 
         response = JSONResponse(
             content={

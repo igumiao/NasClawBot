@@ -139,6 +139,15 @@ class Settings(BaseModel):
             ),
         ),
     )
+    experience_login_audit_enabled: bool = Field(
+        default_factory=lambda: _get_bool_env("EXPERIENCE_LOGIN_AUDIT_ENABLED", True),
+    )
+    experience_login_audit_retention_days: int = Field(
+        default_factory=lambda: _get_int_env(
+            "EXPERIENCE_LOGIN_AUDIT_RETENTION_DAYS",
+            180,
+        ),
+    )
 
     # ------------------------------------------------------------------
     # Runtime configuration (task orchestration, download watch, organize)

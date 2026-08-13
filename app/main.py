@@ -29,6 +29,7 @@ from app.services.experience_auth import (
     ExperienceAuthMiddleware,
     PersistentExperienceSessionStore,
 )
+from app.services.public_login_audit import PublicLoginAudit
 from app.storage.db import ensure_schema
 from app.domain.runtime_tasks import app_now
 from app.task_runtime import (
@@ -150,6 +151,15 @@ def create_app() -> FastAPI:
             settings_dir / "experience-auth-sessions.json"
         ),
     )
+    login_audit = PublicLoginAudit(
+        Path(__file__).resolve().parents[1]
+        / "memory"
+        / "security"
+        / "public-login-audit.jsonl",
+        is_local=experience_auth.is_local,
+        enabled=settings.experience_login_audit_enabled,
+        retention_days=settings.experience_login_audit_retention_days,
+    )
     app.state.experience_auth = experience_auth
     app.add_middleware(
         ExperienceAuthMiddleware,
@@ -179,6 +189,7 @@ def create_app() -> FastAPI:
         build_auth_router(
             experience_auth,
             address_resolver=address_resolver,
+            login_audit=login_audit,
         )
     )
     app.include_router(build_mteam_router())

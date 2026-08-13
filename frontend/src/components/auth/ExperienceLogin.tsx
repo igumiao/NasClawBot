@@ -64,7 +64,11 @@ export function ExperienceLogin({ isSubmitting, error, onSubmit }: ExperienceLog
           </button>
         </form>
 
-        <p className="experience-login-note">登录状态保持 1 小时 · 仅供项目体验</p>
+        <p className="experience-login-note">
+          公网登录保持 1 小时 · 本地设备长期有效
+          <br />
+          为统计体验并保障安全，公网成功登录会登记 IP 与时间，最长保存 180 天。
+        </p>
       </section>
     </main>
   );

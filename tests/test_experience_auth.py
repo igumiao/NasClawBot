@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 import httpx
 from ipaddress import ip_address
+import json
 import pytest
 from starlette.requests import Request
 
@@ -17,6 +18,7 @@ from app.services.experience_auth import (
     PersistentExperienceSessionStore,
     SESSION_TTL_SECONDS,
 )
+from app.services.public_login_audit import PublicLoginAudit
 
 
 class FakeClock:
@@ -303,6 +305,40 @@ async def test_login_endpoint_returns_retry_after_when_rate_limited():
         limited = await client.post("/auth/login", json={"code": "00000"}, headers=headers)
         assert limited.status_code == 429
         assert int(limited.headers["retry-after"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_login_route_audits_only_successful_public_login(tmp_path):
+    app = FastAPI()
+    auth = ExperienceAuth("J4125", local_cidrs="192.168.0.0/16,fc00::/7")
+    resolver = ClientAddressResolver(
+        trust_proxy_headers=True,
+        trusted_proxy_cidrs="127.0.0.0/8",
+    )
+    audit = PublicLoginAudit(
+        tmp_path / "audit.jsonl",
+        is_local=auth.is_local,
+    )
+    app.include_router(
+        build_auth_router(auth, address_resolver=resolver, login_audit=audit)
+    )
+    transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
+    headers = {"X-Forwarded-For": "203.0.113.18"}
+
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="https://testserver",
+    ) as client:
+        assert (
+            await client.post("/auth/login", json={"code": "00000"}, headers=headers)
+        ).status_code == 401
+        assert not audit.path.exists()
+        assert (
+            await client.post("/auth/login", json={"code": "J4125"}, headers=headers)
+        ).status_code == 200
+
+    entry = json.loads(audit.path.read_text(encoding="utf-8"))
+    assert entry["client_ip"] == "203.0.113.18"
 
 
 @pytest.mark.asyncio
